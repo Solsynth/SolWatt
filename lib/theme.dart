@@ -7,7 +7,7 @@ abstract final class SolWattFonts {
 
 /// The application-wide Material theme, following Island's baseline defaults.
 ThemeData createSolWattTheme(Brightness brightness) {
-  const seedColor = Color(0xff246b55);
+  const seedColor = Color(0xffd97706);
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
     brightness: brightness,

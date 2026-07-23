@@ -27,6 +27,22 @@ class AppShellRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [BoardsPage]
+class BoardsRoute extends PageRouteInfo<void> {
+  const BoardsRoute({List<PageRouteInfo>? children})
+    : super(BoardsRoute.name, initialChildren: children);
+
+  static const String name = 'BoardsRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const BoardsPage();
+    },
+  );
+}
+
+/// generated route for
 /// [HomePage]
 class HomeRoute extends PageRouteInfo<void> {
   const HomeRoute({List<PageRouteInfo>? children})
@@ -38,6 +54,22 @@ class HomeRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const HomePage();
+    },
+  );
+}
+
+/// generated route for
+/// [ProfilePage]
+class ProfileRoute extends PageRouteInfo<void> {
+  const ProfileRoute({List<PageRouteInfo>? children})
+    : super(ProfileRoute.name, initialChildren: children);
+
+  static const String name = 'ProfileRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const ProfilePage();
     },
   );
 }
