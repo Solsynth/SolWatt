@@ -5,7 +5,7 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
-import '../network.dart';
+import 'package:solwatt/network.dart';
 
 /// Thumbnail or placeholder for a cloud file icon (workspace / board pictures).
 class CloudFileAvatar extends StatelessWidget {

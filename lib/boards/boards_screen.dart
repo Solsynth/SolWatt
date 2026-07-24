@@ -7,10 +7,10 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
-import '../network.dart';
-import '../theme.dart';
-import '../ui/cloud_files.dart';
-import '../ui/page_scaffold.dart';
+import 'package:solwatt/network.dart';
+import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/ui/page_scaffold.dart';
 
 @RoutePage()
 class BoardsPage extends ConsumerWidget {

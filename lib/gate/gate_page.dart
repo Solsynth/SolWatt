@@ -4,9 +4,9 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../network.dart';
-import '../ui/page_scaffold.dart';
-import '../workspaces/workspace_actions.dart';
+import 'package:solwatt/network.dart';
+import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:solwatt/workspaces/workspace_actions.dart';
 
 /// Matches the generated [AppShellRoute] name without importing main.dart.
 const _appShellRouteName = 'AppShellRoute';
