@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import '../network.dart';
+import '../ui/page_scaffold.dart';
 
 class WorkspaceDraft {
   const WorkspaceDraft(this.slug, this.name, this.description, this.type);
@@ -65,9 +66,11 @@ Future<void> deleteWorkspaceAction(
   WidgetRef ref,
   Workspace workspace,
 ) async {
+  final scheme = Theme.of(context).colorScheme;
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
+      icon: Icon(Symbols.delete, color: scheme.error),
       title: Text('Delete ${workspace.name}?'),
       content: const Text(
         'This permanently deletes the workspace and its data.',
@@ -79,7 +82,8 @@ Future<void> deleteWorkspaceAction(
         ),
         FilledButton(
           style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
           ),
           onPressed: () => Navigator.pop(context, true),
           child: const Text('Delete'),
@@ -115,44 +119,71 @@ Future<void> showWorkspaceQuota(
 ) => showModalBottomSheet<void>(
   context: context,
   showDragHandle: true,
-  builder: (context) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-    child: FutureBuilder(
-      future: ref
-          .read(wattEngineClientProvider)
-          .getWorkspaceQuota(workspace.slug),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const SizedBox(
-            height: 160,
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text(snapshot.error.toString()));
-        }
-        final quota = snapshot.data!;
-        return ListView(
-          shrinkWrap: true,
-          children: [
-            Text(
-              '${workspace.name} quotas',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            Text(
-              'Plan: ${['Free', 'Pro', 'Enterprise'].elementAtOrNull(quota.plan) ?? quota.plan}',
-            ),
-            const SizedBox(height: 12),
-            for (final entry in quota.limits.entries)
-              ListTile(
-                title: Text(entry.key.replaceAll('_', ' ')),
-                trailing: Text(_formatQuota(entry.value)),
-              ),
-          ],
-        );
-      },
-    ),
-  ),
+  builder: (context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
+        child: FutureBuilder(
+          future: ref
+              .read(wattEngineClientProvider)
+              .getWorkspaceQuota(workspace.slug),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                height: 160,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return EmptyState(
+                icon: Symbols.error,
+                title: 'Could not load quotas',
+                message: snapshot.error.toString(),
+              );
+            }
+            final quota = snapshot.data!;
+            final plan =
+                ['Free', 'Pro', 'Enterprise'].elementAtOrNull(quota.plan) ??
+                'Plan ${quota.plan}';
+            return ListView(
+              shrinkWrap: true,
+              children: [
+                Text('${workspace.name} quotas', style: text.titleLarge),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: StatusChip(
+                    label: plan,
+                    icon: Symbols.workspace_premium,
+                    tone: StatusChipTone.secondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                for (final entry in quota.limits.entries)
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text(
+                        entry.key.replaceAll('_', ' '),
+                        style: text.titleSmall,
+                      ),
+                      trailing: Text(
+                        _formatQuota(entry.value),
+                        style: text.labelLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  },
 );
 
 String _formatQuota(dynamic value) {
@@ -175,12 +206,13 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
   return showModalBottomSheet<WorkspaceDraft>(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => SheetScaffold(
         titleText: workspace == null ? 'New workspace' : 'Edit workspace',
         heightFactor: 0.72,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -190,40 +222,49 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
                   decoration: const InputDecoration(
                     labelText: 'Slug',
                     hintText: 'my-team',
+                    prefixIcon: Icon(Symbols.link),
                   ),
                 ),
                 const SizedBox(height: 16),
                 if (profile?.name.isNotEmpty == true) ...[
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: usePersonalDetails,
-                    title: const Text('Use my personal workspace details'),
-                    subtitle: Text(
-                      'Uses @${profile!.name} and your profile nick.',
+                  Card(
+                    child: CheckboxListTile(
+                      value: usePersonalDetails,
+                      title: const Text('Use my personal workspace details'),
+                      subtitle: Text(
+                        'Uses @${profile!.name} and your profile nick.',
+                      ),
+                      onChanged: type == 0
+                          ? (selected) => setState(() {
+                              usePersonalDetails = selected ?? false;
+                              if (usePersonalDetails) {
+                                slug.text = profile.name;
+                                name.text = profile.solWattDisplayName;
+                                description.text =
+                                    "${profile.solWattDisplayName}'s personal workspace";
+                              }
+                            })
+                          : null,
                     ),
-                    onChanged: type == 0
-                        ? (selected) => setState(() {
-                            usePersonalDetails = selected ?? false;
-                            if (usePersonalDetails) {
-                              slug.text = profile.name;
-                              name.text = profile.solWattDisplayName;
-                              description.text =
-                                  "${profile.solWattDisplayName}'s personal workspace";
-                            }
-                          })
-                        : null,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
                 ],
               ],
               TextField(
                 controller: name,
-                decoration: const InputDecoration(labelText: 'Name'),
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  prefixIcon: Icon(Symbols.badge),
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: description,
-                decoration: const InputDecoration(labelText: 'Description'),
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Symbols.notes),
+                ),
                 maxLines: 4,
               ),
               if (workspace == null) ...[
@@ -232,6 +273,7 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
                   initialValue: type,
                   decoration: const InputDecoration(
                     labelText: 'Workspace type',
+                    prefixIcon: Icon(Symbols.category),
                   ),
                   items: const [
                     DropdownMenuItem(value: 0, child: Text('Individual')),
@@ -302,76 +344,84 @@ class WorkspaceList extends ConsumerWidget {
     final workspaces = ref.watch(workspacesProvider);
     final selected = ref.watch(selectedWorkspaceProvider).value;
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
 
     return workspaces.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => _RetryPane(
+      loading: () => const PageLoading(),
+      error: (error, _) => PageError(
         message: error.toString(),
         onRetry: () => ref.invalidate(workspacesProvider),
       ),
       data: (items) {
         if (items.isEmpty) {
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 360),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Symbols.workspaces, size: 40, color: scheme.outline),
-                  const SizedBox(height: 16),
-                  Text(
-                    emptyMessage,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 20),
-                  FilledButton.icon(
-                    onPressed: () => createWorkspaceAction(context, ref),
-                    icon: const Icon(Symbols.add),
-                    label: const Text('Create workspace'),
-                  ),
-                ],
-              ),
+          return EmptyState(
+            icon: Symbols.workspaces,
+            title: 'No workspaces',
+            message: emptyMessage,
+            action: FilledButton.icon(
+              onPressed: () => createWorkspaceAction(context, ref),
+              icon: const Icon(Symbols.add),
+              label: const Text('Create workspace'),
             ),
           );
         }
 
         return ListView.separated(
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: const EdgeInsets.only(bottom: 16),
           itemCount: items.length,
           separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final workspace = items[index];
             final isActive = selected?.id == workspace.id;
-            return Material(
+            return Card(
               color: isActive
                   ? scheme.primaryContainer.withValues(alpha: 0.55)
-                  : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(10),
+                  : scheme.surfaceContainerLow,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: isActive
+                    ? BorderSide(color: scheme.primary.withValues(alpha: 0.45))
+                    : BorderSide.none,
+              ),
               child: InkWell(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 onTap: () => onActivate(workspace),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
+                    horizontal: 12,
+                    vertical: 10,
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        isActive ? Symbols.check_circle : Symbols.workspaces,
-                        color: isActive
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant,
+                      IconBadge(
+                        icon: isActive
+                            ? Symbols.check_circle
+                            : Symbols.workspaces,
+                        selected: isActive,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              workspace.name,
-                              style: Theme.of(context).textTheme.titleMedium,
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    workspace.name,
+                                    style: text.titleMedium,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (isActive) ...[
+                                  const SizedBox(width: 8),
+                                  StatusChip(
+                                    label: 'Active',
+                                    tone: StatusChipTone.primary,
+                                  ),
+                                ],
+                              ],
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -380,8 +430,9 @@ class WorkspaceList extends ConsumerWidget {
                                   : workspace.slug,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
                           ],
                         ),
@@ -389,6 +440,10 @@ class WorkspaceList extends ConsumerWidget {
                       if (manageActions)
                         PopupMenuButton<String>(
                           tooltip: 'Workspace actions',
+                          icon: Icon(
+                            Symbols.more_vert,
+                            color: scheme.onSurfaceVariant,
+                          ),
                           onSelected: (value) {
                             switch (value) {
                               case 'quota':
@@ -399,15 +454,36 @@ class WorkspaceList extends ConsumerWidget {
                                 deleteWorkspaceAction(context, ref, workspace);
                             }
                           },
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
                               value: 'quota',
-                              child: Text('View quotas'),
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Symbols.monitoring),
+                                title: Text('View quotas'),
+                              ),
                             ),
-                            PopupMenuItem(value: 'edit', child: Text('Edit')),
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Symbols.edit),
+                                title: Text('Edit'),
+                              ),
+                            ),
                             PopupMenuItem(
                               value: 'delete',
-                              child: Text('Delete'),
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(
+                                  Symbols.delete,
+                                  color: scheme.error,
+                                ),
+                                title: Text(
+                                  'Delete',
+                                  style: TextStyle(color: scheme.error),
+                                ),
+                              ),
                             ),
                           ],
                         )
@@ -426,25 +502,4 @@ class WorkspaceList extends ConsumerWidget {
       },
     );
   }
-}
-
-class _RetryPane extends StatelessWidget {
-  const _RetryPane({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 360),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(message, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
-        ],
-      ),
-    ),
-  );
 }

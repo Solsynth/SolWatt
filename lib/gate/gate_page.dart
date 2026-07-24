@@ -5,6 +5,7 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../network.dart';
+import '../ui/page_scaffold.dart';
 import '../workspaces/workspace_actions.dart';
 
 /// Matches the generated [AppShellRoute] name without importing main.dart.
@@ -105,14 +106,25 @@ class _GateFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: scheme.surface,
+      backgroundColor: scheme.surfaceContainer,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(maxWidth: 520),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              child: child,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Material(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 32,
+                  ),
+                  child: child,
+                ),
+              ),
             ),
           ),
         ),
@@ -139,14 +151,30 @@ class _SignInPanel extends StatelessWidget {
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(Symbols.solar_power, size: 40, color: scheme.primary),
-        const SizedBox(height: 20),
+        Align(
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Symbols.solar_power,
+              size: 36,
+              color: scheme.onPrimaryContainer,
+              fill: 1,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
         Text(
           'SolWatt',
           textAlign: TextAlign.center,
-          style: text.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+          style: text.headlineMedium?.copyWith(letterSpacing: -0.5),
         ),
         const SizedBox(height: 8),
         Text(
@@ -155,11 +183,27 @@ class _SignInPanel extends StatelessWidget {
           style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
         ),
         if (error != null) ...[
-          const SizedBox(height: 16),
-          Text(
-            error!,
-            textAlign: TextAlign.center,
-            style: text.bodyMedium?.copyWith(color: scheme.error),
+          const SizedBox(height: 20),
+          Material(
+            color: scheme.errorContainer,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(Symbols.error, color: scheme.onErrorContainer, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      error!,
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
         const SizedBox(height: 28),
@@ -199,6 +243,7 @@ class _WorkspacePanel extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
@@ -206,9 +251,7 @@ class _WorkspacePanel extends ConsumerWidget {
                 children: [
                   Text(
                     'Choose a workspace',
-                    style: text.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: text.headlineSmall?.copyWith(letterSpacing: -0.25),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -230,55 +273,43 @@ class _WorkspacePanel extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         profile.when(
           loading: () => const LinearProgressIndicator(minHeight: 2),
           error: (_, _) => const SizedBox.shrink(),
           data: (user) {
             if (user == null) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    foregroundImage: user.solWattAvatarUrl == null
-                        ? null
-                        : NetworkImage(user.solWattAvatarUrl!),
-                    child: Text(_initials(user.solWattDisplayName)),
+            return Card(
+              margin: const EdgeInsets.only(bottom: 20),
+              child: ListTile(
+                leading: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: scheme.primaryContainer,
+                  foregroundColor: scheme.onPrimaryContainer,
+                  foregroundImage: user.solWattAvatarUrl == null
+                      ? null
+                      : NetworkImage(user.solWattAvatarUrl!),
+                  child: Text(_initials(user.solWattDisplayName)),
+                ),
+                title: Text(user.solWattDisplayName, style: text.titleSmall),
+                subtitle: Text(
+                  '@${user.name}',
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(user.solWattDisplayName, style: text.titleSmall),
-                        Text(
-                          '@${user.name}',
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
               ),
             );
           },
         ),
-        Row(
-          children: [
-            Text('Your workspaces', style: text.titleMedium),
-            const Spacer(),
-            FilledButton.tonalIcon(
-              onPressed: () => createWorkspaceAction(context, ref),
-              icon: const Icon(Symbols.add, size: 18),
-              label: const Text('New'),
-            ),
-          ],
+        SectionHeader(
+          title: 'Your workspaces',
+          trailing: FilledButton.tonalIcon(
+            onPressed: () => createWorkspaceAction(context, ref),
+            icon: const Icon(Symbols.add, size: 18),
+            label: const Text('New'),
+          ),
         ),
-        const SizedBox(height: 12),
         Expanded(
           child: WorkspaceList(
             onActivate: (workspace) async {

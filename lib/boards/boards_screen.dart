@@ -15,93 +15,148 @@ class BoardsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final boards = ref.watch(broadsProvider);
     final workspace = ref.watch(selectedWorkspaceProvider).value;
+    final scheme = Theme.of(context).colorScheme;
+    final wide = MediaQuery.sizeOf(context).width >= 900;
 
     return PageScaffold(
       title: 'Boards',
       subtitle: workspace == null ? 'Ideask boards' : 'In ${workspace.name}',
-      action: IconButton(
-        icon: const Icon(Symbols.add),
-        tooltip: 'New board',
+      action: FilledButton.tonalIcon(
         onPressed: () => _boardForm(context, ref),
+        icon: const Icon(Symbols.add, size: 18),
+        label: const Text('New board'),
       ),
       child: boards.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(error.toString(), textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => ref.invalidate(broadsProvider),
-                child: const Text('Try again'),
-              ),
-            ],
-          ),
+        loading: () => const PageLoading(),
+        error: (error, _) => PageError(
+          message: error.toString(),
+          onRetry: () => ref.invalidate(broadsProvider),
         ),
         data: (items) {
           if (items.isEmpty) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 320),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Symbols.view_kanban,
-                      size: 40,
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No boards yet.',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Create a board to organize tasks in this workspace.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: () => _boardForm(context, ref),
-                      icon: const Icon(Symbols.add),
-                      label: const Text('New board'),
-                    ),
-                  ],
-                ),
+            return EmptyState(
+              icon: Symbols.view_kanban,
+              title: 'No boards yet',
+              message: 'Create a board to organize tasks in this workspace.',
+              action: FilledButton.icon(
+                onPressed: () => _boardForm(context, ref),
+                icon: const Icon(Symbols.add),
+                label: const Text('New board'),
               ),
             );
           }
 
+          if (wide) {
+            return GridView.builder(
+              padding: const EdgeInsets.only(bottom: 16),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 320,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.55,
+              ),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final board = items[index];
+                return _BoardCard(
+                  board: board,
+                  onOpen: () => _openBoard(context, board),
+                );
+              },
+            );
+          }
+
           return ListView.separated(
+            padding: const EdgeInsets.only(bottom: 16),
             itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 4),
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final board = items[index];
-              return ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                leading: const Icon(Symbols.view_kanban),
-                title: Text(board.name),
-                subtitle: board.description?.isNotEmpty == true
-                    ? Text(board.description!)
-                    : null,
-                trailing: const Icon(Symbols.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        TaskBoardPage(broadId: board.id, broadName: board.name),
+              return Card(
+                child: ListTile(
+                  leading: const IconBadge(icon: Symbols.view_kanban),
+                  title: Text(board.name),
+                  subtitle: board.description?.isNotEmpty == true
+                      ? Text(
+                          board.description!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : null,
+                  trailing: Icon(
+                    Symbols.chevron_right,
+                    color: scheme.onSurfaceVariant,
                   ),
+                  onTap: () => _openBoard(context, board),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+
+  void _openBoard(BuildContext context, Broad board) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TaskBoardPage(broadId: board.id, broadName: board.name),
+      ),
+    );
+  }
+}
+
+class _BoardCard extends StatelessWidget {
+  const _BoardCard({required this.board, required this.onOpen});
+
+  final Broad board;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Card(
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const IconBadge(icon: Symbols.view_kanban),
+                  const Spacer(),
+                  Icon(
+                    Symbols.arrow_outward,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                board.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: text.titleMedium,
+              ),
+              if (board.description?.isNotEmpty == true) ...[
+                const SizedBox(height: 4),
+                Text(
+                  board.description!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -121,88 +176,195 @@ class TaskBoardPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tasks = ref.watch(tasksProvider(broadId));
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      backgroundColor: scheme.surface,
       appBar: AppBar(
         title: Text(broadName),
         actions: [
-          IconButton(
+          IconButton.filledTonal(
             icon: const Icon(Symbols.add_task),
             tooltip: 'New task',
             onPressed: () => _taskForm(context, ref, broadId),
           ),
+          const SizedBox(width: 12),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: tasks.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text(error.toString())),
-          data: (items) {
-            if (items.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'No tasks yet.',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _taskForm(context, ref, broadId),
+        icon: const Icon(Symbols.add_task),
+        label: const Text('New task'),
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 88),
+            child: tasks.when(
+              loading: () => const PageLoading(),
+              error: (error, _) => PageError(
+                message: error.toString(),
+                onRetry: () => ref.invalidate(tasksProvider(broadId)),
+              ),
+              data: (items) {
+                if (items.isEmpty) {
+                  return EmptyState(
+                    icon: Symbols.task_alt,
+                    title: 'No tasks yet',
+                    message: 'Add a task to get started on this board.',
+                    action: FilledButton.icon(
                       onPressed: () => _taskForm(context, ref, broadId),
                       icon: const Icon(Symbols.add_task),
                       label: const Text('New task'),
                     ),
-                  ],
-                ),
-              );
-            }
+                  );
+                }
 
-            return ListView.separated(
-              itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 4),
-              itemBuilder: (context, index) {
-                final task = items[index];
-                return ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  leading: Icon(
-                    Symbols.radio_button_unchecked,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  title: Text(task.name),
-                  subtitle: Text(
-                    task.description?.isNotEmpty == true
-                        ? task.description!
-                        : _priorityLabel(task.priority),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Symbols.delete),
-                    onPressed: () async {
-                      await ref
-                          .read(wattEngineClientProvider)
-                          .deleteTask(task.id);
-                      ref.invalidate(tasksProvider(broadId));
-                    },
-                  ),
-                  onTap: () => _taskForm(context, ref, broadId, task: task),
+                return ListView.separated(
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final task = items[index];
+                    return _TaskTile(
+                      task: task,
+                      onOpen: () =>
+                          _taskForm(context, ref, broadId, task: task),
+                      onDelete: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            icon: Icon(Symbols.delete, color: scheme.error),
+                            title: const Text('Delete task?'),
+                            content: Text(
+                              '“${task.name}” will be permanently removed.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: scheme.error,
+                                  foregroundColor: scheme.onError,
+                                ),
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
+                        try {
+                          await ref
+                              .read(wattEngineClientProvider)
+                              .deleteTask(task.id);
+                          ref.invalidate(tasksProvider(broadId));
+                          showSnackBar('Task deleted.');
+                        } catch (error) {
+                          showSnackBar(error.toString());
+                        }
+                      },
+                    );
+                  },
                 );
               },
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-String _priorityLabel(int priority) {
+class _TaskTile extends StatelessWidget {
+  const _TaskTile({
+    required this.task,
+    required this.onOpen,
+    required this.onDelete,
+  });
+
+  final WorkTask task;
+  final VoidCallback onOpen;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final priority = _priorityMeta(task.priority);
+
+    return Card(
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Symbols.radio_button_unchecked,
+                  color: scheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(task.name, style: text.titleMedium),
+                    if (task.description?.isNotEmpty == true) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        task.description!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    StatusChip(
+                      label: priority.label,
+                      icon: priority.icon,
+                      tone: priority.tone,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Delete task',
+                icon: Icon(Symbols.delete, color: scheme.onSurfaceVariant),
+                onPressed: onDelete,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+({String label, IconData icon, StatusChipTone tone}) _priorityMeta(
+  int priority,
+) {
   return switch (priority) {
-    1 => 'High priority',
-    2 => 'Urgent',
-    _ => 'Normal priority',
+    1 => (
+      label: 'High',
+      icon: Symbols.keyboard_double_arrow_up,
+      tone: StatusChipTone.tertiary,
+    ),
+    2 => (
+      label: 'Urgent',
+      icon: Symbols.priority_high,
+      tone: StatusChipTone.error,
+    ),
+    _ => (label: 'Normal', icon: Symbols.remove, tone: StatusChipTone.neutral),
   };
 }
 
@@ -263,34 +425,57 @@ Future<WorkTaskDraft?> _form(
   return showModalBottomSheet<WorkTaskDraft>(
     context: context,
     isScrollControlled: true,
+    showDragHandle: true,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => SheetScaffold(
         titleText: title,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextField(
                 controller: name,
-                decoration: const InputDecoration(labelText: 'Name'),
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  prefixIcon: Icon(Symbols.title),
+                ),
+                textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: description,
-                decoration: const InputDecoration(labelText: 'Description'),
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Symbols.notes),
+                ),
                 maxLines: 4,
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                initialValue: priority,
-                decoration: const InputDecoration(labelText: 'Priority'),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text('Normal')),
-                  DropdownMenuItem(value: 1, child: Text('High')),
-                  DropdownMenuItem(value: 2, child: Text('Urgent')),
+              Text('Priority', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(
+                    value: 0,
+                    label: Text('Normal'),
+                    icon: Icon(Symbols.remove, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: 1,
+                    label: Text('High'),
+                    icon: Icon(Symbols.keyboard_double_arrow_up, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: 2,
+                    label: Text('Urgent'),
+                    icon: Icon(Symbols.priority_high, size: 18),
+                  ),
                 ],
-                onChanged: (value) => setState(() => priority = value ?? 0),
+                selected: {priority},
+                onSelectionChanged: (values) =>
+                    setState(() => priority = values.first),
               ),
               const SizedBox(height: 28),
               FilledButton(

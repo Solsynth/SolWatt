@@ -5,7 +5,28 @@ abstract final class SolWattFonts {
   static const sans = 'Nunito';
 }
 
-/// The application-wide Material theme, following Island's baseline defaults.
+/// MD3 shape tokens used across component themes.
+abstract final class SolWattShapes {
+  static const extraSmall = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(4)),
+  );
+  static const small = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(8)),
+  );
+  static const medium = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(12)),
+  );
+  static const large = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(16)),
+  );
+  static const extraLarge = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(28)),
+  );
+  static const full = StadiumBorder();
+}
+
+/// The application-wide Material theme, following Island's baseline defaults
+/// and Material Design 3 component guidance.
 ThemeData createSolWattTheme(Brightness brightness) {
   const seedColor = Color(0xffd97706);
   final colorScheme = ColorScheme.fromSeed(
@@ -13,25 +34,267 @@ ThemeData createSolWattTheme(Brightness brightness) {
     brightness: brightness,
   );
 
+  final textTheme = _solWattTextTheme(
+    ThemeData(brightness: brightness).textTheme.apply(
+      bodyColor: colorScheme.onSurface,
+      displayColor: colorScheme.onSurface,
+      fontFamily: SolWattFonts.sans,
+    ),
+  );
+
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
     brightness: brightness,
     fontFamily: SolWattFonts.sans,
+    textTheme: textTheme,
+    scaffoldBackgroundColor: colorScheme.surface,
+    visualDensity: VisualDensity.standard,
+    materialTapTargetSize: MaterialTapTargetSize.padded,
+    splashFactory: InkSparkle.splashFactory,
     iconTheme: IconThemeData(
       fill: 0,
       weight: 400,
-      opticalSize: 20,
-      color: colorScheme.onSurface,
+      opticalSize: 24,
+      color: colorScheme.onSurfaceVariant,
+    ),
+    dividerTheme: DividerThemeData(
+      color: colorScheme.outlineVariant,
+      thickness: 1,
+      space: 1,
     ),
     appBarTheme: AppBarTheme(
-      centerTitle: true,
-      backgroundColor: colorScheme.primary,
-      foregroundColor: colorScheme.onPrimary,
+      centerTitle: false,
+      elevation: 0,
+      scrolledUnderElevation: 1,
+      backgroundColor: colorScheme.surface,
+      foregroundColor: colorScheme.onSurface,
+      surfaceTintColor: colorScheme.surfaceTint,
+      titleTextStyle: textTheme.titleLarge?.copyWith(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w600,
+      ),
+      iconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
+      actionsIconTheme: IconThemeData(color: colorScheme.onSurfaceVariant),
     ),
-    cardTheme: CardThemeData(color: colorScheme.surfaceContainer),
+    cardTheme: CardThemeData(
+      color: colorScheme.surfaceContainerLow,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: SolWattShapes.medium,
+      clipBehavior: Clip.antiAlias,
+    ),
+    listTileTheme: ListTileThemeData(
+      iconColor: colorScheme.onSurfaceVariant,
+      textColor: colorScheme.onSurface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      shape: SolWattShapes.medium,
+      minVerticalPadding: 10,
+    ),
     inputDecorationTheme: InputDecorationThemeData(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      filled: true,
+      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.outline),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.primary, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.error),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.error, width: 2),
+      ),
+      labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+      floatingLabelStyle: TextStyle(color: colorScheme.primary),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: SolWattShapes.full,
+        textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 1,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: SolWattShapes.full,
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: SolWattShapes.full,
+        side: BorderSide(color: colorScheme.outline),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        shape: SolWattShapes.full,
+      ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: colorScheme.onSurfaceVariant,
+        shape: SolWattShapes.full,
+      ),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: colorScheme.primaryContainer,
+      foregroundColor: colorScheme.onPrimaryContainer,
+      elevation: 3,
+      focusElevation: 3,
+      hoverElevation: 4,
+      highlightElevation: 2,
+      shape: SolWattShapes.large,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: colorScheme.surfaceContainerHighest,
+      selectedColor: colorScheme.secondaryContainer,
+      disabledColor: colorScheme.onSurface.withValues(alpha: 0.12),
+      labelStyle: textTheme.labelLarge!,
+      secondaryLabelStyle: textTheme.labelLarge!.copyWith(
+        color: colorScheme.onSecondaryContainer,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      shape: SolWattShapes.small,
+      side: BorderSide.none,
+      showCheckmark: true,
+      checkmarkColor: colorScheme.onSecondaryContainer,
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 64,
+      elevation: 0,
+      backgroundColor: colorScheme.surfaceContainer,
+      indicatorColor: colorScheme.secondaryContainer,
+      surfaceTintColor: Colors.transparent,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          size: 24,
+          fill: selected ? 1 : 0,
+          color: selected
+              ? colorScheme.onSecondaryContainer
+              : colorScheme.onSurfaceVariant,
+        );
+      }),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return textTheme.labelMedium?.copyWith(
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          color: selected
+              ? colorScheme.onSurface
+              : colorScheme.onSurfaceVariant,
+        );
+      }),
+    ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      indicatorColor: colorScheme.secondaryContainer,
+      selectedIconTheme: IconThemeData(
+        color: colorScheme.onSecondaryContainer,
+        fill: 1,
+        size: 24,
+      ),
+      unselectedIconTheme: IconThemeData(
+        color: colorScheme.onSurfaceVariant,
+        fill: 0,
+        size: 24,
+      ),
+      selectedLabelTextStyle: textTheme.labelMedium?.copyWith(
+        color: colorScheme.onSurface,
+        fontWeight: FontWeight.w600,
+      ),
+      unselectedLabelTextStyle: textTheme.labelMedium?.copyWith(
+        color: colorScheme.onSurfaceVariant,
+      ),
+      minWidth: 80,
+      minExtendedWidth: 220,
+      useIndicator: true,
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: colorScheme.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shape: SolWattShapes.extraLarge,
+      titleTextStyle: textTheme.headlineSmall?.copyWith(
+        color: colorScheme.onSurface,
+      ),
+      contentTextStyle: textTheme.bodyMedium?.copyWith(
+        color: colorScheme.onSurfaceVariant,
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: colorScheme.surfaceContainerLow,
+      surfaceTintColor: Colors.transparent,
+      elevation: 1,
+      modalElevation: 1,
+      showDragHandle: true,
+      dragHandleColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: colorScheme.inverseSurface,
+      contentTextStyle: textTheme.bodyMedium?.copyWith(
+        color: colorScheme.onInverseSurface,
+      ),
+      shape: SolWattShapes.small,
+      elevation: 2,
+      insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: colorScheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shape: SolWattShapes.medium,
+      textStyle: textTheme.bodyLarge,
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(colorScheme.surfaceContainer),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(3),
+        shape: const WidgetStatePropertyAll(SolWattShapes.medium),
+      ),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return colorScheme.primary;
+        }
+        return null;
+      }),
+    ),
+    dropdownMenuTheme: DropdownMenuThemeData(
+      inputDecorationTheme: InputDecorationThemeData(
+        filled: true,
+        fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      menuStyle: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(colorScheme.surfaceContainer),
+        shape: const WidgetStatePropertyAll(SolWattShapes.medium),
+      ),
     ),
     // Keep Island's Material 2024 component appearance during the transition.
     // ignore: deprecated_member_use
@@ -48,5 +311,22 @@ ThemeData createSolWattTheme(Brightness brightness) {
         TargetPlatform.fuchsia: FadeForwardsPageTransitionsBuilder(),
       },
     ),
+  );
+}
+
+TextTheme _solWattTextTheme(TextTheme base) {
+  return base.copyWith(
+    displayLarge: base.displayLarge?.copyWith(fontWeight: FontWeight.w700),
+    displayMedium: base.displayMedium?.copyWith(fontWeight: FontWeight.w700),
+    displaySmall: base.displaySmall?.copyWith(fontWeight: FontWeight.w700),
+    headlineLarge: base.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
+    headlineMedium: base.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+    headlineSmall: base.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+    titleLarge: base.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+    titleMedium: base.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    titleSmall: base.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+    labelLarge: base.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+    labelMedium: base.labelMedium?.copyWith(fontWeight: FontWeight.w500),
+    labelSmall: base.labelSmall?.copyWith(fontWeight: FontWeight.w500),
   );
 }

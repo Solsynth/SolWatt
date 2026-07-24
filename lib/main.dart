@@ -127,18 +127,16 @@ class AppShellPage extends ConsumerWidget {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(error.toString(), textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => context.router.replaceAll([
-                    const PageRouteInfo(gateRouteName),
-                  ]),
-                  child: const Text('Back to sign in'),
-                ),
-              ],
+            child: EmptyState(
+              icon: Symbols.error,
+              title: 'Could not open SolWatt',
+              message: error.toString(),
+              action: FilledButton(
+                onPressed: () => context.router.replaceAll([
+                  const PageRouteInfo(gateRouteName),
+                ]),
+                child: const Text('Back to sign in'),
+              ),
             ),
           ),
         ),
@@ -186,9 +184,10 @@ class _NavigationShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final wide = isWideScreen(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+      backgroundColor: scheme.surfaceContainer,
       body: SafeArea(
         child: wide
             ? Row(
@@ -199,25 +198,25 @@ class _NavigationShell extends ConsumerWidget {
                     workspaceName: workspace?.name,
                   ),
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(12),
-                      ),
-                      child: ColoredBox(
-                        color: Theme.of(context).colorScheme.surface,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                      child: Material(
+                        color: scheme.surface,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(16),
+                        ),
+                        clipBehavior: Clip.antiAlias,
                         child: child,
                       ),
                     ),
                   ),
                 ],
               )
-            : child,
+            : ColoredBox(color: scheme.surface, child: child),
       ),
       bottomNavigationBar: wide
           ? null
           : NavigationBar(
-              height: 56,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
               selectedIndex: selectedIndex,
               onDestinationSelected: onSelected,
               destinations: [
@@ -263,6 +262,7 @@ class _DesktopNavigation extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
 
     return SizedBox(
       width: 88,
@@ -273,30 +273,56 @@ class _DesktopNavigation extends ConsumerWidget {
             : null,
         onDestinationSelected: onSelected,
         labelType: NavigationRailLabelType.all,
+        groupAlignment: -1,
         leading: Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 16, top: 4),
           child: Tooltip(
-            message: workspaceName ?? 'Workspace',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => onSelected(2),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Column(
-                  children: [
-                    Icon(Symbols.workspaces, size: 22, color: scheme.primary),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      width: 64,
-                      child: Text(
-                        workspaceName ?? 'Workspace',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
+            message: workspaceName == null
+                ? 'Workspaces'
+                : 'Workspace: $workspaceName',
+            child: Material(
+              color: selectedIndex == 2
+                  ? scheme.secondaryContainer
+                  : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => onSelected(2),
+                child: SizedBox(
+                  width: 64,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 10,
                     ),
-                  ],
+                    child: Column(
+                      children: [
+                        Icon(
+                          Symbols.workspaces,
+                          size: 22,
+                          fill: selectedIndex == 2 ? 1 : 0,
+                          color: selectedIndex == 2
+                              ? scheme.onSecondaryContainer
+                              : scheme.primary,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          workspaceName ?? 'Workspace',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: text.labelSmall?.copyWith(
+                            color: selectedIndex == 2
+                                ? scheme.onSecondaryContainer
+                                : scheme.onSurfaceVariant,
+                            fontWeight: selectedIndex == 2
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -304,21 +330,31 @@ class _DesktopNavigation extends ConsumerWidget {
         ),
         trailingAtBottom: true,
         trailing: Padding(
-          padding: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.only(bottom: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
+              _RailIconButton(
                 tooltip: 'Profile',
+                selected: selectedIndex == 2,
                 onPressed: () => onSelected(2),
-                icon: _RailProfileAvatar(profile: profile),
-                color: selectedIndex == 2 ? scheme.primary : null,
+                child: _RailProfileAvatar(
+                  profile: profile,
+                  selected: selectedIndex == 2,
+                ),
               ),
-              IconButton(
+              const SizedBox(height: 4),
+              _RailIconButton(
                 tooltip: 'Settings',
+                selected: selectedIndex == 3,
                 onPressed: () => onSelected(3),
-                icon: Icon(Symbols.settings, fill: selectedIndex == 3 ? 1 : 0),
-                color: selectedIndex == 3 ? scheme.primary : null,
+                child: Icon(
+                  Symbols.settings,
+                  fill: selectedIndex == 3 ? 1 : 0,
+                  color: selectedIndex == 3
+                      ? scheme.onSecondaryContainer
+                      : scheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -336,23 +372,67 @@ class _DesktopNavigation extends ConsumerWidget {
   }
 }
 
+class _RailIconButton extends StatelessWidget {
+  const _RailIconButton({
+    required this.tooltip,
+    required this.selected,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final String tooltip;
+  final bool selected;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: selected ? scheme.secondaryContainer : Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(width: 48, height: 48, child: Center(child: child)),
+        ),
+      ),
+    );
+  }
+}
+
 class _RailProfileAvatar extends StatelessWidget {
-  const _RailProfileAvatar({required this.profile});
+  const _RailProfileAvatar({required this.profile, this.selected = false});
 
   final AsyncValue<SnAccount?> profile;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final user = profile.value;
     final initials = _initials(user?.solWattDisplayName ?? '');
+    final scheme = Theme.of(context).colorScheme;
     return CircleAvatar(
       radius: 14,
+      backgroundColor: selected
+          ? scheme.primary
+          : scheme.surfaceContainerHighest,
+      foregroundColor: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
       foregroundImage: user?.solWattAvatarUrl == null
           ? null
           : NetworkImage(user!.solWattAvatarUrl!),
       child: user == null
-          ? const Icon(Symbols.person, size: 18)
-          : Text(initials, style: const TextStyle(fontSize: 11)),
+          ? Icon(Symbols.person, size: 18, fill: selected ? 1 : 0)
+          : Text(
+              initials,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+              ),
+            ),
     );
   }
 }
@@ -366,13 +446,14 @@ class HomePage extends ConsumerWidget {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final boards = ref.watch(broadsProvider);
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
 
     return PageScaffold(
       title: workspace?.name ?? 'Home',
       subtitle: workspace?.description?.isNotEmpty == true
           ? workspace!.description!
           : 'Active workspace',
-      action: TextButton.icon(
+      action: FilledButton.tonalIcon(
         onPressed: () => AutoTabsRouter.of(context).setActiveIndex(2),
         icon: const Icon(Symbols.swap_horiz, size: 18),
         label: const Text('Switch'),
@@ -380,33 +461,53 @@ class HomePage extends ConsumerWidget {
       child: ListView(
         children: [
           Card(
-            margin: EdgeInsets.zero,
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Boards',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  boards.when(
-                    loading: () => const LinearProgressIndicator(minHeight: 2),
-                    error: (error, _) => Text(
-                      error.toString(),
-                      style: TextStyle(color: scheme.error),
-                    ),
-                    data: (items) => Text(
-                      items.isEmpty
-                          ? 'No boards yet. Create one from the Boards tab.'
-                          : '${items.length} board${items.length == 1 ? '' : 's'} in this workspace.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                  Row(
+                    children: [
+                      IconBadge(
+                        icon: Symbols.view_kanban,
+                        selected: true,
+                        size: 44,
                       ),
-                    ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Boards', style: text.titleMedium),
+                            const SizedBox(height: 2),
+                            boards.when(
+                              loading: () => Text(
+                                'Loading…',
+                                style: text.bodyMedium?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                              error: (error, _) => Text(
+                                error.toString(),
+                                style: text.bodyMedium?.copyWith(
+                                  color: scheme.error,
+                                ),
+                              ),
+                              data: (items) => Text(
+                                items.isEmpty
+                                    ? 'No boards yet'
+                                    : '${items.length} board${items.length == 1 ? '' : 's'}',
+                                style: text.bodyMedium?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -429,6 +530,45 @@ class HomePage extends ConsumerWidget {
               ),
             ),
           ),
+          if (boards case AsyncData(:final value) when value.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            SectionHeader(
+              title: 'Recent boards',
+              trailing: TextButton(
+                onPressed: () => AutoTabsRouter.of(context).setActiveIndex(1),
+                child: const Text('View all'),
+              ),
+            ),
+            for (final board in value.take(4))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Card(
+                  child: ListTile(
+                    leading: const IconBadge(icon: Symbols.view_kanban),
+                    title: Text(board.name),
+                    subtitle: board.description?.isNotEmpty == true
+                        ? Text(
+                            board.description!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : null,
+                    trailing: Icon(
+                      Symbols.chevron_right,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TaskBoardPage(
+                          broadId: board.id,
+                          broadName: board.name,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -443,42 +583,59 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(authSessionProvider);
     final user = ref.watch(userInfoProvider).value;
+    final scheme = Theme.of(context).colorScheme;
 
     return PageScaffold(
       title: 'Settings',
       subtitle: 'Account and connection',
       child: ListView(
         children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              session.value == null ? Symbols.lock : Symbols.verified_user,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: Text(
-              session.value == null
-                  ? 'Not signed in'
-                  : 'Connected to Solar Network',
-            ),
-            subtitle: Text(
-              user == null
-                  ? 'OAuth authorization uses the Solar Network identity service.'
-                  : '@${user.name}',
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                await ref.read(authenticatorProvider).clear();
-                await clearSelectedWorkspace(ref.read(secureStorageProvider));
-                invalidateSessionScope(ref);
-                if (!context.mounted) return;
-                context.router.replaceAll([const PageRouteInfo(gateRouteName)]);
-              },
-              icon: const Icon(Symbols.logout),
-              label: const Text('Sign out'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: IconBadge(
+                    icon: session.value == null
+                        ? Symbols.lock
+                        : Symbols.verified_user,
+                    selected: session.value != null,
+                  ),
+                  title: Text(
+                    session.value == null
+                        ? 'Not signed in'
+                        : 'Connected to Solar Network',
+                  ),
+                  subtitle: Text(
+                    user == null
+                        ? 'OAuth authorization uses the Solar Network identity service.'
+                        : '@${user.name}',
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: scheme.outlineVariant,
+                ),
+                ListTile(
+                  leading: const IconBadge(icon: Symbols.logout),
+                  title: const Text('Sign out'),
+                  subtitle: const Text(
+                    'Clear this session and return to the gate',
+                  ),
+                  onTap: () async {
+                    await ref.read(authenticatorProvider).clear();
+                    await clearSelectedWorkspace(
+                      ref.read(secureStorageProvider),
+                    );
+                    invalidateSessionScope(ref);
+                    if (!context.mounted) return;
+                    context.router.replaceAll([
+                      const PageRouteInfo(gateRouteName),
+                    ]);
+                  },
+                ),
+              ],
             ),
           ),
         ],
@@ -495,11 +652,13 @@ class ProfilePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
     final selected = ref.watch(selectedWorkspaceProvider).value;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
 
     return PageScaffold(
       title: 'Profile',
       subtitle: 'Account and workspaces',
-      action: IconButton(
+      action: IconButton.filledTonal(
         tooltip: 'Refresh',
         onPressed: () {
           ref.invalidate(userInfoProvider);
@@ -510,64 +669,72 @@ class ProfilePage extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          profile.when(
-            loading: () => const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                child: SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+          Card(
+            child: profile.when(
+              loading: () => const ListTile(
+                leading: SizedBox.square(
+                  dimension: 48,
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
                 ),
+                title: Text('Loading profile…'),
               ),
-              title: Text('Loading profile…'),
+              error: (_, _) => const ListTile(
+                leading: IconBadge(icon: Symbols.person, size: 48),
+                title: Text('Solar Network account'),
+              ),
+              data: (user) {
+                if (user == null) return const SizedBox.shrink();
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: CircleAvatar(
+                    radius: 26,
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    foregroundImage: user.solWattAvatarUrl == null
+                        ? null
+                        : NetworkImage(user.solWattAvatarUrl!),
+                    child: Text(
+                      _initials(user.solWattDisplayName),
+                      style: text.titleMedium?.copyWith(
+                        color: scheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                  title: Text(user.solWattDisplayName),
+                  subtitle: Text('@${user.name}'),
+                );
+              },
             ),
-            error: (_, _) => const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Icon(Symbols.person)),
-              title: Text('Solar Network account'),
-            ),
-            data: (user) {
-              if (user == null) return const SizedBox.shrink();
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  radius: 26,
-                  foregroundImage: user.solWattAvatarUrl == null
-                      ? null
-                      : NetworkImage(user.solWattAvatarUrl!),
-                  child: Text(_initials(user.solWattDisplayName)),
-                ),
-                title: Text(user.solWattDisplayName),
-                subtitle: Text('@${user.name}'),
-              );
-            },
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Workspaces',
-                  style: Theme.of(context).textTheme.titleLarge,
+          const SizedBox(height: 24),
+          SectionHeader(
+            title: 'Workspaces',
+            trailing: FilledButton.tonalIcon(
+              onPressed: () => createWorkspaceAction(context, ref),
+              icon: const Icon(Symbols.add, size: 18),
+              label: const Text('New'),
+            ),
+          ),
+          if (selected != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: StatusChip(
+                  label: 'Active · ${selected.name}',
+                  icon: Symbols.check_circle,
+                  tone: StatusChipTone.primary,
                 ),
               ),
-              FilledButton.icon(
-                onPressed: () => createWorkspaceAction(context, ref),
-                icon: const Icon(Symbols.add, size: 18),
-                label: const Text('New'),
-              ),
-            ],
-          ),
-          if (selected != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Active: ${selected.name}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
             ),
-          ],
-          const SizedBox(height: 12),
           Expanded(
             child: WorkspaceList(
               manageActions: true,
@@ -576,6 +743,7 @@ class ProfilePage extends ConsumerWidget {
               },
             ),
           ),
+          const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
