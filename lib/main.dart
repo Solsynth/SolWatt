@@ -199,7 +199,7 @@ class _NavigationShell extends ConsumerWidget {
                   ),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                      padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
                       child: Material(
                         color: scheme.surface,
                         borderRadius: const BorderRadius.all(

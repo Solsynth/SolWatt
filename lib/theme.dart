@@ -96,6 +96,15 @@ ThemeData createSolWattTheme(Brightness brightness) {
       filled: true,
       fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      // Full-height icon slot so [inputPrefixIcon] can top-align in multi-line fields.
+      prefixIconConstraints: const BoxConstraints(
+        minWidth: 48,
+        minHeight: double.infinity,
+      ),
+      suffixIconConstraints: const BoxConstraints(
+        minWidth: 48,
+        minHeight: double.infinity,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: colorScheme.outline),
@@ -245,8 +254,7 @@ ThemeData createSolWattTheme(Brightness brightness) {
       surfaceTintColor: Colors.transparent,
       elevation: 1,
       modalElevation: 1,
-      showDragHandle: true,
-      dragHandleColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+      showDragHandle: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -310,6 +318,19 @@ ThemeData createSolWattTheme(Brightness brightness) {
         TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
         TargetPlatform.fuchsia: FadeForwardsPageTransitionsBuilder(),
       },
+    ),
+  );
+}
+
+/// Prefix/suffix field icon aligned to the top of the input (not vertically centered).
+///
+/// Use with the theme's full-height [InputDecorationTheme.prefixIconConstraints].
+Widget inputPrefixIcon(IconData icon, {double top = 12, double size = 24}) {
+  return Align(
+    alignment: Alignment.topCenter,
+    child: Padding(
+      padding: EdgeInsets.only(top: top),
+      child: Icon(icon, size: size),
     ),
   );
 }

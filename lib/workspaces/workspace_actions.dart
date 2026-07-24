@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -5,14 +7,29 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import '../network.dart';
+import '../theme.dart';
+import '../ui/cloud_files.dart';
 import '../ui/page_scaffold.dart';
 
 class WorkspaceDraft {
-  const WorkspaceDraft(this.slug, this.name, this.description, this.type);
+  const WorkspaceDraft({
+    required this.slug,
+    required this.name,
+    this.description,
+    required this.type,
+    this.pictureId,
+    this.updatePicture = false,
+    this.backgroundId,
+    this.updateBackground = false,
+  });
   final String slug;
   final String name;
   final String? description;
   final int type;
+  final String? pictureId;
+  final bool updatePicture;
+  final String? backgroundId;
+  final bool updateBackground;
 }
 
 Future<void> createWorkspaceAction(BuildContext context, WidgetRef ref) async {
@@ -28,6 +45,8 @@ Future<void> createWorkspaceAction(BuildContext context, WidgetRef ref) async {
           name: draft.name,
           description: draft.description,
           type: draft.type,
+          pictureId: draft.updatePicture ? draft.pictureId : null,
+          backgroundId: draft.updateBackground ? draft.backgroundId : null,
         );
     ref.invalidate(workspacesProvider);
     await selectWorkspace(ref.read(secureStorageProvider), workspace);
@@ -52,6 +71,10 @@ Future<void> editWorkspaceAction(
           slug: workspace.slug,
           name: draft.name,
           description: draft.description,
+          pictureId: draft.pictureId,
+          updatePicture: draft.updatePicture,
+          backgroundId: draft.backgroundId,
+          updateBackground: draft.updateBackground,
         );
     ref.invalidate(workspacesProvider);
     invalidateWorkspaceScope(ref);
@@ -118,73 +141,418 @@ Future<void> showWorkspaceQuota(
   Workspace workspace,
 ) => showModalBottomSheet<void>(
   context: context,
-  showDragHandle: true,
+  isScrollControlled: true,
   builder: (context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-        child: FutureBuilder(
-          future: ref
-              .read(wattEngineClientProvider)
-              .getWorkspaceQuota(workspace.slug),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const SizedBox(
-                height: 160,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snapshot.hasError) {
-              return EmptyState(
-                icon: Symbols.error,
-                title: 'Could not load quotas',
-                message: snapshot.error.toString(),
-              );
-            }
-            final quota = snapshot.data!;
-            final plan =
-                ['Free', 'Pro', 'Enterprise'].elementAtOrNull(quota.plan) ??
-                'Plan ${quota.plan}';
-            return ListView(
-              shrinkWrap: true,
-              children: [
-                Text('${workspace.name} quotas', style: text.titleLarge),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: StatusChip(
-                    label: plan,
-                    icon: Symbols.workspace_premium,
-                    tone: StatusChipTone.secondary,
-                  ),
+    return SheetScaffold(
+      titleText: '${workspace.name} quotas',
+      heightFactor: 0.6,
+      child: FutureBuilder(
+        future: ref
+            .read(wattEngineClientProvider)
+            .getWorkspaceQuota(workspace.slug),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Symbols.error,
+              title: 'Could not load quotas',
+              message: snapshot.error.toString(),
+            );
+          }
+          final quota = snapshot.data!;
+          final plan =
+              ['Free', 'Pro', 'Enterprise'].elementAtOrNull(quota.plan) ??
+              'Plan ${quota.plan}';
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: StatusChip(
+                  label: plan,
+                  icon: Symbols.workspace_premium,
+                  tone: StatusChipTone.secondary,
                 ),
-                const SizedBox(height: 16),
-                for (final entry in quota.limits.entries)
-                  Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(
-                        entry.key.replaceAll('_', ' '),
-                        style: text.titleSmall,
-                      ),
-                      trailing: Text(
-                        _formatQuota(entry.value),
-                        style: text.labelLarge?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+              ),
+              const SizedBox(height: 16),
+              for (final entry in quota.limits.entries)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text(
+                      entry.key.replaceAll('_', ' '),
+                      style: text.titleSmall,
+                    ),
+                    trailing: Text(
+                      _formatQuota(entry.value),
+                      style: text.labelLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
-              ],
-            );
-          },
-        ),
+                ),
+            ],
+          );
+        },
       ),
     );
   },
 );
+
+Future<void> showWorkspaceMembers(BuildContext context, Workspace workspace) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _WorkspaceMembersSheet(workspace: workspace),
+    );
+
+class _WorkspaceMembersSheet extends ConsumerStatefulWidget {
+  const _WorkspaceMembersSheet({required this.workspace});
+
+  final Workspace workspace;
+
+  @override
+  ConsumerState<_WorkspaceMembersSheet> createState() =>
+      _WorkspaceMembersSheetState();
+}
+
+class _WorkspaceMembersSheetState
+    extends ConsumerState<_WorkspaceMembersSheet> {
+  late Future<List<WorkspaceMember>> _members;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() => _members = ref
+      .read(wattEngineClientProvider)
+      .listWorkspaceMembers(widget.workspace.slug);
+
+  Future<void> _invite() async {
+    final account = await showModalBottomSheet<SnAccount>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) =>
+          _AccountPickerSheet(client: ref.read(wattEngineClientProvider)),
+    );
+    if (account == null || !mounted) return;
+    final role = await _selectRole(
+      context,
+      title: 'Invite ${account.solWattDisplayName}',
+    );
+    if (role == null || !mounted) return;
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .inviteWorkspaceMember(
+            slug: widget.workspace.slug,
+            accountId: account.id,
+            role: role,
+          );
+      _refresh('Invitation sent.');
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _changeRole(WorkspaceMember member) async {
+    final role = await _selectRole(
+      context,
+      title: 'Change role',
+      selectedRole: member.role,
+    );
+    if (role == null || role == member.role || !mounted) return;
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .updateWorkspaceMemberRole(
+            slug: widget.workspace.slug,
+            accountId: member.accountId,
+            role: role,
+          );
+      _refresh('Member role updated.');
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _remove(WorkspaceMember member) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove member?'),
+        content: const Text('This member will lose access to the workspace.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .removeWorkspaceMember(
+            slug: widget.workspace.slug,
+            accountId: member.accountId,
+          );
+      _refresh('Member removed.');
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
+  void _refresh(String message) {
+    setState(_reload);
+    showSnackBar(message);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SheetScaffold(
+      titleText: 'Members',
+      heightFactor: 0.78,
+      actions: [
+        FilledButton.tonalIcon(
+          onPressed: _invite,
+          icon: const Icon(Symbols.person_add, size: 18),
+          label: const Text('Invite'),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.workspace.name,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: FutureBuilder<List<WorkspaceMember>>(
+                future: _members,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return EmptyState(
+                      icon: Symbols.error,
+                      title: 'Could not load members',
+                      message: snapshot.error.toString(),
+                      action: FilledButton(
+                        onPressed: () => setState(_reload),
+                        child: const Text('Try again'),
+                      ),
+                    );
+                  }
+                  final members = snapshot.data ?? const [];
+                  if (members.isEmpty) {
+                    return const EmptyState(
+                      icon: Symbols.group,
+                      title: 'No members',
+                      message:
+                          'Invite people to collaborate in this workspace.',
+                    );
+                  }
+                  return ListView.separated(
+                    itemCount: members.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final member = members[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          child: Text(_memberInitial(member)),
+                        ),
+                        title: Text(
+                          member.displayName ??
+                              'Account ${_shortId(member.accountId)}',
+                        ),
+                        subtitle: Text(
+                          '${_roleName(member.role)} · '
+                          '${member.username == null ? member.accountId : '@${member.username}'}',
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (action) {
+                            if (action == 'role') _changeRole(member);
+                            if (action == 'remove') _remove(member);
+                          },
+                          itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'role',
+                              child: Text('Role: ${_roleName(member.role)}'),
+                            ),
+                            if (member.role != 100)
+                              const PopupMenuItem(
+                                value: 'remove',
+                                child: Text('Remove member'),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<int?> _selectRole(
+  BuildContext context, {
+  required String title,
+  int? selectedRole,
+}) => showModalBottomSheet<int>(
+  context: context,
+  isScrollControlled: true,
+  builder: (context) => SheetScaffold(
+    titleText: title,
+    heightFactor: 0.45,
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+      children: [
+        for (final role in const [25, 50, 75, 100])
+          ListTile(
+            title: Text(_roleName(role)),
+            trailing: selectedRole == role ? const Icon(Symbols.check) : null,
+            onTap: () => Navigator.pop(context, role),
+          ),
+      ],
+    ),
+  ),
+);
+
+String _roleName(int role) => switch (role) {
+  25 => 'Viewer',
+  50 => 'Member',
+  75 => 'Admin',
+  100 => 'Owner',
+  _ => 'Role $role',
+};
+
+String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
+String _memberInitial(WorkspaceMember member) =>
+    (member.displayName ?? member.username ?? member.accountId).isEmpty
+    ? '?'
+    : (member.displayName ?? member.username ?? member.accountId)[0]
+          .toUpperCase();
+
+class _AccountPickerSheet extends StatefulWidget {
+  const _AccountPickerSheet({required this.client});
+
+  final WattEngineClient client;
+
+  @override
+  State<_AccountPickerSheet> createState() => _AccountPickerSheetState();
+}
+
+class _AccountPickerSheetState extends State<_AccountPickerSheet> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  Future<List<SnAccount>>? _results;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _search(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() => _results = widget.client.searchAccounts(query));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SheetScaffold(
+      titleText: 'Invite member',
+      heightFactor: 0.7,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Column(
+          children: [
+            SearchBar(
+              controller: _controller,
+              hintText: 'Search accounts',
+              leading: const Icon(Symbols.search),
+              onChanged: _search,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _results == null
+                  ? const Center(
+                      child: Text('Search for an account to invite.'),
+                    )
+                  : FutureBuilder<List<SnAccount>>(
+                      future: _results,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState !=
+                            ConnectionState.done) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Text(snapshot.error.toString()),
+                          );
+                        }
+                        final accounts = snapshot.data ?? const [];
+                        if (accounts.isEmpty) {
+                          return const Center(
+                            child: Text('No accounts found.'),
+                          );
+                        }
+                        return ListView.builder(
+                          itemCount: accounts.length,
+                          itemBuilder: (context, index) {
+                            final account = accounts[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                child: Text(
+                                  account.solWattDisplayName[0].toUpperCase(),
+                                ),
+                              ),
+                              title: Text(account.solWattDisplayName),
+                              subtitle: Text('@${account.name}'),
+                              onTap: () => Navigator.pop(context, account),
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 String _formatQuota(dynamic value) {
   if (value is num && value >= 1024 * 1024 * 1024) {
@@ -198,132 +566,293 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
   Workspace? workspace,
   SnAccount? profile,
 }) {
-  final slug = TextEditingController(text: workspace?.slug ?? '');
-  final name = TextEditingController(text: workspace?.name ?? '');
-  final description = TextEditingController(text: workspace?.description ?? '');
-  var type = 0;
-  var usePersonalDetails = false;
   return showModalBottomSheet<WorkspaceDraft>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => SheetScaffold(
-        titleText: workspace == null ? 'New workspace' : 'Edit workspace',
-        heightFactor: 0.72,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (workspace == null) ...[
-                TextField(
-                  controller: slug,
-                  decoration: const InputDecoration(
-                    labelText: 'Slug',
-                    hintText: 'my-team',
-                    prefixIcon: Icon(Symbols.link),
+    builder: (_) => _WorkspaceEditorSheet(
+      workspace: workspace,
+      profile: profile,
+    ),
+  );
+}
+
+class _WorkspaceEditorSheet extends ConsumerStatefulWidget {
+  const _WorkspaceEditorSheet({this.workspace, this.profile});
+
+  final Workspace? workspace;
+  final SnAccount? profile;
+
+  @override
+  ConsumerState<_WorkspaceEditorSheet> createState() =>
+      _WorkspaceEditorSheetState();
+}
+
+class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
+  late final TextEditingController _slug;
+  late final TextEditingController _name;
+  late final TextEditingController _description;
+  var _type = 0;
+  var _usePersonalDetails = false;
+  SnCloudFileReference? _picture;
+  SnCloudFileReference? _background;
+  var _pictureChanged = false;
+  var _backgroundChanged = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final workspace = widget.workspace;
+    _slug = TextEditingController(text: workspace?.slug ?? '');
+    _name = TextEditingController(text: workspace?.name ?? '');
+    _description = TextEditingController(text: workspace?.description ?? '');
+    _type = workspace?.type ?? 0;
+    _picture = workspace?.picture;
+    _background = workspace?.background;
+  }
+
+  @override
+  void dispose() {
+    _slug.dispose();
+    _name.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickPicture() async {
+    final file = await pickCloudImageReference(
+      context,
+      ref,
+      usage: 'workspace.picture',
+      title: 'Workspace icon',
+    );
+    if (file == null || !mounted) return;
+    setState(() {
+      _picture = file;
+      _pictureChanged = true;
+    });
+  }
+
+  Future<void> _pickBackground() async {
+    final file = await pickCloudImageReference(
+      context,
+      ref,
+      usage: 'workspace.background',
+      title: 'Workspace background',
+    );
+    if (file == null || !mounted) return;
+    setState(() {
+      _background = file;
+      _backgroundChanged = true;
+    });
+  }
+
+  void _submit() {
+    final slugText = _slug.text.trim();
+    final nameText = _name.text.trim();
+    if (widget.workspace == null && slugText.isEmpty) {
+      showSnackBar('Slug is required.');
+      return;
+    }
+    if (nameText.isEmpty) {
+      showSnackBar('Name is required.');
+      return;
+    }
+    Navigator.pop(
+      context,
+      WorkspaceDraft(
+        slug: slugText,
+        name: nameText,
+        description: _description.text.trim().isEmpty
+            ? null
+            : _description.text.trim(),
+        type: _type,
+        pictureId: _picture?.id,
+        updatePicture: _pictureChanged,
+        backgroundId: _background?.id,
+        updateBackground: _backgroundChanged,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    final workspace = widget.workspace;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return SheetScaffold(
+      titleText: workspace == null ? 'New workspace' : 'Edit workspace',
+      heightFactor: 0.82,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                InkWell(
+                  onTap: _pickPicture,
+                  borderRadius: BorderRadius.circular(16),
+                  child: CloudFileAvatar(
+                    file: _picture,
+                    fallbackIcon: Symbols.workspaces,
+                    size: 72,
                   ),
                 ),
-                const SizedBox(height: 16),
-                if (profile?.name.isNotEmpty == true) ...[
-                  Card(
-                    child: CheckboxListTile(
-                      value: usePersonalDetails,
-                      title: const Text('Use my personal workspace details'),
-                      subtitle: Text(
-                        'Uses @${profile!.name} and your profile nick.',
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Workspace icon', style: text.titleSmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Shown in the workspace list and gate.',
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                      onChanged: type == 0
-                          ? (selected) => setState(() {
-                              usePersonalDetails = selected ?? false;
-                              if (usePersonalDetails) {
-                                slug.text = profile.name;
-                                name.text = profile.solWattDisplayName;
-                                description.text =
-                                    "${profile.solWattDisplayName}'s personal workspace";
-                              }
-                            })
-                          : null,
-                    ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          TextButton.icon(
+                            onPressed: _pickPicture,
+                            icon: const Icon(Symbols.upload, size: 18),
+                            label: Text(
+                              _picture == null ? 'Upload' : 'Change',
+                            ),
+                          ),
+                          if (_picture != null)
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _picture = null;
+                                _pictureChanged = true;
+                              }),
+                              child: const Text('Clear'),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                ],
+                ),
               ],
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CloudFileAvatar(
+                file: _background,
+                fallbackIcon: Symbols.wallpaper,
+                size: 40,
+              ),
+              title: const Text('Background image'),
+              subtitle: Text(
+                _background == null ? 'Optional' : _background!.name,
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_background != null)
+                    IconButton(
+                      tooltip: 'Clear background',
+                      icon: const Icon(Symbols.close),
+                      onPressed: () => setState(() {
+                        _background = null;
+                        _backgroundChanged = true;
+                      }),
+                    ),
+                  IconButton(
+                    tooltip: 'Choose background',
+                    icon: const Icon(Symbols.upload),
+                    onPressed: _pickBackground,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (workspace == null) ...[
               TextField(
-                controller: name,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  prefixIcon: Icon(Symbols.badge),
+                controller: _slug,
+                decoration: InputDecoration(
+                  labelText: 'Slug',
+                  hintText: 'my-team',
+                  prefixIcon: inputPrefixIcon(Symbols.link),
                 ),
               ),
               const SizedBox(height: 16),
-              TextField(
-                controller: description,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  alignLabelWithHint: true,
-                  prefixIcon: Icon(Symbols.notes),
-                ),
-                maxLines: 4,
-              ),
-              if (workspace == null) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  initialValue: type,
-                  decoration: const InputDecoration(
-                    labelText: 'Workspace type',
-                    prefixIcon: Icon(Symbols.category),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 0, child: Text('Individual')),
-                    DropdownMenuItem(value: 1, child: Text('Organization')),
-                  ],
-                  onChanged: (value) => setState(() {
-                    type = value ?? 0;
-                    if (type != 0) usePersonalDetails = false;
-                  }),
-                ),
-              ],
-              const SizedBox(height: 28),
-              FilledButton(
-                onPressed: () {
-                  final slugText = slug.text.trim();
-                  final nameText = name.text.trim();
-                  if (workspace == null && slugText.isEmpty) {
-                    showSnackBar('Slug is required.');
-                    return;
-                  }
-                  if (nameText.isEmpty) {
-                    showSnackBar('Name is required.');
-                    return;
-                  }
-                  Navigator.pop(
-                    context,
-                    WorkspaceDraft(
-                      slugText,
-                      nameText,
-                      description.text.trim().isEmpty
-                          ? null
-                          : description.text.trim(),
-                      type,
+              if (profile?.name.isNotEmpty == true) ...[
+                Card(
+                  child: CheckboxListTile(
+                    value: _usePersonalDetails,
+                    title: const Text('Use my personal workspace details'),
+                    subtitle: Text(
+                      'Uses @${profile!.name} and your profile nick.',
                     ),
-                  );
-                },
-                child: Text(
-                  workspace == null ? 'Create workspace' : 'Save changes',
+                    onChanged: _type == 0
+                        ? (selected) => setState(() {
+                            _usePersonalDetails = selected ?? false;
+                            if (_usePersonalDetails) {
+                              _slug.text = profile.name;
+                              _name.text = profile.solWattDisplayName;
+                              _description.text =
+                                  "${profile.solWattDisplayName}'s personal workspace";
+                            }
+                          })
+                        : null,
+                  ),
                 ),
+                const SizedBox(height: 16),
+              ],
+            ],
+            TextField(
+              controller: _name,
+              decoration: InputDecoration(
+                labelText: 'Name',
+                prefixIcon: inputPrefixIcon(Symbols.badge),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _description,
+              decoration: InputDecoration(
+                labelText: 'Description',
+                alignLabelWithHint: true,
+                prefixIcon: inputPrefixIcon(Symbols.notes),
+              ),
+              maxLines: 4,
+            ),
+            if (workspace == null) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int>(
+                initialValue: _type,
+                decoration: InputDecoration(
+                  labelText: 'Workspace type',
+                  prefixIcon: inputPrefixIcon(Symbols.category),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('Individual')),
+                  DropdownMenuItem(value: 1, child: Text('Organization')),
+                ],
+                onChanged: (value) => setState(() {
+                  _type = value ?? 0;
+                  if (_type != 0) _usePersonalDetails = false;
+                }),
               ),
             ],
-          ),
+            const SizedBox(height: 28),
+            FilledButton(
+              onPressed: _submit,
+              child: Text(
+                workspace == null ? 'Create workspace' : 'Save changes',
+              ),
+            ),
+          ],
         ),
       ),
-    ),
-  ).whenComplete(() {
-    slug.dispose();
-    name.dispose();
-    description.dispose();
-  });
+    );
+  }
 }
 
 /// Compact list of workspaces used by the gate and profile screens.
@@ -393,11 +922,27 @@ class WorkspaceList extends ConsumerWidget {
                   ),
                   child: Row(
                     children: [
-                      IconBadge(
-                        icon: isActive
-                            ? Symbols.check_circle
-                            : Symbols.workspaces,
-                        selected: isActive,
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          CloudFileAvatar(
+                            file: workspace.picture,
+                            fallbackIcon: Symbols.workspaces,
+                            size: 44,
+                            selected: isActive,
+                          ),
+                          if (isActive)
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: Icon(
+                                Symbols.check_circle,
+                                size: 16,
+                                color: scheme.primary,
+                                fill: 1,
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -448,6 +993,8 @@ class WorkspaceList extends ConsumerWidget {
                             switch (value) {
                               case 'quota':
                                 showWorkspaceQuota(context, ref, workspace);
+                              case 'members':
+                                showWorkspaceMembers(context, workspace);
                               case 'edit':
                                 editWorkspaceAction(context, ref, workspace);
                               case 'delete':
@@ -461,6 +1008,14 @@ class WorkspaceList extends ConsumerWidget {
                                 contentPadding: EdgeInsets.zero,
                                 leading: Icon(Symbols.monitoring),
                                 title: Text('View quotas'),
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'members',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Symbols.group),
+                                title: Text('Manage members'),
                               ),
                             ),
                             const PopupMenuItem(

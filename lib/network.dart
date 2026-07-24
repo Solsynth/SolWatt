@@ -284,6 +284,8 @@ class WattEngineClient {
     required String name,
     String? description,
     required int type,
+    String? pictureId,
+    String? backgroundId,
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
@@ -293,6 +295,8 @@ class WattEngineClient {
         'name': name,
         'description': description,
         'type': type,
+        'picture_id': ?pictureId,
+        'background_id': ?backgroundId,
       },
     );
     return Workspace.fromJson(response.data!);
@@ -302,17 +306,82 @@ class WattEngineClient {
     required String slug,
     required String name,
     String? description,
+    String? pictureId,
+    bool updatePicture = false,
+    String? backgroundId,
+    bool updateBackground = false,
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'PATCH',
       '/value/workspaces/$slug',
-      data: {'name': name, 'description': description},
+      data: {
+        'name': name,
+        'description': description,
+        // Null clears the image when the backend treats null as clear.
+        if (updatePicture) 'picture_id': pictureId,
+        if (updateBackground) 'background_id': backgroundId,
+      },
     );
     return Workspace.fromJson(response.data!);
   }
 
   Future<void> deleteWorkspace(String slug) =>
       _request<void>('DELETE', '/value/workspaces/$slug');
+
+  Future<List<WorkspaceMember>> listWorkspaceMembers(String slug) async {
+    final response = await _get<List<dynamic>>(
+      '/value/workspaces/$slug/members',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => WorkspaceMember.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<WorkspaceMember> inviteWorkspaceMember({
+    required String slug,
+    required String accountId,
+    required int role,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/value/workspaces/$slug/members/invite',
+      data: {'account_id': accountId, 'role': role},
+    );
+    return WorkspaceMember.fromJson(response.data!);
+  }
+
+  Future<WorkspaceMember> updateWorkspaceMemberRole({
+    required String slug,
+    required String accountId,
+    required int role,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/value/workspaces/$slug/members/$accountId',
+      data: {'role': role},
+    );
+    return WorkspaceMember.fromJson(response.data!);
+  }
+
+  Future<void> removeWorkspaceMember({
+    required String slug,
+    required String accountId,
+  }) => _request<void>('DELETE', '/value/workspaces/$slug/members/$accountId');
+
+  Future<List<SnAccount>> searchAccounts(String query) async {
+    if (query.trim().isEmpty) return const [];
+    final response = await _get<List<dynamic>>(
+      '/passport/accounts/search',
+      queryParameters: {'query': query.trim()},
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => SnAccount.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
 
   Future<WorkspaceQuota> getWorkspaceQuota(String slug) async {
     final response = await _get<Map<String, dynamic>>(
@@ -327,7 +396,7 @@ class WattEngineClient {
       '/ideask/broads',
       queryParameters: workspaceId == null
           ? null
-          : {'workspaceId': workspaceId},
+          : {'workspace_id': workspaceId},
     );
     return (response.data ?? const [])
         .whereType<Map>()
@@ -335,21 +404,55 @@ class WattEngineClient {
         .toList();
   }
 
-  Future<void> createBroad(
-    String name,
+  Future<void> createBroad({
+    required String name,
     String? description,
-    String workspaceId,
-  ) => _request<void>(
+    String? content,
+    required String workspaceId,
+    String? backgroundImageId,
+    String? iconImageId,
+    int visibility = 0,
+  }) => _request<void>(
     'POST',
     '/ideask/broads',
     data: {
       'name': name,
       'description': description,
-      'content': '',
-      'visibility': 0,
-      'workspaceId': workspaceId,
+      'content': content ?? '',
+      'visibility': visibility,
+      'workspace_id': workspaceId,
+      'background_image_id': ?backgroundImageId,
+      'icon_image_id': ?iconImageId,
     },
   );
+
+  Future<Broad> updateBroad({
+    required String broadId,
+    required String name,
+    String? description,
+    String? content,
+    String? workspaceId,
+    String? backgroundImageId,
+    bool updateBackgroundImage = false,
+    String? iconImageId,
+    bool updateIconImage = false,
+    int? visibility,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/broads/$broadId',
+      data: {
+        'name': name,
+        'description': description,
+        'content': content,
+        'workspace_id': ?workspaceId,
+        'visibility': ?visibility,
+        if (updateBackgroundImage) 'background_image_id': backgroundImageId,
+        if (updateIconImage) 'icon_image_id': iconImageId,
+      },
+    );
+    return Broad.fromJson(response.data!);
+  }
 
   Future<List<WorkTask>> listTasks(String broadId) async {
     final response = await _get<List<dynamic>>('/ideask/broads/$broadId/tasks');
@@ -359,17 +462,129 @@ class WattEngineClient {
         .toList();
   }
 
-  Future<void> createTask(String broadId, WorkTaskDraft task) => _request<void>(
-    'POST',
-    '/ideask/broads/$broadId/tasks',
-    data: task.toJson(),
-  );
+  Future<WorkTask> getTask(String taskId) async {
+    final response = await _get<Map<String, dynamic>>('/ideask/tasks/$taskId');
+    return WorkTask.fromJson(response.data ?? const {});
+  }
 
-  Future<void> updateTask(String taskId, WorkTaskDraft task) =>
-      _request<void>('PATCH', '/ideask/tasks/$taskId', data: task.toJson());
+  Future<WorkTask> createTask(String broadId, WorkTaskDraft task) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/broads/$broadId/tasks',
+      data: task.toCreateJson(),
+    );
+    return WorkTask.fromJson(response.data ?? const {});
+  }
+
+  Future<WorkTask> updateTask(String taskId, WorkTaskDraft task) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/tasks/$taskId',
+      data: task.toUpdateJson(),
+    );
+    return WorkTask.fromJson(response.data ?? const {});
+  }
 
   Future<void> deleteTask(String taskId) =>
       _request<void>('DELETE', '/ideask/tasks/$taskId');
+
+  Future<void> setTaskAssignees(
+    String taskId,
+    List<String> assigneeAccountIds,
+  ) => _request<void>(
+    'POST',
+    '/ideask/tasks/$taskId/assignees',
+    data: {'assignee_account_ids': assigneeAccountIds},
+  );
+
+  Future<void> unassignTask(String taskId, String assigneeAccountId) =>
+      _request<void>(
+        'DELETE',
+        '/ideask/tasks/$taskId/assignees/$assigneeAccountId',
+      );
+
+  Future<List<TaskGroup>> listTaskGroups(String broadId) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/broads/$broadId/groups',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => TaskGroup.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaskGroup> createTaskGroup(
+    String broadId, {
+    required String name,
+    int? position,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/broads/$broadId/groups',
+      data: {'name': name, 'position': ?position},
+    );
+    return TaskGroup.fromJson(response.data ?? const {});
+  }
+
+  Future<TaskGroup> updateTaskGroup(
+    String groupId, {
+    required String name,
+    int? position,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/task-groups/$groupId',
+      data: {'name': name, 'position': ?position},
+    );
+    return TaskGroup.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteTaskGroup(String groupId) =>
+      _request<void>('DELETE', '/ideask/task-groups/$groupId');
+
+  /// Uploads a file via the Drive direct-upload endpoint (≤ ~20 MB).
+  Future<SnCloudFile> uploadCloudFile({
+    required List<int> bytes,
+    required String fileName,
+    String? contentType,
+    String? usage,
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
+    final client = await _authenticatedSdk();
+    try {
+      return await client.drive.directUpload(
+        fileBytes: bytes,
+        fileName: fileName,
+        contentType: contentType,
+        usage: usage,
+        onSendProgress: onSendProgress,
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<SolarNetworkClient> _authenticatedSdk() async {
+    final session = await _authenticator.validSession();
+    if (session == null) {
+      throw const OAuthException(
+        'Sign in is required to access Solar Network.',
+      );
+    }
+    final dio = _createLoggedDio(
+      BaseOptions(
+        baseUrl: _issuer,
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(minutes: 2),
+        sendTimeout: const Duration(minutes: 5),
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ${session.accessToken}',
+        },
+      ),
+    );
+    return SolarNetworkClient.fromDio(dio);
+  }
 
   Future<Response<T>> _get<T>(
     String path, {
@@ -437,16 +652,28 @@ class Workspace {
     required this.slug,
     required this.name,
     this.description,
+    this.type = 0,
+    this.picture,
+    this.background,
+    this.plan = 0,
   });
   final String id;
   final String slug;
   final String name;
   final String? description;
+  final int type;
+  final SnCloudFileReference? picture;
+  final SnCloudFileReference? background;
+  final int plan;
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
     id: json['id']?.toString() ?? '',
     slug: json['slug']?.toString() ?? '',
     name: json['name']?.toString() ?? 'Untitled workspace',
     description: json['description']?.toString(),
+    type: (json['type'] as num?)?.toInt() ?? 0,
+    picture: parseCloudFileReference(json['picture']),
+    background: parseCloudFileReference(json['background']),
+    plan: (json['plan'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -460,24 +687,121 @@ class WorkspaceQuota {
   );
 }
 
+class WorkspaceMember {
+  const WorkspaceMember({
+    required this.id,
+    required this.accountId,
+    required this.role,
+    this.displayName,
+    this.username,
+  });
+
+  final String id;
+  final String accountId;
+  final int role;
+  final String? displayName;
+  final String? username;
+
+  factory WorkspaceMember.fromJson(Map<String, dynamic> json) {
+    final account = json['account'] as Map?;
+    return WorkspaceMember(
+      id: json['id']?.toString() ?? '',
+      accountId: json['account_id']?.toString() ?? '',
+      role: (json['role'] as num?)?.toInt() ?? 25,
+      displayName:
+          account?['nick']?.toString() ?? json['account_nick']?.toString(),
+      username:
+          account?['name']?.toString() ?? json['account_name']?.toString(),
+    );
+  }
+
+  String get label =>
+      displayName ??
+      (username != null ? '@$username' : 'Account ${_shortId(accountId)}');
+}
+
+String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
+
 class Broad {
   const Broad({
     required this.id,
     required this.name,
     this.description,
+    this.content,
     this.workspaceId,
+    this.visibility = 0,
+    this.backgroundImage,
+    this.iconImage,
   });
   final String id;
   final String name;
   final String? description;
+  final String? content;
   final String? workspaceId;
+  final int visibility;
+  final SnCloudFileReference? backgroundImage;
+  final SnCloudFileReference? iconImage;
   factory Broad.fromJson(Map<String, dynamic> json) => Broad(
     id: json['id']?.toString() ?? '',
     name: (json['name'] ?? json['title'])?.toString() ?? 'Untitled board',
     description: json['description']?.toString(),
-    workspaceId:
-        json['workspaceId']?.toString() ?? json['workspace_id']?.toString(),
+    content: json['content']?.toString(),
+    workspaceId: json['workspace_id']?.toString(),
+    visibility: (json['visibility'] as num?)?.toInt() ?? 0,
+    backgroundImage: parseCloudFileReference(json['background_image']),
+    iconImage: parseCloudFileReference(json['icon_image']),
   );
+}
+
+class TaskGroup {
+  const TaskGroup({
+    required this.id,
+    required this.name,
+    required this.broadId,
+    this.position = 0,
+  });
+
+  final String id;
+  final String name;
+  final String broadId;
+  final int position;
+
+  factory TaskGroup.fromJson(Map<String, dynamic> json) => TaskGroup(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Untitled group',
+    broadId: json['broad_id']?.toString() ?? '',
+    position: (json['position'] as num?)?.toInt() ?? 0,
+  );
+}
+
+class TaskAssignee {
+  const TaskAssignee({
+    required this.id,
+    required this.accountId,
+    this.displayName,
+    this.username,
+  });
+
+  final String id;
+  final String accountId;
+  final String? displayName;
+  final String? username;
+
+  String get label =>
+      displayName ??
+      (username != null ? '@$username' : 'Account ${_shortId(accountId)}');
+
+  factory TaskAssignee.fromJson(Map<String, dynamic> json) {
+    final account = json['account'] as Map?;
+    return TaskAssignee(
+      id: json['id']?.toString() ?? '',
+      accountId: json['account_id']?.toString() ?? '',
+      displayName:
+          account?['nick']?.toString() ?? json['account_nick']?.toString(),
+      username:
+          account?['name']?.toString() ?? json['account_name']?.toString(),
+    );
+  }
 }
 
 class WorkTask {
@@ -485,17 +809,80 @@ class WorkTask {
     required this.id,
     required this.name,
     this.description,
+    this.content,
+    this.attachments = const [],
+    this.tags = const [],
     this.priority = 0,
+    this.deadlineAt,
+    this.completedAt,
+    this.completeReason,
+    this.broadId,
+    this.parentTaskId,
+    this.groupId,
+    this.assignees = const [],
   });
   final String id;
   final String name;
   final String? description;
+  final String? content;
+  final List<SnCloudFileReference> attachments;
+  final List<String> tags;
   final int priority;
+  final DateTime? deadlineAt;
+  final DateTime? completedAt;
+  final int? completeReason;
+  final String? broadId;
+  final String? parentTaskId;
+  final String? groupId;
+  final List<TaskAssignee> assignees;
+
+  bool get isCompleted => completedAt != null || completeReason != null;
+
+  List<String> get assigneeAccountIds =>
+      assignees.map((item) => item.accountId).toList(growable: false);
+
+  WorkTask withGroupId(String? groupId) => WorkTask(
+    id: id,
+    name: name,
+    description: description,
+    content: content,
+    attachments: attachments,
+    tags: tags,
+    priority: priority,
+    deadlineAt: deadlineAt,
+    completedAt: completedAt,
+    completeReason: completeReason,
+    broadId: broadId,
+    parentTaskId: parentTaskId,
+    groupId: groupId,
+    assignees: assignees,
+  );
+
   factory WorkTask.fromJson(Map<String, dynamic> json) => WorkTask(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? 'Untitled task',
     description: json['description']?.toString(),
+    content: json['content']?.toString(),
+    attachments: parseCloudFileReferenceList(json['attachments']),
+    tags: (json['tags'] as List?)
+            ?.map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList() ??
+        const [],
     priority: (json['priority'] as num?)?.toInt() ?? 0,
+    deadlineAt: parseInstant(json['deadline_at']),
+    completedAt: parseInstant(json['completed_at']),
+    completeReason: (json['complete_reason'] as num?)?.toInt(),
+    broadId: json['broad_id']?.toString(),
+    parentTaskId: json['parent_task_id']?.toString(),
+    groupId: json['group_id']?.toString(),
+    assignees: (json['assignees'] as List?)
+            ?.whereType<Map>()
+            .map(
+              (item) => TaskAssignee.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .toList() ??
+        const [],
   );
 }
 
@@ -503,22 +890,113 @@ class WorkTaskDraft {
   const WorkTaskDraft({
     required this.name,
     this.description,
+    this.content,
     this.priority = 0,
+    this.attachmentIds = const [],
+    this.tags,
+    this.deadlineAt,
+    this.completeReason,
+    this.groupId,
+    this.ungroup,
+    this.parentTaskId,
+    this.assigneeAccountIds = const [],
   });
   final String name;
   final String? description;
+  final String? content;
   final int priority;
-  Map<String, dynamic> toJson() => {
+  final List<String> attachmentIds;
+  final List<String>? tags;
+  final DateTime? deadlineAt;
+  final int? completeReason;
+  final String? groupId;
+  final bool? ungroup;
+  final String? parentTaskId;
+  final List<String> assigneeAccountIds;
+
+  Map<String, dynamic> toCreateJson() => {
     'name': name,
     'description': description,
-    'content': '',
-    'attachmentIds': const [],
+    'content': content ?? '',
+    'attachment_ids': attachmentIds,
     'priority': priority,
-    'deadlineAt': null,
-    'parentTaskId': null,
-    'assigneeAccountIds': const [],
+    'deadline_at': deadlineAt?.toUtc().toIso8601String(),
+    'parent_task_id': parentTaskId,
+    'assignee_account_ids': assigneeAccountIds,
+    'group_id': ?groupId,
+    'tags': ?tags,
+  };
+
+  Map<String, dynamic> toUpdateJson() => {
+    'name': name,
+    'description': description,
+    'content': content,
+    'attachment_ids': attachmentIds,
+    'priority': priority,
+    'deadline_at': deadlineAt?.toUtc().toIso8601String(),
+    'complete_reason': ?completeReason,
+    'group_id': ?groupId,
+    if (ungroup == true) 'ungroup': true,
+    'tags': ?tags,
   };
 }
+
+/// Resolves a display URL for a cloud file reference.
+String cloudFileDisplayUrl(IDisplayableCloudFile file) =>
+    file.storageUrl ?? '$_issuer/drive/files/${file.id}';
+
+SnCloudFileReference? parseCloudFileReference(dynamic value) {
+  if (value is! Map) return null;
+  try {
+    return SnCloudFileReference.fromJson(Map<String, dynamic>.from(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+List<SnCloudFileReference> parseCloudFileReferenceList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .map(parseCloudFileReference)
+      .whereType<SnCloudFileReference>()
+      .toList(growable: false);
+}
+
+DateTime? parseInstant(dynamic value) {
+  if (value == null) return null;
+  if (value is num) {
+    final n = value.toInt();
+    // Heuristic: values beyond year ~2001 in ms are treated as milliseconds.
+    if (n > 1000000000000) {
+      return DateTime.fromMillisecondsSinceEpoch(n, isUtc: true).toLocal();
+    }
+    return DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true).toLocal();
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value)?.toLocal();
+  }
+  return null;
+}
+
+/// Builds a lightweight [SnCloudFileReference] from a full [SnCloudFile]
+/// (e.g. after a successful upload) for local UI state.
+SnCloudFileReference cloudFileToReference(SnCloudFile file) =>
+    SnCloudFileReference(
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      storageUrl: file.storageUrl,
+      size: file.size,
+      hash: file.hash ?? '',
+      fileMeta: file.fileMeta,
+      userMeta: file.userMeta,
+      sensitiveMarks: file.sensitiveMarks,
+      width: file.width,
+      height: file.height,
+      blur: file.blurhash,
+      usage: file.usage,
+      applicationType: file.applicationType,
+    );
 
 final secureStorageProvider = Provider((ref) => const FlutterSecureStorage());
 final authenticatorProvider = Provider(
@@ -618,6 +1096,11 @@ final broadsProvider = FutureProvider<List<Broad>>((ref) async {
 final tasksProvider = FutureProvider.family<List<WorkTask>, String>(
   (ref, broadId) async =>
       ref.watch(wattEngineClientProvider).listTasks(broadId),
+);
+
+final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(
+  (ref, broadId) async =>
+      ref.watch(wattEngineClientProvider).listTaskGroups(broadId),
 );
 
 /// Makes the shared Solar Network SDK available for service APIs that it
