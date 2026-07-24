@@ -43,6 +43,22 @@ class BoardsRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [GatePage]
+class GateRoute extends PageRouteInfo<void> {
+  const GateRoute({List<PageRouteInfo>? children})
+    : super(GateRoute.name, initialChildren: children);
+
+  static const String name = 'GateRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const GatePage();
+    },
+  );
+}
+
+/// generated route for
 /// [HomePage]
 class HomeRoute extends PageRouteInfo<void> {
   const HomeRoute({List<PageRouteInfo>? children})
@@ -88,4 +104,69 @@ class SettingsRoute extends PageRouteInfo<void> {
       return const SettingsPage();
     },
   );
+}
+
+/// generated route for
+/// [TaskBoardPage]
+class TaskBoardRoute extends PageRouteInfo<TaskBoardRouteArgs> {
+  TaskBoardRoute({
+    Key? key,
+    required String broadId,
+    required String broadName,
+    List<PageRouteInfo>? children,
+  }) : super(
+         TaskBoardRoute.name,
+         args: TaskBoardRouteArgs(
+           key: key,
+           broadId: broadId,
+           broadName: broadName,
+         ),
+         rawPathParams: {'broadId': broadId},
+         initialChildren: children,
+       );
+
+  static const String name = 'TaskBoardRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final args = data.argsAs<TaskBoardRouteArgs>();
+      return TaskBoardPage(
+        key: args.key,
+        broadId: args.broadId,
+        broadName: args.broadName,
+      );
+    },
+  );
+}
+
+class TaskBoardRouteArgs {
+  const TaskBoardRouteArgs({
+    this.key,
+    required this.broadId,
+    required this.broadName,
+  });
+
+  final Key? key;
+
+  final String broadId;
+
+  final String broadName;
+
+  @override
+  String toString() {
+    return 'TaskBoardRouteArgs{key: $key, broadId: $broadId, broadName: $broadName}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! TaskBoardRouteArgs) return false;
+    return key == other.key &&
+        broadId == other.broadId &&
+        broadName == other.broadName;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ broadId.hashCode ^ broadName.hashCode;
 }

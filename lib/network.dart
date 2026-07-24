@@ -171,21 +171,21 @@ class SolarNetworkAuthenticator {
   Future<void> clear() => _storage.delete(key: _storageKey);
 
   /// Reads the signed-in Solar Network profile using the current access token.
-  Future<OAuthUser?> getUserInfo() async {
+  Future<SnAccount?> getCurrentAccount() async {
     final session = await validSession();
     if (session == null) return null;
-    final client = _createLoggedDio();
-    final options = Options(
-      headers: {'Authorization': 'Bearer ${session.accessToken}'},
+    final dio = _createLoggedDio(
+      BaseOptions(
+        baseUrl: _issuer,
+        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+      ),
     );
-    // Island reads this endpoint for the signed-in account. It contains the
-    // profile picture reference required by the settings avatar.
-    final accountResponse = await client.get<Map<String, dynamic>>(
-      '$_issuer/passport/accounts/me',
-      options: options,
-    );
-    final accountData = accountResponse.data;
-    return accountData == null ? null : OAuthUser.fromJson(accountData);
+    final client = SolarNetworkClient.fromDio(dio);
+    try {
+      return await client.accounts.getCurrentAccount();
+    } finally {
+      client.close();
+    }
   }
 
   Future<_OidcConfiguration> _discover() async {
@@ -245,60 +245,12 @@ class OAuthException implements Exception {
   String toString() => message;
 }
 
-class OAuthUser {
-  const OAuthUser({
-    required this.id,
-    this.username,
-    this.name,
-    this.email,
-    this.avatarUrl,
-  });
-
-  final String id;
-  final String? username;
-  final String? name;
-  final String? email;
-  final String? avatarUrl;
-
-  String get displayName => name?.trim().isNotEmpty == true
-      ? name!.trim()
-      : email?.trim().isNotEmpty == true
-      ? email!.trim()
-      : id;
-
-  factory OAuthUser.fromJson(Map<String, dynamic> json) {
-    String? textValue(String key) {
-      final value = json[key]?.toString().trim();
-      return value == null || value.isEmpty ? null : value;
-    }
-
-    final profile = json['profile'];
-    final picture = profile is Map ? profile['picture'] : null;
-    final pictureUrl = picture is Map
-        ? picture['url']?.toString() ??
-              picture['storage_url']?.toString() ??
-              (picture['id'] == null
-                  ? null
-                  : '$_issuer/drive/files/${picture['id']}')
-        : picture is String
-        ? picture
-        : null;
-
-    return OAuthUser(
-      id: textValue('id') ?? textValue('sub') ?? '',
-      username: textValue('name') ?? textValue('preferred_username'),
-      name:
-          textValue('nick') ??
-          textValue('name') ??
-          textValue('preferred_username'),
-      email: textValue('email'),
-      // OIDC commonly uses `picture`; accept Solar Network-compatible aliases.
-      avatarUrl:
-          pictureUrl ??
-          textValue('picture') ??
-          textValue('avatar_url') ??
-          textValue('avatar'),
-    );
+extension SnAccountUi on SnAccount {
+  String get solWattDisplayName => nick.isNotEmpty ? nick : '@$name';
+  String? get solWattAvatarUrl {
+    final picture = profilePicture;
+    if (picture == null) return null;
+    return picture.storageUrl ?? '$_issuer/drive/files/${picture.id}';
   }
 }
 
@@ -382,6 +334,42 @@ class WattEngineClient {
         .map((item) => Broad.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
+
+  Future<void> createBroad(
+    String name,
+    String? description,
+    String workspaceId,
+  ) => _request<void>(
+    'POST',
+    '/ideask/broads',
+    data: {
+      'name': name,
+      'description': description,
+      'content': '',
+      'visibility': 0,
+      'workspaceId': workspaceId,
+    },
+  );
+
+  Future<List<WorkTask>> listTasks(String broadId) async {
+    final response = await _get<List<dynamic>>('/ideask/broads/$broadId/tasks');
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => WorkTask.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<void> createTask(String broadId, WorkTaskDraft task) => _request<void>(
+    'POST',
+    '/ideask/broads/$broadId/tasks',
+    data: task.toJson(),
+  );
+
+  Future<void> updateTask(String taskId, WorkTaskDraft task) =>
+      _request<void>('PATCH', '/ideask/tasks/$taskId', data: task.toJson());
+
+  Future<void> deleteTask(String taskId) =>
+      _request<void>('DELETE', '/ideask/tasks/$taskId');
 
   Future<Response<T>> _get<T>(
     String path, {
@@ -473,15 +461,63 @@ class WorkspaceQuota {
 }
 
 class Broad {
-  const Broad({required this.id, required this.name, this.description});
+  const Broad({
+    required this.id,
+    required this.name,
+    this.description,
+    this.workspaceId,
+  });
   final String id;
   final String name;
   final String? description;
+  final String? workspaceId;
   factory Broad.fromJson(Map<String, dynamic> json) => Broad(
     id: json['id']?.toString() ?? '',
     name: (json['name'] ?? json['title'])?.toString() ?? 'Untitled board',
     description: json['description']?.toString(),
+    workspaceId:
+        json['workspaceId']?.toString() ?? json['workspace_id']?.toString(),
   );
+}
+
+class WorkTask {
+  const WorkTask({
+    required this.id,
+    required this.name,
+    this.description,
+    this.priority = 0,
+  });
+  final String id;
+  final String name;
+  final String? description;
+  final int priority;
+  factory WorkTask.fromJson(Map<String, dynamic> json) => WorkTask(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Untitled task',
+    description: json['description']?.toString(),
+    priority: (json['priority'] as num?)?.toInt() ?? 0,
+  );
+}
+
+class WorkTaskDraft {
+  const WorkTaskDraft({
+    required this.name,
+    this.description,
+    this.priority = 0,
+  });
+  final String name;
+  final String? description;
+  final int priority;
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'description': description,
+    'content': '',
+    'attachmentIds': const [],
+    'priority': priority,
+    'deadlineAt': null,
+    'parentTaskId': null,
+    'assigneeAccountIds': const [],
+  };
 }
 
 final secureStorageProvider = Provider((ref) => const FlutterSecureStorage());
@@ -494,19 +530,95 @@ final wattEngineClientProvider = Provider(
 final authSessionProvider = FutureProvider<OAuthSession?>(
   (ref) => ref.watch(authenticatorProvider).validSession(),
 );
-final userInfoProvider = FutureProvider<OAuthUser?>((ref) async {
+final userInfoProvider = FutureProvider<SnAccount?>((ref) async {
   final session = await ref.watch(authSessionProvider.future);
   if (session == null) return null;
-  return ref.watch(authenticatorProvider).getUserInfo();
+  return ref.watch(authenticatorProvider).getCurrentAccount();
 });
+
+const _selectedWorkspaceKey = 'selected_workspace_id';
+
+/// Whether the user may use product features: signed in with an active workspace.
+enum AppAccess { loading, needsSignIn, needsWorkspace, ready }
+
+final appAccessProvider = Provider<AsyncValue<AppAccess>>((ref) {
+  final session = ref.watch(authSessionProvider);
+  return session.when(
+    loading: () => const AsyncValue.loading(),
+    error: AsyncValue.error,
+    data: (value) {
+      if (value == null) {
+        return const AsyncValue.data(AppAccess.needsSignIn);
+      }
+      final workspace = ref.watch(selectedWorkspaceProvider);
+      return workspace.when(
+        loading: () => const AsyncValue.loading(),
+        error: AsyncValue.error,
+        data: (selected) => AsyncValue.data(
+          selected == null ? AppAccess.needsWorkspace : AppAccess.ready,
+        ),
+      );
+    },
+  );
+});
+
+final selectedWorkspaceProvider = FutureProvider<Workspace?>((ref) async {
+  final session = await ref.watch(authSessionProvider.future);
+  if (session == null) return null;
+  final id = await ref
+      .watch(secureStorageProvider)
+      .read(key: _selectedWorkspaceKey);
+  if (id == null || id.isEmpty) return null;
+  final workspaces = await ref.watch(wattEngineClientProvider).listWorkspaces();
+  return workspaces.where((workspace) => workspace.id == id).firstOrNull;
+});
+
+Future<void> selectWorkspace(
+  FlutterSecureStorage storage,
+  Workspace workspace,
+) => storage.write(key: _selectedWorkspaceKey, value: workspace.id);
+
+Future<void> clearSelectedWorkspace(FlutterSecureStorage storage) =>
+    storage.delete(key: _selectedWorkspaceKey);
+
+/// Invalidates session-scoped providers after sign-in, sign-out, or workspace change.
+void invalidateSessionScope(WidgetRef ref) {
+  ref.invalidate(authSessionProvider);
+  ref.invalidate(userInfoProvider);
+  ref.invalidate(workspacesProvider);
+  ref.invalidate(selectedWorkspaceProvider);
+  ref.invalidate(broadsProvider);
+}
+
+void invalidateWorkspaceScope(WidgetRef ref) {
+  ref.invalidate(selectedWorkspaceProvider);
+  ref.invalidate(broadsProvider);
+}
+
 final workspacesProvider = FutureProvider<List<Workspace>>((ref) async {
-  await ref.watch(authSessionProvider.future);
+  final session = await ref.watch(authSessionProvider.future);
+  if (session == null) return const [];
   return ref.watch(wattEngineClientProvider).listWorkspaces();
 });
+
 final broadsProvider = FutureProvider<List<Broad>>((ref) async {
-  await ref.watch(authSessionProvider.future);
-  return ref.watch(wattEngineClientProvider).listBroads();
+  final workspace = await ref.watch(selectedWorkspaceProvider.future);
+  if (workspace == null) return const [];
+  final broads = await ref
+      .watch(wattEngineClientProvider)
+      .listBroads(workspaceId: workspace.id);
+  return broads
+      .where(
+        (broad) =>
+            broad.workspaceId == null || broad.workspaceId == workspace.id,
+      )
+      .toList();
 });
+
+final tasksProvider = FutureProvider.family<List<WorkTask>, String>(
+  (ref, broadId) async =>
+      ref.watch(wattEngineClientProvider).listTasks(broadId),
+);
 
 /// Makes the shared Solar Network SDK available for service APIs that it
 /// already models; the WattEngine routes above use the same bearer session.
