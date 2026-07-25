@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 
@@ -91,32 +92,14 @@ Future<void> deleteWorkspaceAction(
   WidgetRef ref,
   Workspace workspace,
 ) async {
-  final scheme = Theme.of(context).colorScheme;
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      icon: Icon(Symbols.delete, color: scheme.error),
-      title: Text('Delete ${workspace.name}?'),
-      content: const Text(
-        'This permanently deletes the workspace and its data.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
+  final confirmed = await showConfirmAlert(
+    'This permanently deletes the workspace and its data.',
+    'Delete ${workspace.name}?',
+    icon: Symbols.delete,
+    isDanger: true,
+    confirmLabel: 'Delete',
   );
-  if (confirmed != true) return;
+  if (!confirmed) return;
   try {
     final selected = await ref.read(selectedWorkspaceProvider.future);
     await ref.read(wattEngineClientProvider).deleteWorkspace(workspace.slug);
@@ -184,29 +167,15 @@ class _WorkspacePlanQuotaSheetState
   }
 
   Future<void> _assignBundled() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Assign bundled Pro?'),
-        content: Text(
-          'Apply your Solarpass perk Pro plan to '
-          '${widget.workspace.name}? '
-          'You can only assign it to one workspace at a time. '
-          'Moving it later has a 7-day cooldown.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Assign Pro'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      'Apply your Solarpass perk Pro plan to '
+      '${widget.workspace.name}? '
+      'You can only assign it to one workspace at a time. '
+      'Moving it later has a 7-day cooldown.',
+      'Assign bundled Pro?',
+      confirmLabel: 'Assign Pro',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await _runPlanAction(
       () => ref
           .read(wattEngineClientProvider)
@@ -216,27 +185,13 @@ class _WorkspacePlanQuotaSheetState
   }
 
   Future<void> _unassignBundled() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove bundled Pro?'),
-        content: Text(
-          '${widget.workspace.name} will return to the Free plan and '
-          'lower resource limits.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Unassign'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      '${widget.workspace.name} will return to the Free plan and '
+      'lower resource limits.',
+      'Remove bundled Pro?',
+      confirmLabel: 'Unassign',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await _runPlanAction(
       () => ref
           .read(wattEngineClientProvider)
@@ -275,30 +230,16 @@ class _WorkspacePlanQuotaSheetState
         : plan == WorkspacePlanTier.pro
         ? '${prices.pro} ${prices.currency}/mo'
         : '${prices.enterprise} ${prices.currency}/mo';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Subscribe to $planName?'),
-        content: Text(
-          priceLabel == null
-              ? 'Create a payment order for the $planName plan on '
-                    '${widget.workspace.name}. You will finish payment on Solian.'
-              : 'Create a payment order for $planName ($priceLabel) on '
-                    '${widget.workspace.name}. You will finish payment on Solian.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Continue to payment'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      priceLabel == null
+          ? 'Create a payment order for the $planName plan on '
+                '${widget.workspace.name}. You will finish payment on Solian.'
+          : 'Create a payment order for $planName ($priceLabel) on '
+                '${widget.workspace.name}. You will finish payment on Solian.',
+      'Subscribe to $planName?',
+      confirmLabel: 'Continue to payment',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
 
     setState(() => _busy = true);
     try {
@@ -311,13 +252,16 @@ class _WorkspacePlanQuotaSheetState
       // Best-effort open on this device; QR is always shown for mobile scan.
       final opened = await _openOrderPayment(order);
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => _PaymentOrderDialog(
-          planName: planName,
-          order: order,
-          openedInBrowser: opened,
-          onOpenPayment: () => _openOrderPayment(order),
+      await showOverlayDialog<void>(
+        builder: (context, close) => ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: kDialogMaxWidth),
+          child: _PaymentOrderDialog(
+            planName: planName,
+            order: order,
+            openedInBrowser: opened,
+            onOpenPayment: () => _openOrderPayment(order),
+            onClose: () => close(null),
+          ),
         ),
       );
       if (!mounted) return;
@@ -650,12 +594,14 @@ class _PaymentOrderDialog extends StatelessWidget {
     required this.order,
     required this.openedInBrowser,
     required this.onOpenPayment,
+    required this.onClose,
   });
 
   final String planName;
   final WorkspacePlanOrder order;
   final bool openedInBrowser;
   final Future<bool> Function() onOpenPayment;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -743,7 +689,7 @@ class _PaymentOrderDialog extends StatelessWidget {
           child: const Text('Open in browser'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: onClose,
           child: const Text('Done'),
         ),
       ],
@@ -848,24 +794,14 @@ class _WorkspaceMembersSheetState
   }
 
   Future<void> _remove(WorkspaceMember member) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove member?'),
-        content: const Text('This member will lose access to the workspace.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      'This member will lose access to the workspace.',
+      'Remove member?',
+      icon: Symbols.person_remove,
+      isDanger: true,
+      confirmLabel: 'Remove',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await ref
           .read(wattEngineClientProvider)

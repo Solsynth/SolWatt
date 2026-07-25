@@ -7,7 +7,9 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
+import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
@@ -266,13 +268,12 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       return;
     }
     if (!mounted) return;
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => const _NameDialog(
-        title: 'New folder',
-        label: 'Folder name',
-        confirmLabel: 'Create',
-      ),
+    final name = await showNameInputSheet(
+      context,
+      title: 'New folder',
+      label: 'Folder name',
+      confirmLabel: 'Create',
+      icon: Symbols.folder,
     );
     if (name == null || name.trim().isEmpty) return;
     try {
@@ -291,14 +292,13 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   }
 
   Future<void> _rename(DriveFileEntry entry) async {
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => _NameDialog(
-        title: entry.isFolder ? 'Rename folder' : 'Rename file',
-        label: 'Name',
-        confirmLabel: 'Save',
-        initialValue: entry.name,
-      ),
+    final name = await showNameInputSheet(
+      context,
+      title: entry.isFolder ? 'Rename folder' : 'Rename file',
+      label: 'Name',
+      confirmLabel: 'Save',
+      initialValue: entry.name,
+      icon: entry.isFolder ? Symbols.folder : Symbols.draft,
     );
     if (name == null || name.trim().isEmpty || name.trim() == entry.name) {
       return;
@@ -315,27 +315,15 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   }
 
   Future<void> _delete(DriveFileEntry entry) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(entry.isFolder ? 'Delete folder?' : 'Delete file?'),
-        content: Text(
-          'Permanently delete “${entry.name.isEmpty ? entry.id : entry.name}”? '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      'Permanently delete “${entry.name.isEmpty ? entry.id : entry.name}”? '
+      'This cannot be undone.',
+      entry.isFolder ? 'Delete folder?' : 'Delete file?',
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'Delete',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await ref.read(wattEngineClientProvider).deleteCloudFile(entry.id);
       _invalidateDrive();
@@ -1907,61 +1895,3 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _NameDialog extends StatefulWidget {
-  const _NameDialog({
-    required this.title,
-    required this.label,
-    required this.confirmLabel,
-    this.initialValue,
-  });
-
-  final String title;
-  final String label;
-  final String confirmLabel;
-  final String? initialValue;
-
-  @override
-  State<_NameDialog> createState() => _NameDialogState();
-}
-
-class _NameDialogState extends State<_NameDialog> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialValue ?? '');
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: widget.label,
-          border: const OutlineInputBorder(),
-        ),
-        onSubmitted: (value) => Navigator.pop(context, value),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text),
-          child: Text(widget.confirmLabel),
-        ),
-      ],
-    );
-  }
-}

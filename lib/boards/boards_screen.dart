@@ -9,7 +9,9 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 
 @RoutePage()
@@ -667,30 +669,14 @@ Future<void> _deleteTask(
   String broadId,
   WorkTask task,
 ) async {
-  final scheme = Theme.of(context).colorScheme;
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      icon: Icon(Symbols.delete, color: scheme.error),
-      title: const Text('Delete task?'),
-      content: Text('“${task.name}” will be permanently removed.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
+  final confirmed = await showConfirmAlert(
+    '“${task.name}” will be permanently removed.',
+    'Delete task?',
+    icon: Symbols.delete,
+    isDanger: true,
+    confirmLabel: 'Delete',
   );
-  if (confirmed != true) return;
+  if (!confirmed) return;
   try {
     await ref.read(wattEngineClientProvider).deleteTask(task.id);
     ref.invalidate(tasksProvider(broadId));
@@ -1258,34 +1244,21 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
   }
 
   Future<void> _rename(TaskGroup group) async {
-    final controller = TextEditingController(text: group.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename group'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: 'Name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final name = await showNameInputSheet(
+      context,
+      title: 'Rename group',
+      label: 'Name',
+      confirmLabel: 'Save',
+      initialValue: group.name,
+      icon: Symbols.folder,
     );
-    controller.dispose();
-    if (name == null || name.isEmpty || name == group.name) return;
+    if (name == null || name.trim().isEmpty || name.trim() == group.name) {
+      return;
+    }
     try {
       await ref
           .read(wattEngineClientProvider)
-          .updateTaskGroup(group.id, name: name);
+          .updateTaskGroup(group.id, name: name.trim());
       ref.invalidate(taskGroupsProvider(widget.broadId));
       showSnackBar('Group updated.');
     } catch (error) {
@@ -1294,26 +1267,14 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
   }
 
   Future<void> _delete(TaskGroup group) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${group.name}?'),
-        content: const Text(
-          'Tasks in this group stay on the board and become ungrouped.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await showConfirmAlert(
+      'Tasks in this group stay on the board and become ungrouped.',
+      'Delete ${group.name}?',
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'Delete',
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await ref.read(wattEngineClientProvider).deleteTaskGroup(group.id);
       ref.invalidate(taskGroupsProvider(widget.broadId));

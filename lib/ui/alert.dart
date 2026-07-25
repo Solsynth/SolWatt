@@ -1,0 +1,396 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:solwatt/main.dart';
+
+OverlayEntry? _loadingOverlay;
+GlobalKey<_FadeOverlayState> _loadingOverlayKey = GlobalKey();
+
+class _FadeOverlay extends StatefulWidget {
+  const _FadeOverlay({
+    super.key,
+    this.child,
+    this.builder,
+    this.duration = const Duration(milliseconds: 200),
+    this.curve = Curves.linear,
+  }) : assert(child != null || builder != null);
+
+  final Widget? child;
+  final Widget Function(BuildContext, Animation<double>)? builder;
+  final Duration duration;
+  final Curve curve;
+
+  @override
+  State<_FadeOverlay> createState() => _FadeOverlayState();
+}
+
+class _FadeOverlayState extends State<_FadeOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> animateOut() async {
+    await _controller.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final animation = CurvedAnimation(parent: _controller, curve: widget.curve);
+    if (widget.builder != null) {
+      return widget.builder!(context, animation);
+    }
+    return FadeTransition(opacity: animation, child: widget.child);
+  }
+}
+
+void showLoadingModal(BuildContext context) {
+  if (_loadingOverlay != null) return;
+
+  _loadingOverlay = OverlayEntry(
+    builder: (context) => _FadeOverlay(
+      key: _loadingOverlayKey,
+      child: Material(
+        color: Colors.black54,
+        child: Center(
+          child: AlertDialog(
+            content: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                SizedBox(width: 16),
+                Text('Loading…'),
+              ],
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 32,
+              vertical: 24,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Overlay.of(context).insert(_loadingOverlay!);
+}
+
+void hideLoadingModal(BuildContext context) async {
+  if (_loadingOverlay == null) return;
+
+  final entry = _loadingOverlay!;
+  _loadingOverlay = null;
+
+  final state = entry.mounted ? _loadingOverlayKey.currentState : null;
+
+  if (state != null) {
+    await state.animateOut();
+  }
+
+  entry.remove();
+}
+
+String _parseRemoteError(DioException err) {
+  String? message;
+  if (err.response?.data is String) {
+    message = err.response?.data as String?;
+  } else if (err.response?.data is Map &&
+      err.response?.data?['message'] != null) {
+    message = <String?>[
+      err.response?.data?['message']?.toString(),
+      err.response?.data?['detail']?.toString(),
+    ].where((e) => e != null).cast<String>().map((e) => e.trim()).join('\n');
+  } else if (err.response?.data is Map &&
+      err.response?.data?['errors'] != null) {
+    final errors = err.response?.data['errors'] as Map<String, dynamic>;
+    message = errors.values
+        .map(
+          (ele) =>
+              (ele as List<dynamic>).map((ele) => ele.toString()).join('\n'),
+        )
+        .join('\n');
+  }
+  if (message == null || message.isEmpty) message = err.response?.statusMessage;
+  message ??= err.message;
+  return message ?? err.toString();
+}
+
+final List<void Function()> _activeOverlayDialogs = [];
+
+/// Shows a dialog on the app-level [globalOverlay] with fade + slide animation.
+///
+/// Prefer this over [showDialog] so dialogs work above the desktop window frame
+/// and do not depend on a local navigator context.
+Future<T?> showOverlayDialog<T>({
+  required Widget Function(BuildContext context, void Function(T? result) close)
+  builder,
+  bool barrierDismissible = true,
+}) {
+  final completer = Completer<T?>();
+  final key = GlobalKey<_FadeOverlayState>();
+  late OverlayEntry entry;
+  var inserted = false;
+  var closed = false;
+
+  void close(T? result) async {
+    if (closed) return;
+    closed = true;
+
+    if (inserted) {
+      final state = key.currentState;
+      if (state != null) {
+        await state.animateOut();
+      }
+
+      entry.remove();
+    }
+
+    _activeOverlayDialogs.remove(close);
+    completer.complete(result);
+  }
+
+  entry = OverlayEntry(
+    builder: (context) => _FadeOverlay(
+      key: key,
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      builder: (context, animation) {
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: FadeTransition(
+                opacity: animation,
+                child: GestureDetector(
+                  onTap: barrierDismissible ? () => close(null) : null,
+                  behavior: HitTestBehavior.opaque,
+                  child: const ColoredBox(color: Colors.black54),
+                ),
+              ),
+            ),
+            Center(
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.05),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: FadeTransition(
+                  opacity: animation,
+                  child: builder(context, close),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  _activeOverlayDialogs.add(() => close(null));
+  // Overlay insertion changes the render tree. Scheduling it for the next
+  // frame lets layout complete before Flutter performs another pointer hit
+  // test (for example, after dismissing a popup menu).
+  WidgetsBinding.instance.scheduleFrameCallback((_) {
+    if (closed) return;
+
+    final overlay = globalOverlay.currentState;
+    if (overlay == null) {
+      closed = true;
+      _activeOverlayDialogs.remove(close);
+      completer.complete(null);
+      return;
+    }
+
+    overlay.insert(entry);
+    inserted = true;
+  });
+  return completer.future;
+}
+
+bool closeTopmostOverlayDialog() {
+  if (_activeOverlayDialogs.isNotEmpty) {
+    final closeFunc = _activeOverlayDialogs.last;
+    closeFunc();
+    return true;
+  }
+  return false;
+}
+
+const kDialogMaxWidth = 480.0;
+
+void showErrorAlert(dynamic err, {IconData? icon}) {
+  final state = globalOverlay.currentState;
+  if (state == null) {
+    Logger.root.severe(
+      '[Alert] showErrorAlert called but overlay not ready: $err',
+    );
+    return;
+  }
+
+  if (err is Error) {
+    Logger.root.severe('Something went wrong...', err, err.stackTrace);
+  }
+  final text = switch (err) {
+    String _ => err,
+    DioException _ => _parseRemoteError(err),
+    Exception _ => err.toString(),
+    _ => err.toString(),
+  };
+
+  showOverlayDialog<void>(
+    builder: (context, close) => ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: kDialogMaxWidth),
+      child: AlertDialog(
+        title: null,
+        titlePadding: EdgeInsets.zero,
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon ?? Icons.error_outline_rounded,
+                size: 48,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Something went wrong',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              SelectableText(text),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(null),
+            child: Text(MaterialLocalizations.of(context).okButtonLabel),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+void showInfoAlert(String message, String title, {IconData? icon}) {
+  final state = globalOverlay.currentState;
+  if (state == null) return;
+
+  showOverlayDialog<void>(
+    builder: (context, close) => ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: kDialogMaxWidth),
+      child: AlertDialog(
+        title: null,
+        titlePadding: EdgeInsets.zero,
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon ?? Symbols.info_rounded,
+              fill: 1,
+              size: 48,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(message),
+            const SizedBox(height: 8),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => close(null),
+            child: Text(MaterialLocalizations.of(context).okButtonLabel),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Confirm dialog. Returns `true` when the user accepts, otherwise `false`.
+Future<bool> showConfirmAlert(
+  String message,
+  String title, {
+  IconData? icon,
+  bool isDanger = false,
+  String? confirmLabel,
+  String? cancelLabel,
+}) async {
+  final state = globalOverlay.currentState;
+  if (state == null) return false;
+
+  final result = await showOverlayDialog<bool>(
+    builder: (context, close) {
+      final scheme = Theme.of(context).colorScheme;
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: kDialogMaxWidth),
+        child: AlertDialog(
+          title: null,
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon ?? Symbols.help_rounded,
+                size: 48,
+                fill: 1,
+                color: isDanger ? scheme.error : scheme.primary,
+              ),
+              const SizedBox(height: 16),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(message),
+              const SizedBox(height: 8),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => close(false),
+              child: Text(
+                cancelLabel ??
+                    MaterialLocalizations.of(context).cancelButtonLabel,
+              ),
+            ),
+            TextButton(
+              onPressed: () => close(true),
+              style: isDanger
+                  ? TextButton.styleFrom(foregroundColor: scheme.error)
+                  : null,
+              child: Text(
+                confirmLabel ?? MaterialLocalizations.of(context).okButtonLabel,
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  return result ?? false;
+}
