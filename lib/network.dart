@@ -19,6 +19,29 @@ const _redirectUri = '$_callbackScheme://oauth/callback';
 /// never includes a client secret.
 const _clientId = 'solarwatt';
 
+/// Solar Network API base URL (gateway). Ring is exposed at `/ring/*`.
+const kSolarNetworkApiBase = _issuer;
+
+/// Product multi-tenant id for SolWatt.
+///
+/// Used for both:
+/// - **Ring** notification `app` / `app_id` filtering
+/// - **Blade wsgateway** connection `namespace` query param
+///
+/// Matches the native bundle / application id. Island uses
+/// `dev.solsynth.solian` for the same pair of concerns. See
+/// Blade `docs/WEBSOCKET_GATEWAY.md` and Island `kNotificationTenantAppId`.
+const kProductTenantId = 'dev.solsynth.solarwatt';
+
+/// Ring multi-tenant app id (alias of [kProductTenantId]).
+const kNotificationTenantAppId = kProductTenantId;
+
+/// Websocket gateway namespace (alias of [kProductTenantId]).
+///
+/// Connect with `GET /ws?namespace=…` so presence and pushes are isolated
+/// from Solian and other clients on the shared gateway.
+const kWebsocketNamespace = kProductTenantId;
+
 class OAuthSession {
   const OAuthSession({
     required this.accessToken,
@@ -2007,6 +2030,7 @@ void invalidateSessionScope(WidgetRef ref) {
   ref.invalidate(workspaceFolderChildrenProvider);
   ref.invalidate(workspaceUnindexedFilesProvider);
   ref.invalidate(workspaceDriveUsageProvider);
+  ref.invalidate(solarNetworkClientProvider);
 }
 
 void invalidateWorkspaceScope(WidgetRef ref) {
@@ -2122,8 +2146,40 @@ final workspaceDriveUsageProvider = FutureProvider<WorkspaceDriveUsage?>((
       .getWorkspaceDriveUsage(workspace.id);
 });
 
-/// Makes the shared Solar Network SDK available for service APIs that it
-/// already models; the WattEngine routes above use the same bearer session.
-final solarNetworkClientProvider = Provider<SolarNetworkClient>(
-  (ref) => SolarNetworkClient(baseUrl: _issuer),
-);
+/// Authenticated Solar Network SDK client (Ring, Drive helpers, etc.).
+///
+/// Injects the current OAuth bearer on every request. Prefer this for typed
+/// SDK domains such as [SolarNetworkClient.notifications].
+final solarNetworkClientProvider = Provider<SolarNetworkClient>((ref) {
+  final authenticator = ref.watch(authenticatorProvider);
+  final dio = _createLoggedDio(
+    BaseOptions(
+      baseUrl: _issuer,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 30),
+      headers: const {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+    ),
+  );
+  dio.interceptors.insert(
+    0,
+    InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        try {
+          final session = await authenticator.validSession();
+          if (session != null && session.accessToken.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer ${session.accessToken}';
+          }
+        } catch (_) {
+          // Leave the request unauthenticated; the API will return 401.
+        }
+        handler.next(options);
+      },
+    ),
+  );
+  final client = SolarNetworkClient.fromDio(dio);
+  ref.onDispose(client.close);
+  return client;
+});

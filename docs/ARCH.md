@@ -39,6 +39,9 @@ lib/
   boards/boards_screen.dart       # Ideask boards and tasks
   files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
   tasks/                          # Background task overlay (uploads, etc.)
+  notifications/                  # Ring multi-tenant inbox + unread badge
+  realtime/realtime.dart          # Gateway packet routing (notify + Ideask)
+  websocket.dart                  # Solar Network /ws client
   <feature>/                      # Future product features
 docs/
   ARCH.md                         # This document
@@ -112,6 +115,69 @@ Key providers:
 - `broadsProvider` / `tasksProvider` — Ideask data scoped to the active workspace
 - `workspaceFilesProvider` / `workspaceFolderChildrenProvider` / `workspaceUnindexedFilesProvider` — workspace Drive listings (`workspace_id` query; indexed folders vs unindexed assets)
 - `workspaceDriveUsageProvider` — live storage used/total for the active workspace
+- `solarNetworkClientProvider` — authenticated Solar Network SDK (bearer from OAuth session)
+- `notificationUnreadCountProvider` / `notificationListProvider` — Ring inbox scoped to SolWatt’s multi-tenant app id
+
+## Notifications (Ring)
+
+SolWatt uses Solar Network’s **Ring** service (`/ring/notifications`) via the
+SDK `NotificationsApi`. Ring is multi-tenant: every list/count/mark-read call
+and push subscription must pass SolWatt’s app id so the client never mixes in
+Solian (or other apps) traffic.
+
+| Constant | Value |
+| --- | --- |
+| `kNotificationTenantAppId` | `dev.solsynth.solarwatt` (bundle / application id) |
+| Island’s equivalent | `dev.solsynth.solian` |
+
+UI: `lib/notifications/notifications.dart` — inbox dialog, unread badge, and
+`NotificationBellButton` on the desktop rail and Home page.
+
+## Realtime (websocket gateway)
+
+While signed in with an active workspace, SolWatt keeps a connection to the
+Solar Network gateway at `wss://api.solian.app/ws` (same host as REST, `http` →
+`ws`). Auth uses the OAuth bearer (Authorization header on native; `tk` query
+on web).
+
+### Multi-tenant namespace isolation
+
+Blade’s wsgateway scopes connections, presence, and pushes by **namespace**
+(see `Blade/docs/WEBSOCKET_GATEWAY.md`). SolWatt connects with:
+
+```
+GET /ws?namespace=dev.solsynth.solarwatt
+```
+
+That value is `kWebsocketNamespace` / `kProductTenantId` — the **same** reverse-DNS
+id used as Ring’s multi-tenant `app` / `app_id`. Empty namespace would use the
+gateway default (`_default`) and mix traffic with Solian.
+
+| Layer | Isolation key | SolWatt value |
+| --- | --- | --- |
+| Ring notifications | `app` query / `app_id` | `dev.solsynth.solarwatt` |
+| Websocket gateway | `namespace` query | `dev.solsynth.solarwatt` |
+| Island (for comparison) | same pair | `dev.solsynth.solian` |
+
+Server-side: Ring WS pushes use `notification.AppId` as the NATS push
+namespace; Ideask task packets use `Realtime:WebsocketNamespace` (default
+`dev.solsynth.solarwatt`).
+
+| Piece | Role |
+| --- | --- |
+| `lib/websocket.dart` | Client, heartbeats (`ping`/`pong`), reconnect backoff, namespace |
+| `lib/realtime/realtime.dart` | Session-bound bridge; packet routing |
+| `realtimeBridgeProvider` | Watched by `AppShellPage`; connects/disconnects with auth |
+
+Packet handling:
+
+- `notifications.new` — refresh SolWatt-tenant unread count + inbox (ignores
+  other apps’ `app_id`)
+- `ideask.task_*` — debounced invalidate of `tasksProvider` /
+  `taskGroupsProvider` for the board id in the payload
+- `ideask.broad_*` — invalidate `broadsProvider`
+
+A small status dot on the desktop rail shows connection state; tap retries.
 
 ## Validation
 

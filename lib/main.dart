@@ -11,9 +11,12 @@ import 'boards/boards_screen.dart';
 import 'files/files_screen.dart';
 import 'gate/gate_page.dart';
 import 'network.dart';
+import 'notifications/notifications.dart';
+import 'realtime/realtime.dart';
 import 'tasks/task_overlay.dart';
 import 'theme.dart';
 import 'ui/page_scaffold.dart';
+import 'websocket.dart';
 import 'workspaces/workspace_actions.dart';
 
 part 'main.gr.dart';
@@ -107,6 +110,10 @@ class AppShellPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(appAccessProvider);
+    // Keep the Solar Network websocket gateway connected while signed in,
+    // and route notification + Ideask task packets into providers.
+    ref.watch(realtimeBridgeProvider);
+    final wsState = ref.watch(websocketStateProvider);
 
     ref.listen(appAccessProvider, (previous, next) {
       next.whenData((state) {
@@ -164,6 +171,7 @@ class AppShellPage extends ConsumerWidget {
             return _NavigationShell(
               selectedIndex: tabs.activeIndex,
               onSelected: tabs.setActiveIndex,
+              websocketState: wsState,
               child: child,
             );
           },
@@ -177,11 +185,13 @@ class _NavigationShell extends ConsumerWidget {
   const _NavigationShell({
     required this.selectedIndex,
     required this.onSelected,
+    required this.websocketState,
     required this.child,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final WebSocketConnectionState websocketState;
   final Widget child;
 
   @override
@@ -203,6 +213,7 @@ class _NavigationShell extends ConsumerWidget {
                           selectedIndex: selectedIndex,
                           onSelected: onSelected,
                           workspaceName: workspace?.name,
+                          websocketState: websocketState,
                         ),
                         Expanded(
                           child: Padding(
@@ -268,11 +279,13 @@ class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
     required this.selectedIndex,
     required this.onSelected,
+    required this.websocketState,
     this.workspaceName,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final WebSocketConnectionState websocketState;
   final String? workspaceName;
 
   @override
@@ -351,6 +364,10 @@ class _DesktopNavigation extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _WebsocketStatusDot(state: websocketState),
+              const SizedBox(height: 4),
+              const NotificationBellButton(),
+              const SizedBox(height: 4),
               _RailIconButton(
                 tooltip: 'Profile',
                 selected: selectedIndex == _profileTabIndex,
@@ -384,6 +401,74 @@ class _DesktopNavigation extends ConsumerWidget {
               label: Text(destination.label),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _WebsocketStatusDot extends ConsumerWidget {
+  const _WebsocketStatusDot({required this.state});
+
+  final WebSocketConnectionState state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final (color, label) = switch (state) {
+      WebSocketConnectionState.connected => (
+        const Color(0xFF34C759),
+        'Live · connected',
+      ),
+      WebSocketConnectionState.connecting => (
+        scheme.tertiary,
+        'Live · connecting…',
+      ),
+      WebSocketConnectionState.serverDown => (
+        scheme.error,
+        'Live · server unavailable (tap to retry)',
+      ),
+      WebSocketConnectionState.error => (
+        scheme.error,
+        'Live · error (tap to retry)',
+      ),
+      WebSocketConnectionState.disconnected => (
+        scheme.outline,
+        'Live · offline (tap to reconnect)',
+      ),
+    };
+
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () =>
+              ref.read(websocketStateProvider.notifier).manualReconnect(),
+          child: SizedBox(
+            width: 48,
+            height: 28,
+            child: Center(
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  boxShadow: state == WebSocketConnectionState.connected
+                      ? [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.45),
+                            blurRadius: 6,
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -470,12 +555,15 @@ class HomePage extends ConsumerWidget {
       subtitle: workspace?.description?.isNotEmpty == true
           ? workspace!.description!
           : 'Active workspace',
-      action: FilledButton.tonalIcon(
-        onPressed: () =>
-            AutoTabsRouter.of(context).setActiveIndex(_profileTabIndex),
-        icon: const Icon(Symbols.swap_horiz, size: 18),
-        label: const Text('Switch'),
-      ),
+      actions: [
+        const NotificationBellButton(),
+        FilledButton.tonalIcon(
+          onPressed: () =>
+              AutoTabsRouter.of(context).setActiveIndex(_profileTabIndex),
+          icon: const Icon(Symbols.swap_horiz, size: 18),
+          label: const Text('Switch'),
+        ),
+      ],
       child: ListView(
         children: [
           Card(

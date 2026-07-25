@@ -64,6 +64,7 @@ dependencies:
   http_parser: ^4.1.2
   url_launcher: ^6.3.2
   qr_flutter: ^4.1.0
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:
