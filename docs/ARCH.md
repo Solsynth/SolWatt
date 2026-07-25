@@ -37,7 +37,7 @@ lib/
   ui/page_scaffold.dart           # Shared page chrome for shell screens
   ui/cloud_files.dart             # Cloud upload picker + link attachment
   boards/boards_screen.dart       # Ideask boards and tasks
-  files/files_screen.dart         # Workspace-scoped Drive browser
+  files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
   tasks/                          # Background task overlay (uploads, etc.)
   <feature>/                      # Future product features
 docs/
@@ -110,7 +110,8 @@ Key providers:
 - `workspacesProvider` / `selectedWorkspaceProvider` — workspace list and active selection
 - `appAccessProvider` — combined gate state (`needsSignIn` | `needsWorkspace` | `ready`)
 - `broadsProvider` / `tasksProvider` — Ideask data scoped to the active workspace
-- `workspaceFilesProvider` / `workspaceFolderChildrenProvider` — Drive files tagged with the active workspace
+- `workspaceFilesProvider` / `workspaceFolderChildrenProvider` / `workspaceUnindexedFilesProvider` — workspace Drive listings (`workspace_id` query; indexed folders vs unindexed assets)
+- `workspaceDriveUsageProvider` — live storage used/total for the active workspace
 
 ## Validation
 

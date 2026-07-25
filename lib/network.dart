@@ -830,11 +830,15 @@ class WattEngineClient {
   }
 
   /// Lists files owned by the signed-in user (Drive `/files/me`).
+  ///
+  /// When [workspaceId] is set, DysonFS returns that workspace's owned files
+  /// (membership-checked) instead of personal files.
   Future<PaginatedResult<DriveFileEntry>> listMyCloudFiles({
     int offset = 0,
     int take = 40,
     String? query,
     bool recycled = false,
+    String? workspaceId,
   }) async {
     final client = await _authenticatedSdk();
     try {
@@ -845,6 +849,8 @@ class WattEngineClient {
           'take': take,
           'recycled': recycled,
           if (query != null && query.isNotEmpty) 'query': query,
+          if (workspaceId != null && workspaceId.isNotEmpty)
+            'workspace_id': workspaceId,
         },
       );
       return _parseDrivePage(response);
@@ -853,13 +859,28 @@ class WattEngineClient {
     }
   }
 
-  /// Lists indexed children at Drive root or under [parentId].
+  /// Lists **indexed** children at Drive root or under [parentId].
+  ///
+  /// Passes [workspaceId] so DysonFS returns the workspace hierarchy rather
+  /// than personal Drive. For unindexed workspace files (logos, backgrounds),
+  /// use [listUnindexedCloudFiles].
   Future<PaginatedResult<DriveFileEntry>> listCloudFolderChildren({
     String? parentId,
+    required String workspaceId,
     int offset = 0,
     int take = 50,
     String? query,
+    String? order,
+    bool orderDesc = false,
+    bool? isFolder,
+    String? contentType,
   }) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) {
+      throw const OAuthException(
+        'A workspace is required. SolWatt only browses workspace Drive.',
+      );
+    }
     final client = await _authenticatedSdk();
     try {
       final path = parentId == null || parentId.isEmpty
@@ -870,10 +891,78 @@ class WattEngineClient {
         queryParameters: {
           'offset': offset,
           'take': take,
+          'workspace_id': ws,
+          'orderDesc': orderDesc,
           if (query != null && query.isNotEmpty) 'query': query,
+          if (order != null && order.isNotEmpty) 'order': order,
+          'is_folder': ?isFolder,
+          if (contentType != null && contentType.isNotEmpty)
+            'content_type': contentType,
         },
       );
       return _parseDrivePage(response);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Lists **unindexed** workspace files (flat list — no folder hierarchy).
+  ///
+  /// Used for assets such as board icons/backgrounds that should not appear
+  /// in the folder tree. Server: `GET /drive/files/unindexed?workspace_id=…`.
+  Future<PaginatedResult<DriveFileEntry>> listUnindexedCloudFiles({
+    required String workspaceId,
+    int offset = 0,
+    int take = 50,
+    String? query,
+    bool recycled = false,
+    String? order,
+    bool orderDesc = true,
+    String? contentType,
+  }) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) {
+      throw const OAuthException(
+        'A workspace is required. SolWatt only browses workspace Drive.',
+      );
+    }
+    final client = await _authenticatedSdk();
+    try {
+      final response = await client.dio.get<List<dynamic>>(
+        '/drive/files/unindexed',
+        queryParameters: {
+          'offset': offset,
+          'take': take,
+          'workspace_id': ws,
+          'recycled': recycled,
+          'orderDesc': orderDesc,
+          if (query != null && query.isNotEmpty) 'query': query,
+          if (order != null && order.isNotEmpty) 'order': order,
+          if (contentType != null && contentType.isNotEmpty)
+            'content_type': contentType,
+        },
+      );
+      return _parseDrivePage(response);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Live workspace storage usage from DysonFS
+  /// (`GET /drive/billing/workspaces/:id/quota`).
+  Future<WorkspaceDriveUsage> getWorkspaceDriveUsage(String workspaceId) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) {
+      throw const OAuthException('Workspace id is required for storage usage.');
+    }
+    final client = await _authenticatedSdk();
+    try {
+      final response = await client.dio.get<Map<String, dynamic>>(
+        '/drive/billing/workspaces/$ws/quota',
+      );
+      return WorkspaceDriveUsage.fromJson(response.data ?? const {});
+    } on DioException catch (error) {
+      throw OAuthException(driveApiErrorMessage(error));
     } finally {
       client.close();
     }
@@ -1097,10 +1186,49 @@ class WorkspaceQuota {
 
   String get planName => WorkspacePlanTier.nameOf(plan);
 
+  /// Plan storage cap in bytes (`max_storage_bytes`), if present.
+  int? get maxStorageBytes {
+    final raw = limits['max_storage_bytes'];
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '');
+  }
+
   factory WorkspaceQuota.fromJson(Map<String, dynamic> json) => WorkspaceQuota(
     plan: (json['plan'] as num?)?.toInt() ?? 0,
     limits: Map<String, dynamic>.from(json['quotas'] as Map? ?? const {}),
   );
+}
+
+/// Live storage usage for a workspace from DysonFS billing.
+///
+/// Distinct from [WorkspaceQuota] (WattEngine plan limits). This is the
+/// actual used/total storage charged to the workspace plan.
+class WorkspaceDriveUsage {
+  const WorkspaceDriveUsage({
+    required this.workspaceId,
+    required this.usedBytes,
+    required this.totalBytes,
+    required this.remainingBytes,
+    required this.totalFileCount,
+  });
+
+  final String workspaceId;
+  final int usedBytes;
+  final int totalBytes;
+  final int remainingBytes;
+  final int totalFileCount;
+
+  double get usageRatio =>
+      totalBytes > 0 ? (usedBytes / totalBytes).clamp(0.0, 1.0) : 0.0;
+
+  factory WorkspaceDriveUsage.fromJson(Map<String, dynamic> json) =>
+      WorkspaceDriveUsage(
+        workspaceId: json['workspace_id']?.toString() ?? '',
+        usedBytes: (json['used_bytes'] as num?)?.toInt() ?? 0,
+        totalBytes: (json['total_bytes'] as num?)?.toInt() ?? 0,
+        remainingBytes: (json['remaining_bytes'] as num?)?.toInt() ?? 0,
+        totalFileCount: (json['total_file_count'] as num?)?.toInt() ?? 0,
+      );
 }
 
 /// Account-level bundled Pro perk assignment info from `GET …/plan/status`.
@@ -1833,6 +1961,8 @@ void invalidateSessionScope(WidgetRef ref) {
   ref.invalidate(broadsProvider);
   ref.invalidate(workspaceFilesProvider);
   ref.invalidate(workspaceFolderChildrenProvider);
+  ref.invalidate(workspaceUnindexedFilesProvider);
+  ref.invalidate(workspaceDriveUsageProvider);
 }
 
 void invalidateWorkspaceScope(WidgetRef ref) {
@@ -1841,6 +1971,16 @@ void invalidateWorkspaceScope(WidgetRef ref) {
   ref.invalidate(broadsProvider);
   ref.invalidate(workspaceFilesProvider);
   ref.invalidate(workspaceFolderChildrenProvider);
+  ref.invalidate(workspaceUnindexedFilesProvider);
+  ref.invalidate(workspaceDriveUsageProvider);
+}
+
+/// Invalidates workspace Drive listings and usage after upload/delete/rename.
+void invalidateWorkspaceDrive(WidgetRef ref) {
+  ref.invalidate(workspaceFilesProvider);
+  ref.invalidate(workspaceFolderChildrenProvider);
+  ref.invalidate(workspaceUnindexedFilesProvider);
+  ref.invalidate(workspaceDriveUsageProvider);
 }
 
 final workspacesProvider = FutureProvider<List<Workspace>>((ref) async {
@@ -1873,20 +2013,27 @@ final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(
       ref.watch(wattEngineClientProvider).listTaskGroups(broadId),
 );
 
-/// Recent Drive files that belong to the active workspace.
-///
-/// SolWatt only manages workspace Drive. DysonFS lists by uploader account;
-/// client-side filtering keeps rows whose `workspace_id` matches.
+/// Soft filter when the API may still embed `workspace_id` on each row.
+List<DriveFileEntry> _filterWorkspaceEntries(
+  List<DriveFileEntry> items,
+  String workspaceId,
+) => items
+    .where(
+      (entry) =>
+          entry.workspaceId == null || entry.belongsToWorkspace(workspaceId),
+    )
+    .toList(growable: false);
+
+/// Recent Drive files for the active workspace (`workspace_id` query).
 final workspaceFilesProvider = FutureProvider<List<DriveFileEntry>>((
   ref,
 ) async {
   final workspace = await ref.watch(selectedWorkspaceProvider.future);
   if (workspace == null) return const [];
-  final client = ref.watch(wattEngineClientProvider);
-  final page = await client.listMyCloudFiles(take: 100);
-  return page.items
-      .where((entry) => entry.belongsToWorkspace(workspace.id))
-      .toList(growable: false);
+  final page = await ref
+      .watch(wattEngineClientProvider)
+      .listMyCloudFiles(take: 100, workspaceId: workspace.id);
+  return _filterWorkspaceEntries(page.items, workspace.id);
 });
 
 /// Indexed folder children for the active workspace.
@@ -1896,15 +2043,40 @@ final workspaceFolderChildrenProvider =
     FutureProvider.family<List<DriveFileEntry>, String>((ref, parentId) async {
       final workspace = await ref.watch(selectedWorkspaceProvider.future);
       if (workspace == null) return const [];
-      final client = ref.watch(wattEngineClientProvider);
-      final page = await client.listCloudFolderChildren(
-        parentId: parentId.isEmpty ? null : parentId,
-        take: 100,
-      );
-      return page.items
-          .where((entry) => entry.belongsToWorkspace(workspace.id))
-          .toList(growable: false);
+      final page = await ref
+          .watch(wattEngineClientProvider)
+          .listCloudFolderChildren(
+            parentId: parentId.isEmpty ? null : parentId,
+            workspaceId: workspace.id,
+            take: 100,
+          );
+      return _filterWorkspaceEntries(page.items, workspace.id);
     });
+
+/// Unindexed workspace files (logos, board backgrounds, other loose assets).
+///
+/// Flat list — unindexed files are outside the folder hierarchy.
+final workspaceUnindexedFilesProvider = FutureProvider<List<DriveFileEntry>>((
+  ref,
+) async {
+  final workspace = await ref.watch(selectedWorkspaceProvider.future);
+  if (workspace == null) return const [];
+  final page = await ref
+      .watch(wattEngineClientProvider)
+      .listUnindexedCloudFiles(workspaceId: workspace.id, take: 100);
+  return _filterWorkspaceEntries(page.items, workspace.id);
+});
+
+/// Live workspace storage usage (used / plan cap / file count).
+final workspaceDriveUsageProvider = FutureProvider<WorkspaceDriveUsage?>((
+  ref,
+) async {
+  final workspace = await ref.watch(selectedWorkspaceProvider.future);
+  if (workspace == null) return null;
+  return ref
+      .watch(wattEngineClientProvider)
+      .getWorkspaceDriveUsage(workspace.id);
+});
 
 /// Makes the shared Solar Network SDK available for service APIs that it
 /// already models; the WattEngine routes above use the same bearer session.

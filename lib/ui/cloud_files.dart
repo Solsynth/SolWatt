@@ -282,8 +282,7 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
         rethrow;
       }
     }
-    ref.invalidate(workspaceFilesProvider);
-    ref.invalidate(workspaceFolderChildrenProvider);
+    invalidateWorkspaceDrive(ref);
     return uploaded;
   } catch (error, stack) {
     _uploadLog.warning('Upload failed', error, stack);
@@ -293,12 +292,16 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
 }
 
 /// Convenience: pick a single image and return it as [SnCloudFileReference].
+///
+/// Defaults to [indexed] `false` so icons/backgrounds stay out of the folder
+/// tree (workspace unindexed Drive), matching Island decoration uploads.
 Future<SnCloudFileReference?> pickCloudImageReference(
   BuildContext context,
   WidgetRef ref, {
   String? usage,
   String? workspaceId,
   String title = 'Choose image',
+  bool indexed = false,
 }) async {
   final file = await showCloudFilePicker<SnCloudFile>(
     context: context,
@@ -307,6 +310,7 @@ Future<SnCloudFileReference?> pickCloudImageReference(
     usage: usage,
     workspaceId: workspaceId,
     title: title,
+    indexed: indexed,
   );
   if (file == null) return null;
   return cloudFileToReference(file);

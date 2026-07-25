@@ -676,7 +676,6 @@ class ProfilePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
-    final selected = ref.watch(selectedWorkspaceProvider).value;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -758,18 +757,6 @@ class ProfilePage extends ConsumerWidget {
               label: const Text('New'),
             ),
           ),
-          if (selected != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: StatusChip(
-                  label: 'Active · ${selected.name}',
-                  icon: Symbols.check_circle,
-                  tone: StatusChipTone.primary,
-                ),
-              ),
-            ),
           Expanded(
             child: WorkspaceList(
               manageActions: true,
