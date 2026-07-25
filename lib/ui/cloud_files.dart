@@ -34,7 +34,9 @@ class CloudFileAvatar extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final radius = borderRadius ?? BorderRadius.circular(size * 0.28);
     final url = file == null ? null : cloudFileDisplayUrl(file!);
-    final isImage = file?.mimeType.startsWith('image/') ?? false;
+    // Profile pictures sometimes omit mime_type; treat empty mime as displayable.
+    final mime = file?.mimeType ?? '';
+    final isImage = mime.isEmpty || mime.startsWith('image/');
 
     return Container(
       width: size,

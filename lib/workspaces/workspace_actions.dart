@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
@@ -142,16 +144,225 @@ Future<void> showWorkspaceQuota(
 ) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
-  builder: (context) {
+  builder: (_) => _WorkspacePlanQuotaSheet(workspace: workspace),
+);
+
+class _WorkspacePlanQuotaSheet extends ConsumerStatefulWidget {
+  const _WorkspacePlanQuotaSheet({required this.workspace});
+
+  final Workspace workspace;
+
+  @override
+  ConsumerState<_WorkspacePlanQuotaSheet> createState() =>
+      _WorkspacePlanQuotaSheetState();
+}
+
+class _WorkspacePlanQuotaSheetState
+    extends ConsumerState<_WorkspacePlanQuotaSheet> {
+  late Future<_PlanQuotaBundle> _bundle;
+  var _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    final client = ref.read(wattEngineClientProvider);
+    final slug = widget.workspace.slug;
+    _bundle =
+        Future.wait<Object>([
+          client.getWorkspacePlanStatus(slug),
+          client.getWorkspaceQuota(slug),
+        ]).then(
+          (results) => _PlanQuotaBundle(
+            status: results[0] as WorkspacePlanStatus,
+            quota: results[1] as WorkspaceQuota,
+          ),
+        );
+  }
+
+  Future<void> _assignBundled() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Assign bundled Pro?'),
+        content: Text(
+          'Apply your Solarpass perk Pro plan to '
+          '${widget.workspace.name}? '
+          'You can only assign it to one workspace at a time. '
+          'Moving it later has a 7-day cooldown.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Assign Pro'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _runPlanAction(
+      () => ref
+          .read(wattEngineClientProvider)
+          .assignBundledPlan(widget.workspace.slug),
+      success: 'Bundled Pro assigned to ${widget.workspace.name}.',
+    );
+  }
+
+  Future<void> _unassignBundled() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove bundled Pro?'),
+        content: Text(
+          '${widget.workspace.name} will return to the Free plan and '
+          'lower resource limits.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Unassign'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _runPlanAction(
+      () => ref
+          .read(wattEngineClientProvider)
+          .unassignBundledPlan(widget.workspace.slug),
+      success: 'Bundled Pro unassigned.',
+    );
+  }
+
+  Future<void> _runPlanAction(
+    Future<void> Function() action, {
+    required String success,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+      ref.invalidate(workspacesProvider);
+      ref.invalidate(bundledProOverviewProvider);
+      invalidateWorkspaceScope(ref);
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _reload();
+      });
+      showSnackBar(success);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      showSnackBar(wattApiErrorMessage(error));
+    }
+  }
+
+  Future<void> _subscribePlan(int plan, WorkspacePlanPrices? prices) async {
+    final planName = WorkspacePlanTier.nameOf(plan);
+    final priceLabel = prices == null
+        ? null
+        : plan == WorkspacePlanTier.pro
+        ? '${prices.pro} ${prices.currency}/mo'
+        : '${prices.enterprise} ${prices.currency}/mo';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Subscribe to $planName?'),
+        content: Text(
+          priceLabel == null
+              ? 'Create a payment order for the $planName plan on '
+                    '${widget.workspace.name}. You will finish payment on Solian.'
+              : 'Create a payment order for $planName ($priceLabel) on '
+                    '${widget.workspace.name}. You will finish payment on Solian.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Continue to payment'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      final order = await ref
+          .read(wattEngineClientProvider)
+          .subscribeWorkspacePlan(slug: widget.workspace.slug, plan: plan);
+      if (!mounted) return;
+      setState(() => _busy = false);
+
+      // Best-effort open on this device; QR is always shown for mobile scan.
+      final opened = await _openOrderPayment(order);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _PaymentOrderDialog(
+          planName: planName,
+          order: order,
+          openedInBrowser: opened,
+          onOpenPayment: () => _openOrderPayment(order),
+        ),
+      );
+      if (!mounted) return;
+      setState(_reload);
+      showSnackBar(
+        'Order created — scan the QR code or open solian.app/orders/'
+        '${order.orderId} to pay.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      showSnackBar(wattApiErrorMessage(error));
+    }
+  }
+
+  Future<bool> _openOrderPayment(WorkspacePlanOrder order) async {
+    if (order.orderId.isEmpty) return false;
+    final uri = order.paymentUrl;
+    try {
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final solWattProfile = ref.watch(solWattProfileProvider).value;
+    final account =
+        solWattProfile?.account ?? ref.watch(userInfoProvider).value;
+    final perkLevel = solWattProfile?.perkLevel ?? 0;
+    final eligible = solWattProfile?.canAssignBundledPro ?? false;
+    final isOwner =
+        account != null &&
+        widget.workspace.ownerAccountId != null &&
+        widget.workspace.ownerAccountId == account.id;
+    final workspaces = ref.watch(workspacesProvider).value ?? const [];
+
     return SheetScaffold(
-      titleText: '${workspace.name} quotas',
-      heightFactor: 0.6,
-      child: FutureBuilder(
-        future: ref
-            .read(wattEngineClientProvider)
-            .getWorkspaceQuota(workspace.slug),
+      titleText: 'Plan & quotas',
+      heightFactor: 0.78,
+      child: FutureBuilder<_PlanQuotaBundle>(
+        future: _bundle,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -159,34 +370,257 @@ Future<void> showWorkspaceQuota(
           if (snapshot.hasError) {
             return EmptyState(
               icon: Symbols.error,
-              title: 'Could not load quotas',
-              message: snapshot.error.toString(),
+              title: 'Could not load plan',
+              message: wattApiErrorMessage(snapshot.error!),
+              action: FilledButton(
+                onPressed: () => setState(_reload),
+                child: const Text('Try again'),
+              ),
             );
           }
-          final quota = snapshot.data!;
-          final plan =
-              ['Free', 'Pro', 'Enterprise'].elementAtOrNull(quota.plan) ??
-              'Plan ${quota.plan}';
+          final status = snapshot.data!.status;
+          final quota = snapshot.data!.quota;
+          final bundled = status.bundledPlan;
+          final assignedHere =
+              bundled != null &&
+              bundled.isEnabled &&
+              bundled.workspaceId == widget.workspace.id;
+          final assignedElsewhere =
+              bundled != null &&
+              bundled.isEnabled &&
+              bundled.workspaceId != null &&
+              bundled.workspaceId != widget.workspace.id;
+          final assignedWorkspace = assignedElsewhere
+              ? workspaces.where((w) => w.id == bundled.workspaceId).firstOrNull
+              : assignedHere
+              ? widget.workspace
+              : null;
+          final canManageBundled = isOwner && eligible && !_busy;
+
           return ListView(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: StatusChip(
-                  label: plan,
-                  icon: Symbols.workspace_premium,
-                  tone: StatusChipTone.secondary,
+              Text(
+                widget.workspace.name,
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  StatusChip(
+                    label: status.planName,
+                    icon: Symbols.workspace_premium,
+                    tone: status.plan == WorkspacePlanTier.free
+                        ? StatusChipTone.neutral
+                        : StatusChipTone.secondary,
+                  ),
+                  if (status.isBundled)
+                    const StatusChip(
+                      label: 'Your bundled Pro',
+                      icon: Symbols.card_giftcard,
+                      tone: StatusChipTone.primary,
+                    ),
+                  if (status.planExpiresAt != null)
+                    StatusChip(
+                      label: 'Expires ${_formatDate(status.planExpiresAt!)}',
+                      icon: Symbols.event,
+                      tone: StatusChipTone.neutral,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text('Bundled Pro seat', style: text.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                eligible
+                    ? 'Your Stellar ${solWattProfile?.perkTierName ?? 'Supernova'} '
+                          'perk (level $perkLevel) includes one free Pro workspace.'
+                    : 'Stellar Supernova (perk level $bundledProRequiredPerkLevel+) '
+                          'includes one free Pro workspace. '
+                          'Your current perk level is $perkLevel'
+                          '${solWattProfile == null ? '' : ' (${solWattProfile.perkTierName})'}.',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          eligible ? Symbols.workspace_premium : Symbols.lock,
+                          color: eligible
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                        ),
+                        title: Text(
+                          eligible
+                              ? (assignedHere
+                                    ? 'Assigned to this workspace'
+                                    : assignedElsewhere
+                                    ? 'Assigned to another workspace'
+                                    : 'Available — not assigned yet')
+                              : 'Not included in your perk',
+                        ),
+                        subtitle: Text(
+                          eligible
+                              ? (assignedWorkspace != null
+                                    ? '${assignedWorkspace.name} · @${assignedWorkspace.slug}'
+                                    : assignedElsewhere
+                                    ? 'Assigned workspace id ${bundled.workspaceId}'
+                                    : 'Choose this workspace to apply free Pro limits.')
+                              : 'Upgrade to Supernova on Solian to unlock this seat.',
+                        ),
+                      ),
+                      if (bundled?.cooldownActive == true) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Reassign cooldown is active. You can move the perk '
+                          'again after the cooldown ends.',
+                          style: text.bodySmall?.copyWith(color: scheme.error),
+                        ),
+                      ],
+                      if (eligible && !isOwner) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Only the workspace owner can assign or remove the '
+                          'bundled Pro seat on this workspace.',
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      if (canManageBundled) ...[
+                        const SizedBox(height: 12),
+                        if (assignedHere)
+                          OutlinedButton.icon(
+                            onPressed: _unassignBundled,
+                            icon: const Icon(Symbols.link_off, size: 18),
+                            label: const Text('Unassign from this workspace'),
+                          )
+                        else if (assignedElsewhere && !bundled.cooldownActive)
+                          FilledButton.tonalIcon(
+                            onPressed: _assignBundled,
+                            icon: const Icon(Symbols.swap_horiz, size: 18),
+                            label: Text(
+                              assignedWorkspace == null
+                                  ? 'Move bundled Pro here'
+                                  : 'Move from ${assignedWorkspace.name}',
+                            ),
+                          )
+                        else if (!assignedElsewhere)
+                          FilledButton.icon(
+                            onPressed: _assignBundled,
+                            icon: const Icon(
+                              Symbols.workspace_premium,
+                              size: 18,
+                            ),
+                            label: const Text('Assign free Pro here'),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text('Paid subscription', style: text.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                'Subscribe with golds. Checkout opens on Solian '
+                '(solian.app/orders/…).',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (status.prices != null) ...[
+                        Text(
+                          'Pro ${status.prices!.pro} ${status.prices!.currency}/mo · '
+                          'Enterprise ${status.prices!.enterprise} '
+                          '${status.prices!.currency}/mo',
+                          style: text.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (!isOwner)
+                        Text(
+                          'Only the workspace owner can purchase a paid plan.',
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        )
+                      else if (status.plan == WorkspacePlanTier.enterprise &&
+                          !status.isBundled)
+                        Text(
+                          'This workspace is already on Enterprise.',
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        )
+                      else ...[
+                        if (status.plan < WorkspacePlanTier.pro ||
+                            status.isBundled)
+                          FilledButton.tonalIcon(
+                            onPressed: _busy
+                                ? null
+                                : () => _subscribePlan(
+                                    WorkspacePlanTier.pro,
+                                    status.prices,
+                                  ),
+                            icon: const Icon(Symbols.payments, size: 18),
+                            label: Text(
+                              status.prices == null
+                                  ? 'Subscribe to Pro'
+                                  : 'Subscribe to Pro · '
+                                        '${status.prices!.pro} '
+                                        '${status.prices!.currency}/mo',
+                            ),
+                          ),
+                        if (status.plan < WorkspacePlanTier.enterprise) ...[
+                          if (status.plan < WorkspacePlanTier.pro ||
+                              status.isBundled)
+                            const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => _subscribePlan(
+                                    WorkspacePlanTier.enterprise,
+                                    status.prices,
+                                  ),
+                            icon: const Icon(Symbols.diamond, size: 18),
+                            label: Text(
+                              status.prices == null
+                                  ? 'Subscribe to Enterprise'
+                                  : 'Subscribe to Enterprise · '
+                                        '${status.prices!.enterprise} '
+                                        '${status.prices!.currency}/mo',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text('Resource limits', style: text.titleSmall),
+              const SizedBox(height: 8),
               for (final entry in quota.limits.entries)
                 Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    title: Text(
-                      entry.key.replaceAll('_', ' '),
-                      style: text.titleSmall,
-                    ),
+                    title: Text(_quotaLabel(entry.key), style: text.titleSmall),
                     trailing: Text(
                       _formatQuota(entry.value),
                       style: text.labelLarge?.copyWith(
@@ -200,8 +634,139 @@ Future<void> showWorkspaceQuota(
         },
       ),
     );
-  },
-);
+  }
+}
+
+class _PlanQuotaBundle {
+  const _PlanQuotaBundle({required this.status, required this.quota});
+  final WorkspacePlanStatus status;
+  final WorkspaceQuota quota;
+}
+
+/// Order confirmation with QR code for scanning payment on a mobile device.
+class _PaymentOrderDialog extends StatelessWidget {
+  const _PaymentOrderDialog({
+    required this.planName,
+    required this.order,
+    required this.openedInBrowser,
+    required this.onOpenPayment,
+  });
+
+  final String planName;
+  final WorkspacePlanOrder order;
+  final bool openedInBrowser;
+  final Future<bool> Function() onOpenPayment;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final paymentLink = order.paymentUrl.toString();
+
+    return AlertDialog(
+      title: Text('$planName order created'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              openedInBrowser
+                  ? 'A browser tab may have opened. You can also scan this QR '
+                        'code with your phone to pay in the Solian app.'
+                  : 'Scan this QR code with your phone to pay in the Solian app, '
+                        'or open the link on this device.',
+              style: text.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: QrImageView(
+                  data: paymentLink,
+                  version: QrVersions.auto,
+                  size: 200,
+                  backgroundColor: Colors.white,
+                  eyeStyle: QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: scheme.onSurface,
+                  ),
+                  dataModuleStyle: QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: scheme.onSurface,
+                  ),
+                  errorStateBuilder: (context, error) => SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: Center(
+                      child: Text(
+                        'Could not render QR code',
+                        textAlign: TextAlign.center,
+                        style: text.bodySmall?.copyWith(color: scheme.error),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SelectableText(
+              paymentLink,
+              style: text.bodySmall?.copyWith(color: scheme.primary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Order ${order.orderId}\n'
+              '${order.amount} ${order.currency}',
+              textAlign: TextAlign.center,
+              style: text.labelLarge?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'After payment settles, return here and refresh plan status.',
+              textAlign: TextAlign.center,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await onOpenPayment();
+          },
+          child: const Text('Open in browser'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+String _quotaLabel(String key) => switch (key) {
+  'max_projects' => 'Projects',
+  'max_members' => 'Members',
+  'max_tasks_per_project' => 'Tasks per project',
+  'max_broads_per_project' => 'Boards per project',
+  'max_storage_bytes' => 'Storage',
+  _ => key.replaceAll('_', ' '),
+};
+
+String _formatDate(DateTime value) {
+  final local = value.toLocal();
+  final y = local.year.toString().padLeft(4, '0');
+  final m = local.month.toString().padLeft(2, '0');
+  final d = local.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
+}
 
 Future<void> showWorkspaceMembers(BuildContext context, Workspace workspace) =>
     showModalBottomSheet<void>(
@@ -378,16 +943,14 @@ class _WorkspaceMembersSheetState
                       final member = members[index];
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          child: Text(_memberInitial(member)),
+                        leading: _AccountAvatar(
+                          picture: member.picture,
+                          label: member.label,
+                          size: 44,
                         ),
-                        title: Text(
-                          member.displayName ??
-                              'Account ${_shortId(member.accountId)}',
-                        ),
+                        title: Text(member.label),
                         subtitle: Text(
-                          '${_roleName(member.role)} · '
-                          '${member.username == null ? member.accountId : '@${member.username}'}',
+                          '${_roleName(member.role)} · ${member.subtitleHandle}',
                         ),
                         trailing: PopupMenuButton<String>(
                           onSelected: (action) {
@@ -451,12 +1014,54 @@ String _roleName(int role) => switch (role) {
   _ => 'Role $role',
 };
 
-String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
-String _memberInitial(WorkspaceMember member) =>
-    (member.displayName ?? member.username ?? member.accountId).isEmpty
-    ? '?'
-    : (member.displayName ?? member.username ?? member.accountId)[0]
-          .toUpperCase();
+/// Circular account avatar: profile picture when available, else initials.
+class _AccountAvatar extends StatelessWidget {
+  const _AccountAvatar({
+    required this.picture,
+    required this.label,
+    this.size = 40,
+  });
+
+  final SnCloudFileReference? picture;
+  final String label;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final url = picture == null ? null : cloudFileDisplayUrl(picture!);
+    final initial = label.trim().isEmpty ? '?' : label.trim()[0].toUpperCase();
+
+    if (url != null) {
+      return ClipOval(
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _initialCircle(scheme, initial),
+        ),
+      );
+    }
+    return _initialCircle(scheme, initial);
+  }
+
+  Widget _initialCircle(ColorScheme scheme, String initial) {
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: size * 0.38,
+          fontWeight: FontWeight.w600,
+          color: scheme.onPrimaryContainer,
+        ),
+      ),
+    );
+  }
+}
 
 class _AccountPickerSheet extends StatefulWidget {
   const _AccountPickerSheet({required this.client});
@@ -530,10 +1135,10 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
                           itemBuilder: (context, index) {
                             final account = accounts[index];
                             return ListTile(
-                              leading: CircleAvatar(
-                                child: Text(
-                                  account.solWattDisplayName[0].toUpperCase(),
-                                ),
+                              leading: _AccountAvatar(
+                                picture: account.profilePicture,
+                                label: account.solWattDisplayName,
+                                size: 40,
                               ),
                               title: Text(account.solWattDisplayName),
                               subtitle: Text('@${account.name}'),
@@ -965,6 +1570,26 @@ class WorkspaceList extends ConsumerWidget {
                                 ],
                               ],
                             ),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                StatusChip(
+                                  label: workspace.planName,
+                                  icon: Symbols.workspace_premium,
+                                  tone: workspace.plan == WorkspacePlanTier.free
+                                      ? StatusChipTone.neutral
+                                      : StatusChipTone.secondary,
+                                ),
+                                if (workspace.isBundled)
+                                  const StatusChip(
+                                    label: 'Bundled',
+                                    icon: Symbols.card_giftcard,
+                                    tone: StatusChipTone.primary,
+                                  ),
+                              ],
+                            ),
                             const SizedBox(height: 2),
                             Text(
                               workspace.description?.isNotEmpty == true
@@ -1003,8 +1628,8 @@ class WorkspaceList extends ConsumerWidget {
                               value: 'quota',
                               child: ListTile(
                                 contentPadding: EdgeInsets.zero,
-                                leading: Icon(Symbols.monitoring),
-                                title: Text('View quotas'),
+                                leading: Icon(Symbols.workspace_premium),
+                                title: Text('Plan & quotas'),
                               ),
                             ),
                             const PopupMenuItem(

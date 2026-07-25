@@ -1949,10 +1949,19 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
 }
 
 class _AssigneeChoice {
-  const _AssigneeChoice({required this.accountId, required this.label});
+  const _AssigneeChoice({
+    required this.accountId,
+    required this.label,
+    this.subtitle,
+    this.avatarUrl,
+    this.picture,
+  });
 
   final String accountId;
   final String label;
+  final String? subtitle;
+  final String? avatarUrl;
+  final SnCloudFileReference? picture;
 }
 
 class _AssigneePickerSheet extends StatefulWidget {
@@ -1984,7 +1993,15 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
       _members = widget.client.listWorkspaceMembers(slug).then((members) {
         return members
             .where((m) => !widget.excludeAccountIds.contains(m.accountId))
-            .map((m) => _AssigneeChoice(accountId: m.accountId, label: m.label))
+            .map(
+              (m) => _AssigneeChoice(
+                accountId: m.accountId,
+                label: m.label,
+                subtitle: m.subtitleHandle,
+                avatarUrl: m.avatarUrl,
+                picture: m.picture,
+              ),
+            )
             .toList();
       });
     }
@@ -2009,6 +2026,9 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
                 (a) => _AssigneeChoice(
                   accountId: a.id,
                   label: a.solWattDisplayName,
+                  subtitle: '@${a.name}',
+                  avatarUrl: a.solWattAvatarUrl,
+                  picture: a.profilePicture,
                 ),
               )
               .toList();
@@ -2021,6 +2041,7 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
     if (future == null) {
       return Center(child: Text(empty));
     }
+    final scheme = Theme.of(context).colorScheme;
     return FutureBuilder<List<_AssigneeChoice>>(
       future: future,
       builder: (context, snapshot) {
@@ -2038,14 +2059,36 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
           itemCount: items.length,
           itemBuilder: (context, index) {
             final item = items[index];
+            final initial = item.label.isEmpty
+                ? '?'
+                : item.label[0].toUpperCase();
+            final url =
+                item.avatarUrl ??
+                (item.picture == null
+                    ? null
+                    : cloudFileDisplayUrl(item.picture!));
             return ListTile(
-              leading: CircleAvatar(
-                child: Text(
-                  item.label.isEmpty ? '?' : item.label[0].toUpperCase(),
-                ),
-              ),
+              leading: url == null
+                  ? CircleAvatar(
+                      backgroundColor: scheme.primaryContainer,
+                      foregroundColor: scheme.onPrimaryContainer,
+                      child: Text(initial),
+                    )
+                  : ClipOval(
+                      child: Image.network(
+                        url,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          foregroundColor: scheme.onPrimaryContainer,
+                          child: Text(initial),
+                        ),
+                      ),
+                    ),
               title: Text(item.label),
-              subtitle: Text(item.accountId),
+              subtitle: Text(item.subtitle ?? item.accountId),
               onTap: () => Navigator.pop(context, item),
             );
           },

@@ -174,19 +174,39 @@ class SolarNetworkAuthenticator {
 
   /// Reads the signed-in Solar Network profile using the current access token.
   Future<SnAccount?> getCurrentAccount() async {
+    final profile = await getCurrentProfile();
+    return profile?.account;
+  }
+
+  /// Profile plus `perk_level` from the accounts/me payload.
+  Future<SolWattProfile?> getCurrentProfile() async {
     final session = await validSession();
     if (session == null) return null;
     final dio = _createLoggedDio(
       BaseOptions(
         baseUrl: _issuer,
-        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ${session.accessToken}',
+        },
       ),
     );
-    final client = SolarNetworkClient.fromDio(dio);
     try {
-      return await client.accounts.getCurrentAccount();
+      final response = await dio.get<Map<String, dynamic>>(
+        '/passport/accounts/me',
+      );
+      final data = response.data;
+      if (data == null) return null;
+      final account = SnAccount.fromJson(data);
+      final perkLevel = parsePerkLevelFromAccountJson(data);
+      return SolWattProfile(
+        account: account,
+        perkLevel: perkLevel > 0
+            ? perkLevel
+            : account.solWattPerkLevelFromSubscription,
+      );
     } finally {
-      client.close();
+      dio.close();
     }
   }
 
@@ -254,6 +274,79 @@ extension SnAccountUi on SnAccount {
     if (picture == null) return null;
     return picture.storageUrl ?? '$_issuer/drive/files/${picture.id}';
   }
+
+  /// Fallback perk level from stellar subscription identifier when the API
+  /// field is missing from the SDK model.
+  int get solWattPerkLevelFromSubscription =>
+      perkLevelFromStellarIdentifier(perkSubscription?.identifier);
+}
+
+/// WattEngine requires perk level 3+ (Stellar Supernova) for one free Pro seat.
+const bundledProRequiredPerkLevel = 3;
+
+/// Signed-in account plus [perkLevel] from `/passport/accounts/me`.
+///
+/// The SDK [SnAccount] model does not yet surface `perk_level`, so SolWatt
+/// reads it from the raw profile payload (with identifier fallback).
+class SolWattProfile {
+  const SolWattProfile({required this.account, required this.perkLevel});
+
+  final SnAccount account;
+  final int perkLevel;
+
+  bool get canAssignBundledPro => perkLevel >= bundledProRequiredPerkLevel;
+
+  String get perkTierName => switch (perkLevel) {
+    >= 3 => 'Supernova',
+    2 => 'Nova',
+    1 => 'Stellar',
+    _ => 'Twinkle',
+  };
+
+  String get id => account.id;
+  String get name => account.name;
+  String get solWattDisplayName => account.solWattDisplayName;
+  String? get solWattAvatarUrl => account.solWattAvatarUrl;
+}
+
+int perkLevelFromStellarIdentifier(String? identifier) => switch (identifier) {
+  'solian.stellar.supernova' => 3,
+  'solian.stellar.nova' => 2,
+  'solian.stellar.primary' => 1,
+  _ => 0,
+};
+
+int parsePerkLevelFromAccountJson(Map<String, dynamic> json) {
+  final topLevel = (json['perk_level'] as num?)?.toInt();
+  if (topLevel != null) return topLevel;
+  final sub = json['perk_subscription'];
+  if (sub is Map) {
+    final subLevel = (sub['perk_level'] as num?)?.toInt();
+    if (subLevel != null) return subLevel;
+    return perkLevelFromStellarIdentifier(sub['identifier']?.toString());
+  }
+  return 0;
+}
+
+/// Account-level overview of the bundled Pro perk assignment.
+class BundledProOverview {
+  const BundledProOverview({
+    required this.eligible,
+    required this.perkLevel,
+    this.bundled,
+    this.assignedWorkspace,
+  });
+
+  final bool eligible;
+  final int perkLevel;
+  final BundledPlanInfo? bundled;
+  final Workspace? assignedWorkspace;
+
+  bool get isAssigned =>
+      bundled != null &&
+      bundled!.isEnabled &&
+      bundled!.workspaceId != null &&
+      bundled!.workspaceId!.isNotEmpty;
 }
 
 /// Authenticated client for WattEngine. Valve paths map to `/value`; Ideask
@@ -390,6 +483,35 @@ class WattEngineClient {
       '/value/workspaces/$slug/quota',
     );
     return WorkspaceQuota.fromJson(response.data ?? const {});
+  }
+
+  Future<WorkspacePlanStatus> getWorkspacePlanStatus(String slug) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/value/workspaces/$slug/plan/status',
+    );
+    return WorkspacePlanStatus.fromJson(response.data ?? const {});
+  }
+
+  /// Assigns (or reassigns) the caller's perk-bundled Pro plan to this workspace.
+  /// Requires Owner and perk level 3+. Subject to a 7-day reassign cooldown.
+  Future<void> assignBundledPlan(String slug) =>
+      _request<void>('POST', '/value/workspaces/$slug/plan/assign-bundled');
+
+  Future<void> unassignBundledPlan(String slug) =>
+      _request<void>('POST', '/value/workspaces/$slug/plan/unassign-bundled');
+
+  /// Creates a paid plan subscription order. Complete payment at
+  /// [WorkspacePlanOrder.paymentUrl] (`https://solian.app/orders/{orderId}`).
+  Future<WorkspacePlanOrder> subscribeWorkspacePlan({
+    required String slug,
+    required int plan,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/value/workspaces/$slug/plan/subscribe',
+      data: {'plan': plan},
+    );
+    return WorkspacePlanOrder.fromJson(response.data ?? const {});
   }
 
   Future<List<Broad>> listBroads({String? workspaceId}) async {
@@ -881,6 +1003,20 @@ Dio _createLoggedDio([BaseOptions? options]) {
   return dio;
 }
 
+/// Workspace plan tiers from WattEngine.Valve (`WorkspacePlan`).
+abstract final class WorkspacePlanTier {
+  static const free = 0;
+  static const pro = 1;
+  static const enterprise = 2;
+
+  static String nameOf(int plan) => switch (plan) {
+    free => 'Free',
+    pro => 'Pro',
+    enterprise => 'Enterprise',
+    _ => 'Plan $plan',
+  };
+}
+
 class Workspace {
   const Workspace({
     required this.id,
@@ -888,27 +1024,39 @@ class Workspace {
     required this.name,
     this.description,
     this.type = 0,
+    this.ownerAccountId,
     this.picture,
     this.background,
     this.plan = 0,
+    this.planExpiresAt,
+    this.isBundled = false,
   });
   final String id;
   final String slug;
   final String name;
   final String? description;
   final int type;
+  final String? ownerAccountId;
   final SnCloudFileReference? picture;
   final SnCloudFileReference? background;
   final int plan;
+  final DateTime? planExpiresAt;
+  final bool isBundled;
+
+  String get planName => WorkspacePlanTier.nameOf(plan);
+
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
     id: json['id']?.toString() ?? '',
     slug: json['slug']?.toString() ?? '',
     name: json['name']?.toString() ?? 'Untitled workspace',
     description: json['description']?.toString(),
     type: (json['type'] as num?)?.toInt() ?? 0,
+    ownerAccountId: json['owner_account_id']?.toString(),
     picture: parseCloudFileReference(json['picture']),
     background: parseCloudFileReference(json['background']),
     plan: (json['plan'] as num?)?.toInt() ?? 0,
+    planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
+    isBundled: json['is_bundled'] == true,
   );
 }
 
@@ -946,10 +1094,151 @@ class WorkspaceQuota {
   const WorkspaceQuota({required this.plan, required this.limits});
   final int plan;
   final Map<String, dynamic> limits;
+
+  String get planName => WorkspacePlanTier.nameOf(plan);
+
   factory WorkspaceQuota.fromJson(Map<String, dynamic> json) => WorkspaceQuota(
     plan: (json['plan'] as num?)?.toInt() ?? 0,
     limits: Map<String, dynamic>.from(json['quotas'] as Map? ?? const {}),
   );
+}
+
+/// Account-level bundled Pro perk assignment info from `GET …/plan/status`.
+class BundledPlanInfo {
+  const BundledPlanInfo({
+    required this.isEnabled,
+    this.workspaceId,
+    this.lastReassignedAt,
+    this.cooldownActive = false,
+  });
+
+  final bool isEnabled;
+  final String? workspaceId;
+  final DateTime? lastReassignedAt;
+  final bool cooldownActive;
+
+  factory BundledPlanInfo.fromJson(Map<String, dynamic> json) =>
+      BundledPlanInfo(
+        isEnabled: json['is_enabled'] == true,
+        workspaceId: json['workspace_id']?.toString(),
+        lastReassignedAt: _parseOptionalDateTime(json['last_reassigned_at']),
+        cooldownActive: json['cooldown_active'] == true,
+      );
+}
+
+class WorkspacePlanPrices {
+  const WorkspacePlanPrices({
+    required this.pro,
+    required this.enterprise,
+    this.currency = 'golds',
+  });
+
+  final num pro;
+  final num enterprise;
+  final String currency;
+
+  factory WorkspacePlanPrices.fromJson(Map<String, dynamic> json) =>
+      WorkspacePlanPrices(
+        pro: json['pro'] as num? ?? 0,
+        enterprise: json['enterprise'] as num? ?? 0,
+        currency: json['currency']?.toString() ?? 'golds',
+      );
+}
+
+class WorkspacePlanStatus {
+  const WorkspacePlanStatus({
+    required this.plan,
+    this.planExpiresAt,
+    this.isBundled = false,
+    this.bundledPlan,
+    this.prices,
+  });
+
+  final int plan;
+  final DateTime? planExpiresAt;
+  final bool isBundled;
+  final BundledPlanInfo? bundledPlan;
+  final WorkspacePlanPrices? prices;
+
+  String get planName => WorkspacePlanTier.nameOf(plan);
+
+  factory WorkspacePlanStatus.fromJson(Map<String, dynamic> json) {
+    final bundledRaw = json['bundled_plan'];
+    final pricesRaw = json['prices'];
+    return WorkspacePlanStatus(
+      plan: (json['plan'] as num?)?.toInt() ?? 0,
+      planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
+      isBundled: json['is_bundled'] == true,
+      bundledPlan: bundledRaw is Map
+          ? BundledPlanInfo.fromJson(Map<String, dynamic>.from(bundledRaw))
+          : null,
+      prices: pricesRaw is Map
+          ? WorkspacePlanPrices.fromJson(Map<String, dynamic>.from(pricesRaw))
+          : null,
+    );
+  }
+}
+
+/// Paid plan order created by `POST …/plan/subscribe`.
+class WorkspacePlanOrder {
+  const WorkspacePlanOrder({
+    required this.orderId,
+    required this.amount,
+    required this.currency,
+    required this.plan,
+  });
+
+  final String orderId;
+  final num amount;
+  final String currency;
+  final int plan;
+
+  String get planName => WorkspacePlanTier.nameOf(plan);
+
+  /// Solian checkout for this order.
+  Uri get paymentUrl => Uri.parse('https://solian.app/orders/$orderId');
+
+  factory WorkspacePlanOrder.fromJson(Map<String, dynamic> json) =>
+      WorkspacePlanOrder(
+        orderId: json['order_id']?.toString() ?? '',
+        amount: json['amount'] as num? ?? 0,
+        currency: json['currency']?.toString() ?? 'golds',
+        plan: (json['plan'] as num?)?.toInt() ?? 0,
+      );
+}
+
+DateTime? _parseOptionalDateTime(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value.toLocal();
+  final text = value.toString().trim();
+  if (text.isEmpty) return null;
+  return DateTime.tryParse(text)?.toLocal();
+}
+
+/// Best-effort human message from a WattEngine (or other gateway) API error.
+String wattApiErrorMessage(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is String && data.trim().isNotEmpty) return data.trim();
+    if (data is Map) {
+      final message =
+          data['error'] ??
+          data['message'] ??
+          data['detail'] ??
+          data['title'] ??
+          data['Message'];
+      if (message != null && message.toString().trim().isNotEmpty) {
+        return message.toString().trim();
+      }
+    }
+    final status = error.response?.statusCode;
+    if (status != null) {
+      return 'Request failed (HTTP $status). ${error.message ?? ''}'.trim();
+    }
+    return error.message ?? error.toString();
+  }
+  if (error is OAuthException) return error.message;
+  return error.toString();
 }
 
 class WorkspaceMember {
@@ -957,32 +1246,104 @@ class WorkspaceMember {
     required this.id,
     required this.accountId,
     required this.role,
-    this.displayName,
-    this.username,
+    this.account,
+    this.profilePicture,
+    this.fallbackNick,
+    this.fallbackUsername,
+    this.joinedAt,
   });
 
   final String id;
   final String accountId;
   final int role;
-  final String? displayName;
-  final String? username;
 
-  factory WorkspaceMember.fromJson(Map<String, dynamic> json) {
-    final account = json['account'] as Map?;
-    return WorkspaceMember(
-      id: json['id']?.toString() ?? '',
-      accountId: json['account_id']?.toString() ?? '',
-      role: (json['role'] as num?)?.toInt() ?? 25,
-      displayName:
-          account?['nick']?.toString() ?? json['account_nick']?.toString(),
-      username:
-          account?['name']?.toString() ?? json['account_name']?.toString(),
-    );
+  /// Populated by Valve `LoadMemberAccounts` (`SnAccount?` on the wire).
+  final SnAccount? account;
+
+  /// Profile picture from [account] or a partial account payload.
+  final SnCloudFileReference? profilePicture;
+  final String? fallbackNick;
+  final String? fallbackUsername;
+  final DateTime? joinedAt;
+
+  String? get displayName {
+    final account = this.account;
+    if (account != null) return account.solWattDisplayName;
+    final nick = fallbackNick?.trim();
+    if (nick != null && nick.isNotEmpty) return nick;
+    final username = fallbackUsername?.trim();
+    if (username != null && username.isNotEmpty) return '@$username';
+    return null;
   }
 
-  String get label =>
-      displayName ??
-      (username != null ? '@$username' : 'Account ${_shortId(accountId)}');
+  String? get username => account?.name ?? fallbackUsername;
+
+  /// Best-available profile picture reference for avatars.
+  SnCloudFileReference? get picture =>
+      profilePicture ?? account?.profilePicture;
+
+  String? get avatarUrl {
+    final file = picture;
+    if (file == null) return null;
+    return cloudFileDisplayUrl(file);
+  }
+
+  String get label => displayName ?? 'Account ${_shortId(accountId)}';
+
+  String get subtitleHandle {
+    final name = username;
+    if (name != null && name.isNotEmpty) return '@$name';
+    return accountId;
+  }
+
+  String get initial {
+    final source = displayName ?? username ?? accountId;
+    if (source.isEmpty) return '?';
+    return source[0].toUpperCase();
+  }
+
+  factory WorkspaceMember.fromJson(Map<String, dynamic> json) {
+    final accountRaw = json['account'];
+    SnAccount? account;
+    SnCloudFileReference? picture;
+    String? fallbackNick;
+    String? fallbackUsername;
+    String? accountIdFromAccount;
+
+    if (accountRaw is Map) {
+      final map = Map<String, dynamic>.from(accountRaw);
+      accountIdFromAccount = map['id']?.toString();
+      fallbackNick = map['nick']?.toString();
+      fallbackUsername = map['name']?.toString();
+      final profileRaw = map['profile'];
+      if (profileRaw is Map) {
+        picture = parseCloudFileReference(profileRaw['picture']);
+      }
+      try {
+        account = SnAccount.fromJson(map);
+        picture ??= account.profilePicture;
+      } catch (_) {
+        // gRPC-populated accounts can omit fields the SDK model requires.
+        // Keep nick/username/picture from the partial payload.
+      }
+    }
+
+    final accountId =
+        json['account_id']?.toString() ??
+        account?.id ??
+        accountIdFromAccount ??
+        '';
+    return WorkspaceMember(
+      id: json['id']?.toString() ?? '',
+      accountId: accountId,
+      role: (json['role'] as num?)?.toInt() ?? 25,
+      account: account,
+      profilePicture: picture,
+      fallbackNick: fallbackNick,
+      fallbackUsername: fallbackUsername,
+      joinedAt: _parseOptionalDateTime(json['joined_at'] ?? json['JoinedAt']),
+    );
+  }
 }
 
 String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
@@ -1364,10 +1725,56 @@ final wattEngineClientProvider = Provider(
 final authSessionProvider = FutureProvider<OAuthSession?>(
   (ref) => ref.watch(authenticatorProvider).validSession(),
 );
-final userInfoProvider = FutureProvider<SnAccount?>((ref) async {
+final solWattProfileProvider = FutureProvider<SolWattProfile?>((ref) async {
   final session = await ref.watch(authSessionProvider.future);
   if (session == null) return null;
-  return ref.watch(authenticatorProvider).getCurrentAccount();
+  return ref.watch(authenticatorProvider).getCurrentProfile();
+});
+
+final userInfoProvider = FutureProvider<SnAccount?>((ref) async {
+  final profile = await ref.watch(solWattProfileProvider.future);
+  return profile?.account;
+});
+
+/// Bundled Pro seat for the signed-in account (perk 3+), resolved against the
+/// workspace list so the UI can show which workspace holds the assignment.
+final bundledProOverviewProvider = FutureProvider<BundledProOverview?>((
+  ref,
+) async {
+  final profile = await ref.watch(solWattProfileProvider.future);
+  if (profile == null) return null;
+
+  final workspaces = await ref.watch(workspacesProvider.future);
+  final selected = await ref.watch(selectedWorkspaceProvider.future);
+  final probe =
+      selected ??
+      workspaces.where((w) => w.ownerAccountId == profile.id).firstOrNull ??
+      workspaces.firstOrNull;
+
+  BundledPlanInfo? bundled;
+  if (probe != null) {
+    try {
+      final status = await ref
+          .watch(wattEngineClientProvider)
+          .getWorkspacePlanStatus(probe.slug);
+      bundled = status.bundledPlan;
+    } catch (_) {
+      // Plan status is optional for the overview card.
+    }
+  }
+
+  Workspace? assigned;
+  final assignedId = bundled?.isEnabled == true ? bundled?.workspaceId : null;
+  if (assignedId != null && assignedId.isNotEmpty) {
+    assigned = workspaces.where((w) => w.id == assignedId).firstOrNull;
+  }
+
+  return BundledProOverview(
+    eligible: profile.canAssignBundledPro,
+    perkLevel: profile.perkLevel,
+    bundled: bundled,
+    assignedWorkspace: assigned,
+  );
 });
 
 const _selectedWorkspaceKey = 'selected_workspace_id';
@@ -1418,7 +1825,9 @@ Future<void> clearSelectedWorkspace(FlutterSecureStorage storage) =>
 /// Invalidates session-scoped providers after sign-in, sign-out, or workspace change.
 void invalidateSessionScope(WidgetRef ref) {
   ref.invalidate(authSessionProvider);
+  ref.invalidate(solWattProfileProvider);
   ref.invalidate(userInfoProvider);
+  ref.invalidate(bundledProOverviewProvider);
   ref.invalidate(workspacesProvider);
   ref.invalidate(selectedWorkspaceProvider);
   ref.invalidate(broadsProvider);
@@ -1428,6 +1837,7 @@ void invalidateSessionScope(WidgetRef ref) {
 
 void invalidateWorkspaceScope(WidgetRef ref) {
   ref.invalidate(selectedWorkspaceProvider);
+  ref.invalidate(bundledProOverviewProvider);
   ref.invalidate(broadsProvider);
   ref.invalidate(workspaceFilesProvider);
   ref.invalidate(workspaceFolderChildrenProvider);

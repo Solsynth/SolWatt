@@ -686,7 +686,9 @@ class ProfilePage extends ConsumerWidget {
       action: IconButton.filledTonal(
         tooltip: 'Refresh',
         onPressed: () {
+          ref.invalidate(solWattProfileProvider);
           ref.invalidate(userInfoProvider);
+          ref.invalidate(bundledProOverviewProvider);
           ref.invalidate(workspacesProvider);
         },
         icon: const Icon(Symbols.refresh),
@@ -714,6 +716,7 @@ class ProfilePage extends ConsumerWidget {
               ),
               data: (user) {
                 if (user == null) return const SizedBox.shrink();
+                final solWatt = ref.watch(solWattProfileProvider).value;
                 return ListTile(
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -734,11 +737,18 @@ class ProfilePage extends ConsumerWidget {
                     ),
                   ),
                   title: Text(user.solWattDisplayName),
-                  subtitle: Text('@${user.name}'),
+                  subtitle: Text(
+                    solWatt == null
+                        ? '@${user.name}'
+                        : '@${user.name} · ${solWatt.perkTierName} '
+                              '(perk ${solWatt.perkLevel})',
+                  ),
                 );
               },
             ),
           ),
+          const SizedBox(height: 16),
+          const _BundledProProfileCard(),
           const SizedBox(height: 24),
           SectionHeader(
             title: 'Workspaces',
@@ -784,6 +794,129 @@ class ProfilePage extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Profile card for the account-level free Pro seat (perk level 3+).
+class _BundledProProfileCard extends ConsumerWidget {
+  const _BundledProProfileCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final overview = ref.watch(bundledProOverviewProvider);
+    final profile = ref.watch(solWattProfileProvider).value;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return overview.when(
+      loading: () => Card(
+        child: ListTile(
+          leading: SizedBox.square(
+            dimension: 40,
+            child: Center(
+              child: SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+          title: Text('Bundled Pro seat'),
+          subtitle: Text('Checking your Stellar perk…'),
+        ),
+      ),
+      error: (error, _) => Card(
+        child: ListTile(
+          leading: Icon(Symbols.error, color: scheme.error),
+          title: const Text('Bundled Pro seat'),
+          subtitle: Text(wattApiErrorMessage(error)),
+          trailing: IconButton(
+            tooltip: 'Retry',
+            onPressed: () => ref.invalidate(bundledProOverviewProvider),
+            icon: const Icon(Symbols.refresh),
+          ),
+        ),
+      ),
+      data: (data) {
+        if (data == null) return const SizedBox.shrink();
+        final assigned = data.assignedWorkspace;
+        final eligible = data.eligible;
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  leading: Icon(
+                    eligible ? Symbols.workspace_premium : Symbols.lock,
+                    color: eligible ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                  title: const Text('Bundled Pro seat'),
+                  subtitle: Text(
+                    eligible
+                        ? (assigned != null
+                              ? 'Assigned to ${assigned.name}'
+                              : data.isAssigned
+                              ? 'Assigned to a workspace you may not list here'
+                              : 'Available — not assigned to any workspace yet')
+                        : 'Requires Stellar Supernova (perk level '
+                              '$bundledProRequiredPerkLevel+). '
+                              'You are on ${profile?.perkTierName ?? 'Twinkle'} '
+                              '(perk ${data.perkLevel}).',
+                  ),
+                  trailing: eligible
+                      ? StatusChip(
+                          label: assigned != null || data.isAssigned
+                              ? 'In use'
+                              : 'Available',
+                          tone: assigned != null || data.isAssigned
+                              ? StatusChipTone.primary
+                              : StatusChipTone.secondary,
+                        )
+                      : StatusChip(
+                          label: 'Perk ${data.perkLevel}',
+                          tone: StatusChipTone.neutral,
+                        ),
+                ),
+                if (eligible && assigned != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '@${assigned.slug} · Pro limits from your perk',
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              showWorkspaceQuota(context, ref, assigned),
+                          child: const Text('Manage'),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (eligible && !data.isAssigned)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    child: Text(
+                      'Open any owned workspace’s Plan & quotas menu to assign '
+                      'this free Pro seat.',
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
