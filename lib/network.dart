@@ -342,11 +342,26 @@ class BundledProOverview {
   final BundledPlanInfo? bundled;
   final Workspace? assignedWorkspace;
 
-  bool get isAssigned =>
-      bundled != null &&
-      bundled!.isEnabled &&
-      bundled!.workspaceId != null &&
-      bundled!.workspaceId!.isNotEmpty;
+  bool get isAssigned => bundled?.hasAssignment == true;
+
+  /// Seats granted by the perk. Defaults to 1 until the API exposes a count.
+  int get totalSeats {
+    if (!eligible) return 0;
+    final fromApi = bundled?.totalSeats;
+    if (fromApi != null && fromApi > 0) return fromApi;
+    return 1;
+  }
+
+  /// Seats currently in use. Falls back to a single assignment flag.
+  int get usedSeats {
+    if (!eligible) return 0;
+    final fromApi = bundled?.usedSeats;
+    if (fromApi != null) return fromApi.clamp(0, totalSeats);
+    return isAssigned ? 1 : 0;
+  }
+
+  double get seatUsageRatio =>
+      totalSeats > 0 ? (usedSeats / totalSeats).clamp(0.0, 1.0) : 0.0;
 }
 
 /// Authenticated client for WattEngine. Valve paths map to `/value`; Ideask
@@ -1139,11 +1154,11 @@ class Workspace {
     slug: json['slug']?.toString() ?? '',
     name: json['name']?.toString() ?? 'Untitled workspace',
     description: json['description']?.toString(),
-    type: (json['type'] as num?)?.toInt() ?? 0,
+    type: _parseOptionalInt(json['type']) ?? 0,
     ownerAccountId: json['owner_account_id']?.toString(),
     picture: parseCloudFileReference(json['picture']),
     background: parseCloudFileReference(json['background']),
-    plan: (json['plan'] as num?)?.toInt() ?? 0,
+    plan: _parseOptionalInt(json['plan']) ?? 0,
     planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
     isBundled: json['is_bundled'] == true,
   );
@@ -1194,7 +1209,7 @@ class WorkspaceQuota {
   }
 
   factory WorkspaceQuota.fromJson(Map<String, dynamic> json) => WorkspaceQuota(
-    plan: (json['plan'] as num?)?.toInt() ?? 0,
+    plan: _parseOptionalInt(json['plan']) ?? 0,
     limits: Map<String, dynamic>.from(json['quotas'] as Map? ?? const {}),
   );
 }
@@ -1224,20 +1239,26 @@ class WorkspaceDriveUsage {
   factory WorkspaceDriveUsage.fromJson(Map<String, dynamic> json) =>
       WorkspaceDriveUsage(
         workspaceId: json['workspace_id']?.toString() ?? '',
-        usedBytes: (json['used_bytes'] as num?)?.toInt() ?? 0,
-        totalBytes: (json['total_bytes'] as num?)?.toInt() ?? 0,
-        remainingBytes: (json['remaining_bytes'] as num?)?.toInt() ?? 0,
-        totalFileCount: (json['total_file_count'] as num?)?.toInt() ?? 0,
+        usedBytes: _parseOptionalInt(json['used_bytes']) ?? 0,
+        totalBytes: _parseOptionalInt(json['total_bytes']) ?? 0,
+        remainingBytes: _parseOptionalInt(json['remaining_bytes']) ?? 0,
+        totalFileCount: _parseOptionalInt(json['total_file_count']) ?? 0,
       );
 }
 
 /// Account-level bundled Pro perk assignment info from `GET …/plan/status`.
+///
+/// Seat counts are optional for forward-compat: today the perk grants one free
+/// Pro workspace; when more bundled seats are added the API can surface
+/// `total_seats` / `used_seats` without a UI rewrite.
 class BundledPlanInfo {
   const BundledPlanInfo({
     required this.isEnabled,
     this.workspaceId,
     this.lastReassignedAt,
     this.cooldownActive = false,
+    this.totalSeats,
+    this.usedSeats,
   });
 
   final bool isEnabled;
@@ -1245,12 +1266,23 @@ class BundledPlanInfo {
   final DateTime? lastReassignedAt;
   final bool cooldownActive;
 
+  /// Total bundled Pro seats granted to the account, when the API provides it.
+  final int? totalSeats;
+
+  /// Seats currently assigned, when the API provides it.
+  final int? usedSeats;
+
+  bool get hasAssignment =>
+      isEnabled && workspaceId != null && workspaceId!.isNotEmpty;
+
   factory BundledPlanInfo.fromJson(Map<String, dynamic> json) =>
       BundledPlanInfo(
         isEnabled: json['is_enabled'] == true,
         workspaceId: json['workspace_id']?.toString(),
         lastReassignedAt: _parseOptionalDateTime(json['last_reassigned_at']),
         cooldownActive: json['cooldown_active'] == true,
+        totalSeats: _parseOptionalInt(json['total_seats']),
+        usedSeats: _parseOptionalInt(json['used_seats']),
       );
 }
 
@@ -1267,8 +1299,8 @@ class WorkspacePlanPrices {
 
   factory WorkspacePlanPrices.fromJson(Map<String, dynamic> json) =>
       WorkspacePlanPrices(
-        pro: json['pro'] as num? ?? 0,
-        enterprise: json['enterprise'] as num? ?? 0,
+        pro: _parseOptionalNum(json['pro']) ?? 0,
+        enterprise: _parseOptionalNum(json['enterprise']) ?? 0,
         currency: json['currency']?.toString() ?? 'golds',
       );
 }
@@ -1294,7 +1326,7 @@ class WorkspacePlanStatus {
     final bundledRaw = json['bundled_plan'];
     final pricesRaw = json['prices'];
     return WorkspacePlanStatus(
-      plan: (json['plan'] as num?)?.toInt() ?? 0,
+      plan: _parseOptionalInt(json['plan']) ?? 0,
       planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
       isBundled: json['is_bundled'] == true,
       bundledPlan: bundledRaw is Map
@@ -1329,9 +1361,9 @@ class WorkspacePlanOrder {
   factory WorkspacePlanOrder.fromJson(Map<String, dynamic> json) =>
       WorkspacePlanOrder(
         orderId: json['order_id']?.toString() ?? '',
-        amount: json['amount'] as num? ?? 0,
+        amount: _parseOptionalNum(json['amount']) ?? 0,
         currency: json['currency']?.toString() ?? 'golds',
-        plan: (json['plan'] as num?)?.toInt() ?? 0,
+        plan: _parseOptionalInt(json['plan']) ?? 0,
       );
 }
 
@@ -1342,6 +1374,18 @@ DateTime? _parseOptionalDateTime(Object? value) {
   if (text.isEmpty) return null;
   return DateTime.tryParse(text)?.toLocal();
 }
+
+/// Accepts JSON numbers or numeric strings (APIs sometimes serialize amounts
+/// as strings). Returns null when missing or non-numeric.
+num? _parseOptionalNum(Object? value) {
+  if (value == null) return null;
+  if (value is num) return value;
+  final text = value.toString().trim();
+  if (text.isEmpty) return null;
+  return num.tryParse(text);
+}
+
+int? _parseOptionalInt(Object? value) => _parseOptionalNum(value)?.toInt();
 
 /// Best-effort human message from a WattEngine (or other gateway) API error.
 String wattApiErrorMessage(Object error) {

@@ -785,7 +785,7 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
-/// Profile card for the account-level free Pro seat (perk level 3+).
+/// Profile card for account-level bundled Pro seats (perk level 3+).
 class _BundledProProfileCard extends ConsumerWidget {
   const _BundledProProfileCard();
 
@@ -794,13 +794,13 @@ class _BundledProProfileCard extends ConsumerWidget {
     final overview = ref.watch(bundledProOverviewProvider);
     final profile = ref.watch(solWattProfileProvider).value;
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
 
     return overview.when(
-      loading: () => Card(
-        child: ListTile(
-          leading: SizedBox.square(
-            dimension: 40,
+      loading: () => const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: SizedBox(
+            height: 48,
             child: Center(
               child: SizedBox.square(
                 dimension: 20,
@@ -808,14 +808,12 @@ class _BundledProProfileCard extends ConsumerWidget {
               ),
             ),
           ),
-          title: Text('Bundled Pro seat'),
-          subtitle: Text('Checking your Stellar perk…'),
         ),
       ),
       error: (error, _) => Card(
         child: ListTile(
           leading: Icon(Symbols.error, color: scheme.error),
-          title: const Text('Bundled Pro seat'),
+          title: const Text('Bundled Pro'),
           subtitle: Text(wattApiErrorMessage(error)),
           trailing: IconButton(
             tooltip: 'Retry',
@@ -828,77 +826,40 @@ class _BundledProProfileCard extends ConsumerWidget {
         if (data == null) return const SizedBox.shrink();
         final assigned = data.assignedWorkspace;
         final eligible = data.eligible;
+        final caption = !eligible
+            ? 'Requires Stellar Supernova '
+                  '(perk $bundledProRequiredPerkLevel+). '
+                  'You are on ${profile?.perkTierName ?? 'Twinkle'} '
+                  '(perk ${data.perkLevel}).'
+            : assigned != null
+            ? 'Assigned to ${assigned.name}'
+            : data.isAssigned
+            ? 'Assigned to a workspace you may not list here'
+            : 'Not assigned — open Plan & quotas on a workspace you own.';
 
         return Card(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ListTile(
-                  leading: Icon(
-                    eligible ? Symbols.workspace_premium : Symbols.lock,
-                    color: eligible ? scheme.primary : scheme.onSurfaceVariant,
-                  ),
-                  title: const Text('Bundled Pro seat'),
-                  subtitle: Text(
-                    eligible
-                        ? (assigned != null
-                              ? 'Assigned to ${assigned.name}'
-                              : data.isAssigned
-                              ? 'Assigned to a workspace you may not list here'
-                              : 'Available — not assigned to any workspace yet')
-                        : 'Requires Stellar Supernova (perk level '
-                              '$bundledProRequiredPerkLevel+). '
-                              'You are on ${profile?.perkTierName ?? 'Twinkle'} '
-                              '(perk ${data.perkLevel}).',
-                  ),
-                  trailing: eligible
-                      ? StatusChip(
-                          label: assigned != null || data.isAssigned
-                              ? 'In use'
-                              : 'Available',
-                          tone: assigned != null || data.isAssigned
-                              ? StatusChipTone.primary
-                              : StatusChipTone.secondary,
-                        )
-                      : StatusChip(
-                          label: 'Perk ${data.perkLevel}',
-                          tone: StatusChipTone.neutral,
-                        ),
+                BundledSeatQuotaBar(
+                  usedSeats: data.usedSeats,
+                  totalSeats: data.totalSeats,
+                  caption: caption,
+                  locked: !eligible,
                 ),
-                if (eligible && assigned != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '@${assigned.slug} · Pro limits from your perk',
-                            style: text.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () =>
-                              showWorkspaceQuota(context, ref, assigned),
-                          child: const Text('Manage'),
-                        ),
-                      ],
-                    ),
-                  )
-                else if (eligible && !data.isAssigned)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    child: Text(
-                      'Open any owned workspace’s Plan & quotas menu to assign '
-                      'this free Pro seat.',
-                      style: text.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                if (eligible && assigned != null) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () =>
+                          showWorkspaceQuota(context, ref, assigned),
+                      child: const Text('Manage'),
                     ),
                   ),
+                ],
               ],
             ),
           ),

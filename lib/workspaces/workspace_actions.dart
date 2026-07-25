@@ -169,9 +169,9 @@ class _WorkspacePlanQuotaSheetState
   Future<void> _assignBundled() async {
     final confirmed = await showConfirmAlert(
       'Apply your Solarpass perk Pro plan to '
-      '${widget.workspace.name}? '
-      'You can only assign it to one workspace at a time. '
-      'Moving it later has a 7-day cooldown.',
+          '${widget.workspace.name}? '
+          'You can only assign it to one workspace at a time. '
+          'Moving it later has a 7-day cooldown.',
       'Assign bundled Pro?',
       confirmLabel: 'Assign Pro',
     );
@@ -187,7 +187,7 @@ class _WorkspacePlanQuotaSheetState
   Future<void> _unassignBundled() async {
     final confirmed = await showConfirmAlert(
       '${widget.workspace.name} will return to the Free plan and '
-      'lower resource limits.',
+          'lower resource limits.',
       'Remove bundled Pro?',
       confirmLabel: 'Unassign',
     );
@@ -253,15 +253,12 @@ class _WorkspacePlanQuotaSheetState
       final opened = await _openOrderPayment(order);
       if (!mounted) return;
       await showOverlayDialog<void>(
-        builder: (context, close) => ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: kDialogMaxWidth),
-          child: _PaymentOrderDialog(
-            planName: planName,
-            order: order,
-            openedInBrowser: opened,
-            onOpenPayment: () => _openOrderPayment(order),
-            onClose: () => close(null),
-          ),
+        builder: (context, close) => _PaymentOrderDialog(
+          planName: planName,
+          order: order,
+          openedInBrowser: opened,
+          onOpenPayment: () => _openOrderPayment(order),
+          onClose: () => close(null),
         ),
       );
       if (!mounted) return;
@@ -377,65 +374,47 @@ class _WorkspacePlanQuotaSheetState
                 ],
               ),
               const SizedBox(height: 20),
-              Text('Bundled Pro seat', style: text.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                eligible
-                    ? 'Your Stellar ${solWattProfile?.perkTierName ?? 'Supernova'} '
-                          'perk (level $perkLevel) includes one free Pro workspace.'
-                    : 'Stellar Supernova (perk level $bundledProRequiredPerkLevel+) '
-                          'includes one free Pro workspace. '
-                          'Your current perk level is $perkLevel'
-                          '${solWattProfile == null ? '' : ' (${solWattProfile.perkTierName})'}.',
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 12),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          eligible ? Symbols.workspace_premium : Symbols.lock,
-                          color: eligible
-                              ? scheme.primary
-                              : scheme.onSurfaceVariant,
+                      BundledSeatQuotaBar(
+                        usedSeats: _bundledUsedSeats(
+                          eligible: eligible,
+                          bundled: bundled,
+                          assigned: assignedHere || assignedElsewhere,
                         ),
-                        title: Text(
-                          eligible
-                              ? (assignedHere
-                                    ? 'Assigned to this workspace'
-                                    : assignedElsewhere
-                                    ? 'Assigned to another workspace'
-                                    : 'Available — not assigned yet')
-                              : 'Not included in your perk',
+                        totalSeats: _bundledTotalSeats(
+                          eligible: eligible,
+                          bundled: bundled,
                         ),
-                        subtitle: Text(
-                          eligible
-                              ? (assignedWorkspace != null
-                                    ? '${assignedWorkspace.name} · @${assignedWorkspace.slug}'
-                                    : assignedElsewhere
-                                    ? 'Assigned workspace id ${bundled.workspaceId}'
-                                    : 'Choose this workspace to apply free Pro limits.')
-                              : 'Upgrade to Supernova on Solian to unlock this seat.',
-                        ),
+                        caption: !eligible
+                            ? 'Requires Stellar Supernova '
+                                  '(perk $bundledProRequiredPerkLevel+). '
+                                  'You are on ${solWattProfile?.perkTierName ?? 'Twinkle'} '
+                                  '(perk $perkLevel).'
+                            : assignedHere
+                            ? 'Assigned to this workspace'
+                            : assignedElsewhere
+                            ? (assignedWorkspace != null
+                                  ? 'Assigned to ${assignedWorkspace.name}'
+                                  : 'Assigned to another workspace')
+                            : 'Available — not assigned yet',
+                        locked: !eligible,
                       ),
                       if (bundled?.cooldownActive == true) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         Text(
-                          'Reassign cooldown is active. You can move the perk '
-                          'again after the cooldown ends.',
+                          'Reassign cooldown is active.',
                           style: text.bodySmall?.copyWith(color: scheme.error),
                         ),
                       ],
                       if (eligible && !isOwner) ...[
                         const SizedBox(height: 8),
                         Text(
-                          'Only the workspace owner can assign or remove the '
-                          'bundled Pro seat on this workspace.',
+                          'Only the workspace owner can manage this seat.',
                           style: text.bodySmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                           ),
@@ -447,7 +426,7 @@ class _WorkspacePlanQuotaSheetState
                           OutlinedButton.icon(
                             onPressed: _unassignBundled,
                             icon: const Icon(Symbols.link_off, size: 18),
-                            label: const Text('Unassign from this workspace'),
+                            label: const Text('Unassign'),
                           )
                         else if (assignedElsewhere && !bundled.cooldownActive)
                           FilledButton.tonalIcon(
@@ -455,7 +434,7 @@ class _WorkspacePlanQuotaSheetState
                             icon: const Icon(Symbols.swap_horiz, size: 18),
                             label: Text(
                               assignedWorkspace == null
-                                  ? 'Move bundled Pro here'
+                                  ? 'Move here'
                                   : 'Move from ${assignedWorkspace.name}',
                             ),
                           )
@@ -466,7 +445,7 @@ class _WorkspacePlanQuotaSheetState
                               Symbols.workspace_premium,
                               size: 18,
                             ),
-                            label: const Text('Assign free Pro here'),
+                            label: const Text('Assign here'),
                           ),
                       ],
                     ],
@@ -475,13 +454,7 @@ class _WorkspacePlanQuotaSheetState
               ),
               const SizedBox(height: 24),
               Text('Paid subscription', style: text.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                'Subscribe with golds. Checkout opens on Solian '
-                '(solian.app/orders/…).',
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -493,7 +466,9 @@ class _WorkspacePlanQuotaSheetState
                           'Pro ${status.prices!.pro} ${status.prices!.currency}/mo · '
                           'Enterprise ${status.prices!.enterprise} '
                           '${status.prices!.currency}/mo',
-                          style: text.bodyMedium,
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -560,19 +535,41 @@ class _WorkspacePlanQuotaSheetState
               const SizedBox(height: 24),
               Text('Resource limits', style: text.titleSmall),
               const SizedBox(height: 8),
-              for (final entry in quota.limits.entries)
-                Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(_quotaLabel(entry.key), style: text.titleSmall),
-                    trailing: Text(
-                      _formatQuota(entry.value),
-                      style: text.labelLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
+              Card(
+                child: Column(
+                  children: [
+                    for (final (i, entry) in quota.limits.entries.indexed) ...[
+                      if (i > 0)
+                        Divider(
+                          height: 1,
+                          color: scheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _quotaLabel(entry.key),
+                                style: text.bodyMedium,
+                              ),
+                            ),
+                            Text(
+                              _formatQuota(entry.value),
+                              style: text.labelLarge?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
+                    ],
+                  ],
                 ),
+              ),
             ],
           );
         },
@@ -585,6 +582,72 @@ class _PlanQuotaBundle {
   const _PlanQuotaBundle({required this.status, required this.quota});
   final WorkspacePlanStatus status;
   final WorkspaceQuota quota;
+}
+
+/// Progress bar for account-level bundled Pro seats (extensible beyond 1 seat).
+class BundledSeatQuotaBar extends StatelessWidget {
+  const BundledSeatQuotaBar({
+    super.key,
+    required this.usedSeats,
+    required this.totalSeats,
+    this.caption,
+    this.locked = false,
+  });
+
+  final int usedSeats;
+  final int totalSeats;
+  final String? caption;
+  final bool locked;
+
+  double get _ratio =>
+      totalSeats > 0 ? (usedSeats / totalSeats).clamp(0.0, 1.0) : 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final seatLabel = totalSeats == 1 ? 'seat' : 'seats';
+    final countLabel = locked || totalSeats <= 0
+        ? 'Locked'
+        : '$usedSeats / $totalSeats $seatLabel';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(
+              locked ? Symbols.lock : Symbols.workspace_premium,
+              size: 18,
+              color: locked ? scheme.onSurfaceVariant : scheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Bundled Pro', style: text.labelLarge)),
+            Text(
+              countLabel,
+              style: text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: locked ? 0 : _ratio,
+            minHeight: 6,
+            backgroundColor: scheme.surfaceContainerHighest,
+          ),
+        ),
+        if (caption != null && caption!.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            caption!,
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 /// Order confirmation with QR code for scanning payment on a mobile device.
@@ -605,96 +668,154 @@ class _PaymentOrderDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = theme.textTheme;
     final paymentLink = order.paymentUrl.toString();
+    final media = MediaQuery.sizeOf(context);
+    final shape =
+        theme.dialogTheme.shape ??
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(28));
 
-    return AlertDialog(
-      title: Text('$planName order created'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              openedInBrowser
-                  ? 'A browser tab may have opened. You can also scan this QR '
-                        'code with your phone to pay in the Solian app.'
-                  : 'Scan this QR code with your phone to pay in the Solian app, '
-                        'or open the link on this device.',
-              style: text.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: scheme.outlineVariant),
+    // Use a sized Material surface instead of [AlertDialog]. [Dialog] expands
+    // via Align and can end up with size MISSING when hosted in the custom
+    // overlay [Center], which then fails hit-testing.
+    final maxWidth = (media.width - 48).clamp(280.0, kDialogMaxWidth);
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        minWidth: 280,
+        maxWidth: maxWidth,
+        maxHeight: media.height * 0.85,
+      ),
+      child: Material(
+        color: theme.dialogTheme.backgroundColor ?? scheme.surfaceContainerHigh,
+        elevation: theme.dialogTheme.elevation ?? 6,
+        shadowColor: theme.shadowColor,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('$planName order created', style: text.headlineSmall),
+              const SizedBox(height: 12),
+              Text(
+                openedInBrowser
+                    ? 'A browser tab may have opened. You can also scan this '
+                          'QR code with your phone to pay in the Solian app.'
+                    : 'Scan this QR code with your phone to pay in the Solian '
+                          'app, or open the link on this device.',
+                style: text.bodyMedium,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: QrImageView(
-                  data: paymentLink,
-                  version: QrVersions.auto,
-                  size: 200,
-                  backgroundColor: Colors.white,
-                  eyeStyle: QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: scheme.onSurface,
-                  ),
-                  dataModuleStyle: QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: scheme.onSurface,
-                  ),
-                  errorStateBuilder: (context, error) => SizedBox(
-                    width: 200,
-                    height: 200,
-                    child: Center(
-                      child: Text(
-                        'Could not render QR code',
-                        textAlign: TextAlign.center,
-                        style: text.bodySmall?.copyWith(color: scheme.error),
+              const SizedBox(height: 20),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: scheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 200,
+                      height: 200,
+                      child: QrImageView(
+                        data: paymentLink,
+                        version: QrVersions.auto,
+                        size: 200,
+                        backgroundColor: Colors.white,
+                        eyeStyle: QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: scheme.onSurface,
+                        ),
+                        dataModuleStyle: QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: scheme.onSurface,
+                        ),
+                        errorStateBuilder: (context, error) => Center(
+                          child: Text(
+                            'Could not render QR code',
+                            textAlign: TextAlign.center,
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.error,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            SelectableText(
-              paymentLink,
-              style: text.bodySmall?.copyWith(color: scheme.primary),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Order ${order.orderId}\n'
-              '${order.amount} ${order.currency}',
-              textAlign: TextAlign.center,
-              style: text.labelLarge?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'After payment settles, return here and refresh plan status.',
-              textAlign: TextAlign.center,
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ],
+              const SizedBox(height: 16),
+              SelectableText(
+                paymentLink,
+                style: text.bodySmall?.copyWith(color: scheme.primary),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Order ${order.orderId}\n'
+                '${order.amount} ${order.currency}',
+                textAlign: TextAlign.center,
+                style: text.labelLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'After payment settles, return here and refresh plan status.',
+                textAlign: TextAlign.center,
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              OverflowBar(
+                alignment: MainAxisAlignment.end,
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: () async {
+                      await onOpenPayment();
+                    },
+                    child: const Text('Open in browser'),
+                  ),
+                  FilledButton(
+                    onPressed: onClose,
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () async {
-            await onOpenPayment();
-          },
-          child: const Text('Open in browser'),
-        ),
-        FilledButton(
-          onPressed: onClose,
-          child: const Text('Done'),
-        ),
-      ],
     );
   }
+}
+
+int _bundledUsedSeats({
+  required bool eligible,
+  required BundledPlanInfo? bundled,
+  required bool assigned,
+}) {
+  if (!eligible) return 0;
+  final fromApi = bundled?.usedSeats;
+  if (fromApi != null) return fromApi;
+  return assigned ? 1 : 0;
+}
+
+int _bundledTotalSeats({
+  required bool eligible,
+  required BundledPlanInfo? bundled,
+}) {
+  if (!eligible) return 0;
+  final fromApi = bundled?.totalSeats;
+  if (fromApi != null && fromApi > 0) return fromApi;
+  return 1;
 }
 
 String _quotaLabel(String key) => switch (key) {
@@ -1024,7 +1145,9 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
-      setState(() => _results = widget.client.searchAccounts(query));
+      setState(() {
+        _results = widget.client.searchAccounts(query);
+      });
     });
   }
 
@@ -1039,6 +1162,9 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
           children: [
             SearchBar(
               controller: _controller,
+              padding: WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 24),
+              ),
               hintText: 'Search accounts',
               leading: const Icon(Symbols.search),
               onChanged: _search,
@@ -1440,7 +1566,12 @@ class WorkspaceList extends ConsumerWidget {
           itemBuilder: (context, index) {
             final workspace = items[index];
             final isActive = selected?.id == workspace.id;
+            final planLabel = workspace.isBundled
+                ? '${workspace.planName} · perk'
+                : workspace.planName;
+
             return Card(
+              clipBehavior: Clip.none,
               color: isActive
                   ? scheme.primaryContainer.withValues(alpha: 0.55)
                   : scheme.surfaceContainerLow,
@@ -1460,78 +1591,54 @@ class WorkspaceList extends ConsumerWidget {
                   ),
                   child: Row(
                     children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          CloudFileAvatar(
-                            file: workspace.picture,
-                            fallbackIcon: Symbols.workspaces,
-                            size: 44,
-                            selected: isActive,
-                          ),
-                          if (isActive)
-                            Positioned(
-                              right: -2,
-                              bottom: -2,
-                              child: Icon(
-                                Symbols.check_circle,
-                                size: 16,
-                                color: scheme.primary,
-                                fill: 1,
-                              ),
+                      // Extra room so the selected ring + check badge aren't
+                      // clipped by tight row layout or material ink clips.
+                      Padding(
+                        padding: const EdgeInsets.all(1.5),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            CloudFileAvatar(
+                              file: workspace.picture,
+                              fallbackIcon: Symbols.workspaces,
+                              size: 40,
+                              selected: isActive,
                             ),
-                        ],
+                            if (isActive)
+                              Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: scheme.surface,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Symbols.check_circle,
+                                    size: 16,
+                                    color: scheme.primary,
+                                    fill: 1,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    workspace.name,
-                                    style: text.titleMedium,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                if (isActive) ...[
-                                  const SizedBox(width: 8),
-                                  StatusChip(
-                                    label: 'Active',
-                                    tone: StatusChipTone.primary,
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                StatusChip(
-                                  label: workspace.planName,
-                                  icon: Symbols.workspace_premium,
-                                  tone: workspace.plan == WorkspacePlanTier.free
-                                      ? StatusChipTone.neutral
-                                      : StatusChipTone.secondary,
-                                ),
-                                if (workspace.isBundled)
-                                  const StatusChip(
-                                    label: 'Bundled',
-                                    icon: Symbols.card_giftcard,
-                                    tone: StatusChipTone.primary,
-                                  ),
-                              ],
+                            Text(
+                              workspace.name,
+                              style: text.titleMedium,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              workspace.description?.isNotEmpty == true
-                                  ? '${workspace.slug} · ${workspace.description}'
-                                  : workspace.slug,
-                              maxLines: 2,
+                              planLabel,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: text.bodySmall?.copyWith(
                                 color: scheme.onSurfaceVariant,

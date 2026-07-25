@@ -29,45 +29,87 @@ class CloudFileAvatar extends StatelessWidget {
   final bool selected;
   final BorderRadius? borderRadius;
 
+  static const double _selectedBorderWidth = 1.5;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final radius = borderRadius ?? BorderRadius.circular(size * 0.28);
+    final outerRadius = borderRadius ?? BorderRadius.circular(size * 0.28);
     final url = file == null ? null : cloudFileDisplayUrl(file!);
     // Profile pictures sometimes omit mime_type; treat empty mime as displayable.
     final mime = file?.mimeType ?? '';
     final isImage = mime.isEmpty || mime.startsWith('image/');
+    final iconColor = selected ? scheme.onPrimaryContainer : scheme.primary;
+    final fillColor = selected
+        ? scheme.primaryContainer
+        : scheme.surfaceContainerHighest;
+
+    // Keep the selection ring outside the clipped image. Putting border +
+    // clipBehavior on the same box clips the stroke (and images can paint over it).
+    final borderWidth = selected ? _selectedBorderWidth : 0.0;
+    final innerRadius = _deflateBorderRadius(outerRadius, borderWidth);
+
+    final content = url != null && isImage
+        ? Image.network(
+            url,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, _, _) => Center(
+              child: Icon(
+                fallbackIcon,
+                size: size * 0.45,
+                color: iconColor,
+              ),
+            ),
+          )
+        : Center(
+            child: Icon(
+              fallbackIcon,
+              size: size * 0.45,
+              color: iconColor,
+            ),
+          );
 
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: selected
-            ? scheme.primaryContainer
-            : scheme.surfaceContainerHighest,
-        borderRadius: radius,
+        borderRadius: outerRadius,
         border: selected
-            ? Border.all(color: scheme.primary.withValues(alpha: 0.5))
+            ? Border.all(
+                color: scheme.primary.withValues(alpha: 0.55),
+                width: _selectedBorderWidth,
+              )
             : null,
       ),
-      clipBehavior: Clip.antiAlias,
-      child: url != null && isImage
-          ? Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Icon(
-                fallbackIcon,
-                size: size * 0.45,
-                color: selected ? scheme.onPrimaryContainer : scheme.primary,
-              ),
-            )
-          : Icon(
-              fallbackIcon,
-              size: size * 0.45,
-              color: selected ? scheme.onPrimaryContainer : scheme.primary,
-            ),
+      // Inset the clipped body so the ring sits fully outside it.
+      padding: EdgeInsets.all(borderWidth),
+      child: ClipRRect(
+        borderRadius: innerRadius,
+        child: ColoredBox(
+          color: fillColor,
+          child: content,
+        ),
+      ),
     );
   }
+}
+
+BorderRadius _deflateBorderRadius(BorderRadius radius, double delta) {
+  if (delta <= 0) return radius;
+  Radius deflate(Radius corner) {
+    final x = (corner.x - delta).clamp(0.0, double.infinity);
+    final y = (corner.y - delta).clamp(0.0, double.infinity);
+    return Radius.elliptical(x, y);
+  }
+
+  return BorderRadius.only(
+    topLeft: deflate(radius.topLeft),
+    topRight: deflate(radius.topRight),
+    bottomLeft: deflate(radius.bottomLeft),
+    bottomRight: deflate(radius.bottomRight),
+  );
 }
 
 /// Compact chip showing an attached cloud file with optional remove action.
