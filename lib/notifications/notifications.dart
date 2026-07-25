@@ -1,12 +1,16 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+
+const kNotificationsAttentionModalId = 'notifications';
 
 /// Unread notification count for the SolWatt Ring tenant.
 final notificationUnreadCountProvider = FutureProvider.autoDispose<int>((
@@ -58,195 +62,218 @@ Future<void> markNotificationRead(WidgetRef ref, String notificationId) async {
   ref.invalidate(notificationListProvider);
 }
 
-/// Opens the notification inbox as an overlay dialog.
-Future<void> showNotificationsDialog(WidgetRef ref) {
-  return showOverlayDialog<void>(
-    builder: (context, close) =>
-        _NotificationsDialog(onClose: () => close(null)),
+/// Opens the SolWatt notifications attention modal (Island-style).
+///
+/// Uses [showAttentionModal] + [AttentionModalScaffold] from
+/// `island_ui_foundation` — blur barrier, card on desktop, full sheet on
+/// narrow layouts.
+Future<void> showNotificationsAttentionModal() {
+  return showAttentionModal(
+    id: kNotificationsAttentionModalId,
+    replaceIfExists: true,
+    barrierDismissible: true,
+    builder: (context, dismiss) => NotificationModal(onDismiss: dismiss),
   );
 }
 
-class _NotificationsDialog extends ConsumerStatefulWidget {
-  const _NotificationsDialog({required this.onClose});
+/// Island-style notification inbox presented inside an attention modal.
+class NotificationModal extends HookConsumerWidget {
+  const NotificationModal({super.key, required this.onDismiss});
 
-  final VoidCallback onClose;
+  final VoidCallback onDismiss;
 
   @override
-  ConsumerState<_NotificationsDialog> createState() =>
-      _NotificationsDialogState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    useEffect(() {
+      Future.microtask(() {
+        ref.invalidate(notificationUnreadCountProvider);
+        ref.invalidate(notificationListProvider);
+      });
+      return null;
+    }, const []);
+
+    final isMarkingAll = useState(false);
+    final list = ref.watch(notificationListProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    Future<void> markAllRead() async {
+      isMarkingAll.value = true;
+      try {
+        await markAllNotificationsRead(ref);
+      } catch (error) {
+        if (context.mounted) showErrorAlert(error);
+      } finally {
+        if (context.mounted) isMarkingAll.value = false;
+      }
+    }
+
+    Future<void> openNotification(SnNotification notification) async {
+      if (notification.viewedAt == null) {
+        await markNotificationRead(ref, notification.id);
+      }
+      final uri = notification.meta['action_uri']?.toString();
+      if (uri == null || uri.isEmpty) return;
+      if (uri.startsWith('http://') || uri.startsWith('https://')) {
+        await launchUrlString(uri);
+      }
+      // In-app deep links can be wired when SolWatt has matching routes.
+      if (context.mounted) {
+        dismissAttentionModal(kNotificationsAttentionModalId);
+      }
+    }
+
+    return AttentionModalScaffold(
+      titleText: 'Notifications',
+      onDismiss: onDismiss,
+      maxWidth: 560,
+      actions: [
+        IconButton(
+          tooltip: 'Mark all as read',
+          onPressed: isMarkingAll.value ? null : markAllRead,
+          icon: isMarkingAll.value
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: scheme.primary,
+                  ),
+                )
+              : const Icon(Symbols.done_all),
+        ),
+        IconButton(
+          tooltip: 'Refresh',
+          onPressed: () {
+            ref.invalidate(notificationListProvider);
+            ref.invalidate(notificationUnreadCountProvider);
+          },
+          icon: const Icon(Symbols.refresh),
+        ),
+      ],
+      child: Column(
+        children: [
+          if (isMarkingAll.value)
+            LinearProgressIndicator(minHeight: 2, color: scheme.primary),
+          Expanded(
+            child: list.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => _NotificationsError(
+                error: error,
+                onRetry: () {
+                  ref.invalidate(notificationListProvider);
+                  ref.invalidate(notificationUnreadCountProvider);
+                },
+              ),
+              data: (items) {
+                if (items.isEmpty) {
+                  return const _NotificationsEmpty();
+                }
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    ref.invalidate(notificationListProvider);
+                    ref.invalidate(notificationUnreadCountProvider);
+                    await ref.read(notificationListProvider.future);
+                  },
+                  child: ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => Divider(
+                      height: 1,
+                      indent: 72,
+                      color: scheme.outlineVariant.withValues(alpha: 0.5),
+                    ),
+                    itemBuilder: (context, index) {
+                      final notification = items[index];
+                      return NotificationTile(
+                        notification: notification,
+                        onTap: () => openNotification(notification),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _NotificationsDialogState extends ConsumerState<_NotificationsDialog> {
-  var _markingAll = false;
-
-  Future<void> _markAll() async {
-    setState(() => _markingAll = true);
-    try {
-      await markAllNotificationsRead(ref);
-    } catch (error) {
-      if (mounted) showErrorAlert(error);
-    } finally {
-      if (mounted) setState(() => _markingAll = false);
-    }
-  }
-
-  Future<void> _openNotification(SnNotification notification) async {
-    if (notification.viewedAt == null) {
-      await markNotificationRead(ref, notification.id);
-    }
-    final uri = notification.meta['action_uri']?.toString();
-    if (uri == null || uri.isEmpty) return;
-    if (uri.startsWith('http://') || uri.startsWith('https://')) {
-      await launchUrlString(uri);
-    }
-    // In-app deep links can be wired when SolWatt has matching routes.
-  }
+class _NotificationsEmpty extends StatelessWidget {
+  const _NotificationsEmpty();
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final list = ref.watch(notificationListProvider);
-
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
-      child: AlertDialog(
-        titlePadding: const EdgeInsets.fromLTRB(24, 20, 12, 0),
-        contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
-        title: Row(
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(child: Text('Notifications', style: text.titleLarge)),
-            IconButton(
-              tooltip: 'Mark all as read',
-              onPressed: _markingAll ? null : _markAll,
-              icon: _markingAll
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Symbols.done_all),
+            Icon(
+              Symbols.notifications_off,
+              size: 48,
+              color: scheme.onSurfaceVariant,
             ),
-            IconButton(
-              tooltip: 'Refresh',
-              onPressed: () {
-                ref.invalidate(notificationListProvider);
-                ref.invalidate(notificationUnreadCountProvider);
-              },
-              icon: const Icon(Symbols.refresh),
-            ),
-            IconButton(
-              tooltip: 'Close',
-              onPressed: widget.onClose,
-              icon: const Icon(Symbols.close),
+            const SizedBox(height: 16),
+            Text('No notifications yet', style: text.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              'SolWatt alerts for this account will show up here.',
+              textAlign: TextAlign.center,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
-        ),
-        content: SizedBox(
-          width: 520,
-          height: 480,
-          child: Column(
-            children: [
-              if (_markingAll)
-                LinearProgressIndicator(minHeight: 2, color: scheme.primary),
-              Expanded(
-                child: list.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, _) => Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Symbols.error, size: 40, color: scheme.error),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Could not load notifications',
-                            style: text.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            error.toString(),
-                            textAlign: TextAlign.center,
-                            style: text.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton.tonal(
-                            onPressed: () {
-                              ref.invalidate(notificationListProvider);
-                              ref.invalidate(notificationUnreadCountProvider);
-                            },
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  data: (items) {
-                    if (items.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Symbols.notifications_off,
-                                size: 40,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'No notifications yet',
-                                style: text.titleMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'SolWatt alerts for this account will show up here.',
-                                textAlign: TextAlign.center,
-                                style: text.bodyMedium?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                    return RefreshIndicator(
-                      onRefresh: () async {
-                        ref.invalidate(notificationListProvider);
-                        ref.invalidate(notificationUnreadCountProvider);
-                        await ref.read(notificationListProvider.future);
-                      },
-                      child: ListView.separated(
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final notification = items[index];
-                          return _NotificationTile(
-                            notification: notification,
-                            onTap: () => _openNotification(notification),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 }
 
-class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.notification, required this.onTap});
+class _NotificationsError extends StatelessWidget {
+  const _NotificationsError({required this.error, required this.onRetry});
+
+  final Object error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Symbols.error, size: 48, color: scheme.error),
+            const SizedBox(height: 16),
+            Text('Could not load notifications', style: text.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              error.toString(),
+              textAlign: TextAlign.center,
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.tonal(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Single notification row for the attention modal list.
+class NotificationTile extends StatelessWidget {
+  const NotificationTile({
+    super.key,
+    required this.notification,
+    required this.onTap,
+  });
 
   final SnNotification notification;
   final VoidCallback onTap;
@@ -272,7 +299,7 @@ class _NotificationTile extends StatelessWidget {
     return ListTile(
       isThreeLine:
           notification.body.isNotEmpty || notification.subtitle.isNotEmpty,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       leading: CircleAvatar(
         backgroundColor: unread
             ? scheme.primaryContainer
@@ -304,11 +331,11 @@ class _NotificationTile extends StatelessWidget {
           if (notification.body.isNotEmpty)
             Text(
               notification.body,
-              maxLines: 2,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             when,
             style: text.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -347,7 +374,7 @@ class NotificationBellButton extends ConsumerWidget {
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
-          onTap: () => showNotificationsDialog(ref),
+          onTap: showNotificationsAttentionModal,
           child: SizedBox(
             width: 48,
             height: 48,

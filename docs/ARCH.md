@@ -130,8 +130,10 @@ Solian (or other apps) traffic.
 | `kNotificationTenantAppId` | `dev.solsynth.solarwatt` (bundle / application id) |
 | Island’s equivalent | `dev.solsynth.solian` |
 
-UI: `lib/notifications/notifications.dart` — inbox dialog, unread badge, and
-`NotificationBellButton` on the desktop rail and Home page.
+UI: `lib/notifications/notifications.dart` — Island-style **attention modal**
+(`showAttentionModal` + `AttentionModalScaffold` from island_ui_foundation),
+unread badge, and `NotificationBellButton` on the desktop rail and Home page.
+Open via `showNotificationsAttentionModal()` (id: `notifications`).
 
 ## Realtime (websocket gateway)
 
