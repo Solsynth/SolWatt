@@ -35,7 +35,10 @@ lib/
   gate/gate_page.dart             # Sign-in + workspace selection entry
   workspaces/workspace_actions.dart  # Workspace CRUD and shared list UI
   ui/page_scaffold.dart           # Shared page chrome for shell screens
+  ui/cloud_files.dart             # Cloud upload picker + link attachment
   boards/boards_screen.dart       # Ideask boards and tasks
+  files/files_screen.dart         # Workspace-scoped Drive browser
+  tasks/                          # Background task overlay (uploads, etc.)
   <feature>/                      # Future product features
 docs/
   ARCH.md                         # This document
@@ -75,10 +78,13 @@ customization.
 ## Navigation
 
 `AppRouter` owns the root routes: `GatePage` (initial) and `AppShellPage`.
-`AppShellPage` is an `AutoTabsRouter` shell with home, boards, profile, and
-settings. Its desktop rail follows the MaidKit pattern: primary destinations
+`AppShellPage` is an `AutoTabsRouter` shell with home, boards, files, profile,
+and settings. Its desktop rail follows the MaidKit pattern: primary destinations
 are top-aligned and profile/settings trail at the bottom. The narrow layout
 exposes the same routes in a compact `NavigationBar`.
+
+Workspace Drive uploads always pass `workspace_id` so DysonFS charges the
+workspace plan quota rather than the personal account quota.
 
 Add product screens as child routes of `AppShellPage` when their purpose is
 known. Do not add placeholder pages or speculative UI content.
@@ -104,6 +110,7 @@ Key providers:
 - `workspacesProvider` / `selectedWorkspaceProvider` — workspace list and active selection
 - `appAccessProvider` — combined gate state (`needsSignIn` | `needsWorkspace` | `ready`)
 - `broadsProvider` / `tasksProvider` — Ideask data scoped to the active workspace
+- `workspaceFilesProvider` / `workspaceFolderChildrenProvider` — Drive files tagged with the active workspace
 
 ## Validation
 

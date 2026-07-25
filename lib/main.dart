@@ -8,8 +8,10 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app_logging.dart';
 import 'boards/boards_screen.dart';
+import 'files/files_screen.dart';
 import 'gate/gate_page.dart';
 import 'network.dart';
+import 'tasks/task_overlay.dart';
 import 'theme.dart';
 import 'ui/page_scaffold.dart';
 import 'workspaces/workspace_actions.dart';
@@ -89,6 +91,7 @@ class AppRouter extends RootStackRouter {
       children: [
         AutoRoute(page: HomeRoute.page, initial: true),
         AutoRoute(page: BoardsRoute.page),
+        AutoRoute(page: FilesRoute.page),
         AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
         AutoRoute(page: SettingsRoute.page),
@@ -152,6 +155,7 @@ class AppShellPage extends ConsumerWidget {
           routes: const [
             HomeRoute(),
             BoardsRoute(),
+            FilesRoute(),
             ProfileRoute(),
             SettingsRoute(),
           ],
@@ -189,30 +193,38 @@ class _NavigationShell extends ConsumerWidget {
     return Scaffold(
       backgroundColor: scheme.surfaceContainer,
       body: SafeArea(
-        child: wide
-            ? Row(
-                children: [
-                  _DesktopNavigation(
-                    selectedIndex: selectedIndex,
-                    onSelected: onSelected,
-                    workspaceName: workspace?.name,
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
-                      child: Material(
-                        color: scheme.surface,
-                        borderRadius: const BorderRadius.all(
-                          Radius.circular(16),
+        child: Column(
+          children: [
+            Expanded(
+              child: wide
+                  ? Row(
+                      children: [
+                        _DesktopNavigation(
+                          selectedIndex: selectedIndex,
+                          onSelected: onSelected,
+                          workspaceName: workspace?.name,
                         ),
-                        clipBehavior: Clip.antiAlias,
-                        child: child,
-                      ),
-                    ),
-                  ),
-                ],
-              )
-            : ColoredBox(color: scheme.surface, child: child),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+                            child: Material(
+                              color: scheme.surface,
+                              borderRadius: const BorderRadius.all(
+                                Radius.circular(16),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: child,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : ColoredBox(color: scheme.surface, child: child),
+            ),
+            // Island-style background task strip (uploads, etc.).
+            const TaskOverlayHost(),
+          ],
+        ),
       ),
       bottomNavigationBar: wide
           ? null
@@ -245,7 +257,12 @@ class _NavigationShell extends ConsumerWidget {
 const _destinations = [
   _Destination('Home', Symbols.home),
   _Destination('Boards', Symbols.view_kanban),
+  _Destination('Files', Symbols.folder),
 ];
+
+/// Tab indices for [AutoTabsRouter] shell routes.
+const _profileTabIndex = 3;
+const _settingsTabIndex = 4;
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
@@ -281,13 +298,13 @@ class _DesktopNavigation extends ConsumerWidget {
                 ? 'Workspaces'
                 : 'Workspace: $workspaceName',
             child: Material(
-              color: selectedIndex == 2
+              color: selectedIndex == _profileTabIndex
                   ? scheme.secondaryContainer
                   : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(16),
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: () => onSelected(2),
+                onTap: () => onSelected(_profileTabIndex),
                 child: SizedBox(
                   width: 64,
                   child: Padding(
@@ -300,8 +317,8 @@ class _DesktopNavigation extends ConsumerWidget {
                         Icon(
                           Symbols.workspaces,
                           size: 22,
-                          fill: selectedIndex == 2 ? 1 : 0,
-                          color: selectedIndex == 2
+                          fill: selectedIndex == _profileTabIndex ? 1 : 0,
+                          color: selectedIndex == _profileTabIndex
                               ? scheme.onSecondaryContainer
                               : scheme.primary,
                         ),
@@ -312,10 +329,10 @@ class _DesktopNavigation extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: text.labelSmall?.copyWith(
-                            color: selectedIndex == 2
+                            color: selectedIndex == _profileTabIndex
                                 ? scheme.onSecondaryContainer
                                 : scheme.onSurfaceVariant,
-                            fontWeight: selectedIndex == 2
+                            fontWeight: selectedIndex == _profileTabIndex
                                 ? FontWeight.w600
                                 : FontWeight.w500,
                           ),
@@ -336,22 +353,22 @@ class _DesktopNavigation extends ConsumerWidget {
             children: [
               _RailIconButton(
                 tooltip: 'Profile',
-                selected: selectedIndex == 2,
-                onPressed: () => onSelected(2),
+                selected: selectedIndex == _profileTabIndex,
+                onPressed: () => onSelected(_profileTabIndex),
                 child: _RailProfileAvatar(
                   profile: profile,
-                  selected: selectedIndex == 2,
+                  selected: selectedIndex == _profileTabIndex,
                 ),
               ),
               const SizedBox(height: 4),
               _RailIconButton(
                 tooltip: 'Settings',
-                selected: selectedIndex == 3,
-                onPressed: () => onSelected(3),
+                selected: selectedIndex == _settingsTabIndex,
+                onPressed: () => onSelected(_settingsTabIndex),
                 child: Icon(
                   Symbols.settings,
-                  fill: selectedIndex == 3 ? 1 : 0,
-                  color: selectedIndex == 3
+                  fill: selectedIndex == _settingsTabIndex ? 1 : 0,
+                  color: selectedIndex == _settingsTabIndex
                       ? scheme.onSecondaryContainer
                       : scheme.onSurfaceVariant,
                 ),
@@ -454,7 +471,8 @@ class HomePage extends ConsumerWidget {
           ? workspace!.description!
           : 'Active workspace',
       action: FilledButton.tonalIcon(
-        onPressed: () => AutoTabsRouter.of(context).setActiveIndex(2),
+        onPressed: () =>
+            AutoTabsRouter.of(context).setActiveIndex(_profileTabIndex),
         icon: const Icon(Symbols.swap_horiz, size: 18),
         label: const Text('Switch'),
       ),
@@ -518,9 +536,16 @@ class HomePage extends ConsumerWidget {
                         icon: const Icon(Symbols.view_kanban, size: 18),
                         label: const Text('Open boards'),
                       ),
-                      OutlinedButton.icon(
+                      FilledButton.tonalIcon(
                         onPressed: () =>
                             AutoTabsRouter.of(context).setActiveIndex(2),
+                        icon: const Icon(Symbols.folder, size: 18),
+                        label: const Text('Workspace files'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => AutoTabsRouter.of(
+                          context,
+                        ).setActiveIndex(_profileTabIndex),
                         icon: const Icon(Symbols.workspaces, size: 18),
                         label: const Text('Manage workspaces'),
                       ),

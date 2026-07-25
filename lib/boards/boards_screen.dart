@@ -281,8 +281,8 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
             task.id,
             WorkTaskDraft(
               name: task.name,
-              description: task.description,
-              content: task.content,
+              description: task.displayDescription,
+              content: task.displayContent,
               priority: task.priority,
               attachmentIds: task.attachments.map((file) => file.id).toList(),
               tags: task.tags,
@@ -380,8 +380,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                         _toggleTaskComplete(context, ref, _broadId, task),
                     onDeleteTask: (task) =>
                         _deleteTask(context, ref, _broadId, task),
-                    onMoveTask: (task) =>
-                        _onMoveTask(task, column.groupId),
+                    onMoveTask: (task) => _onMoveTask(task, column.groupId),
                     onAddTask: () => _taskForm(
                       context,
                       ref,
@@ -564,15 +563,13 @@ class _TaskGroupColumn extends StatelessWidget {
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
                           itemCount: tasks.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 8),
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final task = tasks[index];
                             return _DraggableTaskCard(
                               task: task,
                               onOpen: () => onOpenTask(task),
-                              onToggleComplete: () =>
-                                  onToggleComplete(task),
+                              onToggleComplete: () => onToggleComplete(task),
                               onDelete: () => onDeleteTask(task),
                             );
                           },
@@ -602,7 +599,6 @@ class _DraggableTaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final tile = _TaskTile(
       task: task,
       compact: true,
@@ -628,22 +624,7 @@ class _DraggableTaskCard extends StatelessWidget {
         opacity: 0.35,
         child: IgnorePointer(child: tile),
       ),
-      child: Stack(
-        children: [
-          tile,
-          Positioned(
-            right: 36,
-            top: 6,
-            child: IgnorePointer(
-              child: Icon(
-                Symbols.drag_indicator,
-                size: 16,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.45),
-              ),
-            ),
-          ),
-        ],
-      ),
+      child: tile,
     );
   }
 }
@@ -663,8 +644,8 @@ Future<void> _toggleTaskComplete(
           task.id,
           WorkTaskDraft(
             name: task.name,
-            description: task.description,
-            content: task.content,
+            description: task.displayDescription,
+            content: task.displayContent,
             priority: task.priority,
             attachmentIds: task.attachments.map((file) => file.id).toList(),
             tags: task.tags,
@@ -740,6 +721,10 @@ class _TaskTile extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final priority = _priorityMeta(task.priority);
     final completeLabel = _completeReasonLabel(task.completeReason);
+    final hasDescription = task.hasDescription;
+    final titleStyle = (compact ? text.titleSmall : text.titleMedium)?.copyWith(
+      decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+    );
 
     return Card(
       margin: EdgeInsets.zero,
@@ -752,9 +737,14 @@ class _TaskTile extends StatelessWidget {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                // Title-only cards: center with action buttons (no dead space).
+                // With description: top-align so text stacks under the title.
+                crossAxisAlignment: hasDescription
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
                 children: [
                   IconButton(
                     tooltip: task.isCompleted
@@ -779,17 +769,34 @@ class _TaskTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: Text(
-                      task.name,
-                      maxLines: compact ? 3 : 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: (compact ? text.titleSmall : text.titleMedium)
-                          ?.copyWith(
-                            decoration: task.isCompleted
-                                ? TextDecoration.lineThrough
-                                : null,
+                    child: hasDescription
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                task.name,
+                                maxLines: compact ? 2 : 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: titleStyle,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                task.displayDescription!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            task.name,
+                            maxLines: compact ? 3 : 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: titleStyle,
                           ),
-                    ),
                   ),
                   IconButton(
                     tooltip: 'Delete task',
@@ -803,20 +810,6 @@ class _TaskTile extends StatelessWidget {
                   ),
                 ],
               ),
-              if (task.description?.isNotEmpty == true) ...[
-                const SizedBox(height: 4),
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Text(
-                    task.description!,
-                    maxLines: compact ? 2 : 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
               const SizedBox(height: 8),
               Wrap(
                 spacing: 6,
@@ -1018,10 +1011,13 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
   }
 
   Future<void> _pickIcon() async {
+    final workspace = await ref.read(selectedWorkspaceProvider.future);
+    if (!mounted) return;
     final file = await pickCloudImageReference(
       context,
       ref,
       usage: 'board.icon',
+      workspaceId: workspace?.id,
       title: 'Board icon',
     );
     if (file == null || !mounted) return;
@@ -1032,10 +1028,13 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
   }
 
   Future<void> _pickBackground() async {
+    final workspace = await ref.read(selectedWorkspaceProvider.future);
+    if (!mounted) return;
     final file = await pickCloudImageReference(
       context,
       ref,
       usage: 'board.background',
+      workspaceId: workspace?.id,
       title: 'Board background',
     );
     if (file == null || !mounted) return;
@@ -1177,7 +1176,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
               decoration: InputDecoration(
                 labelText: 'Description',
                 alignLabelWithHint: true,
-                prefixIcon: inputPrefixIcon(Symbols.notes),
+                prefixIcon: inputPrefixIcon(Symbols.notes, maxLines: 3),
               ),
               maxLines: 3,
             ),
@@ -1187,7 +1186,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
               decoration: InputDecoration(
                 labelText: 'Content',
                 alignLabelWithHint: true,
-                prefixIcon: inputPrefixIcon(Symbols.article),
+                prefixIcon: inputPrefixIcon(Symbols.article, maxLines: 4),
                 hintText: 'Optional long-form detail',
               ),
               maxLines: 4,
@@ -1340,9 +1339,9 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
           children: [
             Text(
               'Organize board tasks into columns or swimlanes.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             Row(
@@ -1369,16 +1368,14 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
             const SizedBox(height: 16),
             Expanded(
               child: groups.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
+                loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => EmptyState(
                   icon: Symbols.error,
                   title: 'Could not load groups',
                   message: error.toString(),
                   action: FilledButton(
-                    onPressed: () => ref.invalidate(
-                      taskGroupsProvider(widget.broadId),
-                    ),
+                    onPressed: () =>
+                        ref.invalidate(taskGroupsProvider(widget.broadId)),
                     child: const Text('Try again'),
                   ),
                 ),
@@ -1519,6 +1516,8 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
   DateTime? _deadline;
   int? _completeReason;
   String? _groupId;
+  late bool _showDescription;
+  late bool _showContent;
   final List<SnCloudFileReference> _attachments = [];
   final List<_AssigneeChoice> _assignees = [];
 
@@ -1527,21 +1526,22 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     super.initState();
     final task = widget.task;
     _name = TextEditingController(text: task?.name ?? '');
-    _description = TextEditingController(text: task?.description ?? '');
-    _content = TextEditingController(text: task?.content ?? '');
+    _description = TextEditingController(text: task?.displayDescription ?? '');
+    _content = TextEditingController(text: task?.displayContent ?? '');
     _tags = TextEditingController(text: task?.tags.join(', ') ?? '');
     _priority = task?.priority ?? 0;
     _deadline = task?.deadlineAt;
     _completeReason = task?.completeReason;
     _groupId = task?.groupId ?? widget.initialGroupId;
+    // Keep empty optional fields collapsed until the user adds them.
+    _showDescription = task?.hasDescription == true;
+    _showContent = task?.hasContent == true;
     if (task != null) {
       _attachments.addAll(task.attachments);
       _assignees.addAll(
         task.assignees.map(
-          (item) => _AssigneeChoice(
-            accountId: item.accountId,
-            label: item.label,
-          ),
+          (item) =>
+              _AssigneeChoice(accountId: item.accountId, label: item.label),
         ),
       );
     }
@@ -1583,11 +1583,14 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
   }
 
   Future<void> _addAttachments() async {
+    final workspace = await ref.read(selectedWorkspaceProvider.future);
+    if (!mounted) return;
     final files = await showCloudFilePicker<List<SnCloudFile>>(
       context: context,
       ref: ref,
       allowMultiple: true,
       usage: 'task.attachment',
+      workspaceId: workspace?.id,
       title: 'Attach files',
     );
     if (files == null || files.isEmpty || !mounted) return;
@@ -1608,9 +1611,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
       builder: (_) => _AssigneePickerSheet(
         client: ref.read(wattEngineClientProvider),
         workspaceSlug: workspace?.slug,
-        excludeAccountIds: {
-          for (final item in _assignees) item.accountId,
-        },
+        excludeAccountIds: {for (final item in _assignees) item.accountId},
       ),
     );
     if (choice == null || !mounted) return;
@@ -1652,9 +1653,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
           completeReason: _completeReason,
           groupId: _groupId,
           ungroup: ungroup ? true : null,
-          assigneeAccountIds: _assignees
-              .map((item) => item.accountId)
-              .toList(),
+          assigneeAccountIds: _assignees.map((item) => item.accountId).toList(),
         ),
         assigneeAccountIds: _assignees.map((item) => item.accountId).toList(),
       ),
@@ -1684,28 +1683,70 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               ),
               textInputAction: TextInputAction.next,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _description,
-              decoration: InputDecoration(
-                labelText: 'Description',
-                alignLabelWithHint: true,
-                prefixIcon: inputPrefixIcon(Symbols.notes),
+            const SizedBox(height: 12),
+            if (_showDescription) ...[
+              TextField(
+                controller: _description,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  alignLabelWithHint: true,
+                  prefixIcon: inputPrefixIcon(Symbols.notes, maxLines: 3),
+                  suffixIcon: IconButton(
+                    tooltip: 'Remove description',
+                    icon: const Icon(Symbols.close, size: 18),
+                    onPressed: () => setState(() {
+                      _description.clear();
+                      _showDescription = false;
+                    }),
+                  ),
+                ),
+                maxLines: 3,
               ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _content,
-              decoration: InputDecoration(
-                labelText: 'Content',
-                alignLabelWithHint: true,
-                prefixIcon: inputPrefixIcon(Symbols.article),
-                hintText: 'Rich detail / notes',
+              const SizedBox(height: 12),
+            ],
+            if (_showContent) ...[
+              TextField(
+                controller: _content,
+                decoration: InputDecoration(
+                  labelText: 'Details',
+                  alignLabelWithHint: true,
+                  prefixIcon: inputPrefixIcon(Symbols.article, maxLines: 4),
+                  hintText: 'Rich detail / notes',
+                  suffixIcon: IconButton(
+                    tooltip: 'Remove details',
+                    icon: const Icon(Symbols.close, size: 18),
+                    onPressed: () => setState(() {
+                      _content.clear();
+                      _showContent = false;
+                    }),
+                  ),
+                ),
+                maxLines: 4,
               ),
-              maxLines: 4,
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 12),
+            ],
+            if (!_showDescription || !_showContent) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (!_showDescription)
+                    TextButton.icon(
+                      onPressed: () => setState(() => _showDescription = true),
+                      icon: const Icon(Symbols.notes, size: 18),
+                      label: const Text('Add description'),
+                    ),
+                  if (!_showContent)
+                    TextButton.icon(
+                      onPressed: () => setState(() => _showContent = true),
+                      icon: const Icon(Symbols.article, size: 18),
+                      label: const Text('Add details'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            const SizedBox(height: 8),
             groups.when(
               loading: () => const LinearProgressIndicator(),
               error: (error, _) => Text(
@@ -1714,8 +1755,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               ),
               data: (items) {
                 // Drop stale selection if the group was deleted.
-                final validGroupId =
-                    items.any((group) => group.id == _groupId)
+                final validGroupId = items.any((group) => group.id == _groupId)
                     ? _groupId
                     : null;
                 return DropdownButtonFormField<String?>(
@@ -1847,9 +1887,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             if (_assignees.isEmpty)
               Text(
                 'No assignees yet.',
-                style: text.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             else
               Wrap(
@@ -1887,9 +1925,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             if (_attachments.isEmpty)
               Text(
                 'No files attached.',
-                style: text.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             else
               Wrap(
@@ -1948,9 +1984,7 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
       _members = widget.client.listWorkspaceMembers(slug).then((members) {
         return members
             .where((m) => !widget.excludeAccountIds.contains(m.accountId))
-            .map(
-              (m) => _AssigneeChoice(accountId: m.accountId, label: m.label),
-            )
+            .map((m) => _AssigneeChoice(accountId: m.accountId, label: m.label))
             .toList();
       });
     }

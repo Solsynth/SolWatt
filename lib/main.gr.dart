@@ -43,6 +43,22 @@ class BoardsRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [FilesPage]
+class FilesRoute extends PageRouteInfo<void> {
+  const FilesRoute({List<PageRouteInfo>? children})
+    : super(FilesRoute.name, initialChildren: children);
+
+  static const String name = 'FilesRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const FilesPage();
+    },
+  );
+}
+
+/// generated route for
 /// [GatePage]
 class GateRoute extends PageRouteInfo<void> {
   const GateRoute({List<PageRouteInfo>? children})

@@ -96,15 +96,10 @@ ThemeData createSolWattTheme(Brightness brightness) {
       filled: true,
       fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      // Full-height icon slot so [inputPrefixIcon] can top-align in multi-line fields.
-      prefixIconConstraints: const BoxConstraints(
-        minWidth: 48,
-        minHeight: double.infinity,
-      ),
-      suffixIconConstraints: const BoxConstraints(
-        minWidth: 48,
-        minHeight: double.infinity,
-      ),
+      // Loose height so multi-line fields inside scroll views stay finite.
+      // Top alignment is handled by [inputPrefixIcon].
+      prefixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 0),
+      suffixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 0),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: colorScheme.outline),
@@ -322,15 +317,35 @@ ThemeData createSolWattTheme(Brightness brightness) {
   );
 }
 
-/// Prefix/suffix field icon aligned to the top of the input (not vertically centered).
+/// Prefix field icon. For multi-line fields pass [maxLines] so the icon sits
+/// near the top (InputDecorator centers the icon box; a tall box offsets it).
 ///
-/// Use with the theme's full-height [InputDecorationTheme.prefixIconConstraints].
-Widget inputPrefixIcon(IconData icon, {double top = 12, double size = 24}) {
-  return Align(
-    alignment: Alignment.topCenter,
-    child: Padding(
-      padding: EdgeInsets.only(top: top),
-      child: Icon(icon, size: size),
+/// Do not use infinite height constraints — scrollable sheets provide
+/// unbounded max height and will assert.
+Widget inputPrefixIcon(
+  IconData icon, {
+  double top = 12,
+  double size = 24,
+  int maxLines = 1,
+}) {
+  final glyph = Icon(icon, size: size);
+
+  if (maxLines <= 1) {
+    return glyph;
+  }
+
+  // InputDecorator vertically centers the prefix box. Match multi-line height
+  // so a top-aligned icon inside that box lands near the first text line.
+  final estimatedHeight = top + size + (maxLines - 1) * 22.0 + 16;
+  return SizedBox(
+    width: 48,
+    height: estimatedHeight,
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: EdgeInsets.only(top: top),
+        child: glyph,
+      ),
     ),
   );
 }

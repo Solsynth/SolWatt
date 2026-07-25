@@ -339,9 +339,9 @@ class _WorkspaceMembersSheetState
           children: [
             Text(
               widget.workspace.name,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -511,16 +511,13 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
                   : FutureBuilder<List<SnAccount>>(
                       future: _results,
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState !=
-                            ConnectionState.done) {
+                        if (snapshot.connectionState != ConnectionState.done) {
                           return const Center(
                             child: CircularProgressIndicator(),
                           );
                         }
                         if (snapshot.hasError) {
-                          return Center(
-                            child: Text(snapshot.error.toString()),
-                          );
+                          return Center(child: Text(snapshot.error.toString()));
                         }
                         final accounts = snapshot.data ?? const [];
                         if (accounts.isEmpty) {
@@ -569,10 +566,8 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
   return showModalBottomSheet<WorkspaceDraft>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _WorkspaceEditorSheet(
-      workspace: workspace,
-      profile: profile,
-    ),
+    builder: (_) =>
+        _WorkspaceEditorSheet(workspace: workspace, profile: profile),
   );
 }
 
@@ -619,10 +614,12 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
   }
 
   Future<void> _pickPicture() async {
+    final workspaceId = widget.workspace?.id;
     final file = await pickCloudImageReference(
       context,
       ref,
       usage: 'workspace.picture',
+      workspaceId: workspaceId,
       title: 'Workspace icon',
     );
     if (file == null || !mounted) return;
@@ -633,10 +630,12 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
   }
 
   Future<void> _pickBackground() async {
+    final workspaceId = widget.workspace?.id;
     final file = await pickCloudImageReference(
       context,
       ref,
       usage: 'workspace.background',
+      workspaceId: workspaceId,
       title: 'Workspace background',
     );
     if (file == null || !mounted) return;
@@ -720,9 +719,7 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
                           TextButton.icon(
                             onPressed: _pickPicture,
                             icon: const Icon(Symbols.upload, size: 18),
-                            label: Text(
-                              _picture == null ? 'Upload' : 'Change',
-                            ),
+                            label: Text(_picture == null ? 'Upload' : 'Change'),
                           ),
                           if (_picture != null)
                             TextButton(
@@ -819,7 +816,7 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
               decoration: InputDecoration(
                 labelText: 'Description',
                 alignLabelWithHint: true,
-                prefixIcon: inputPrefixIcon(Symbols.notes),
+                prefixIcon: inputPrefixIcon(Symbols.notes, maxLines: 4),
               ),
               maxLines: 4,
             ),

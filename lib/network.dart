@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
@@ -542,26 +544,259 @@ class WattEngineClient {
   Future<void> deleteTaskGroup(String groupId) =>
       _request<void>('DELETE', '/ideask/task-groups/$groupId');
 
-  /// Uploads a file via the Drive direct-upload endpoint (≤ ~20 MB).
+  /// Uploads a file to **workspace** Drive (≤ ~20 MB).
+  ///
+  /// SolWatt only manages workspace files — [workspaceId] is required. DysonFS
+  /// must have `[workspace] target` configured (see WORKSPACE_FILES.md).
   Future<SnCloudFile> uploadCloudFile({
+    required List<int> bytes,
+    required String fileName,
+    required String workspaceId,
+    String? contentType,
+    String? usage,
+    String? parentId,
+    bool indexed = true,
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) {
+      throw const OAuthException(
+        'A workspace is required. SolWatt only stores files on workspace Drive.',
+      );
+    }
+    final client = await _authenticatedSdk();
+    try {
+      try {
+        return await _postDirectUpload(
+          client,
+          bytes: bytes,
+          fileName: fileName,
+          contentType: contentType,
+          usage: usage,
+          workspaceId: ws,
+          parentId: parentId,
+          indexed: indexed,
+          onSendProgress: onSendProgress,
+        );
+      } on DioException catch (error) {
+        throw OAuthException(driveApiErrorMessage(error));
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<SnCloudFile> _postDirectUpload(
+    SolarNetworkClient client, {
     required List<int> bytes,
     required String fileName,
     String? contentType,
     String? usage,
+    String? workspaceId,
+    String? parentId,
+    bool indexed = false,
     void Function(int sent, int total)? onSendProgress,
   }) async {
+    final resolvedName = fileName.trim().isEmpty
+        ? 'upload.bin'
+        : fileName.trim();
+    final resolvedType = (contentType != null && contentType.trim().isNotEmpty)
+        ? contentType.trim()
+        : _guessContentType(resolvedName);
+
+    MediaType? multipartContentType;
+    try {
+      multipartContentType = MediaType.parse(resolvedType);
+    } catch (_) {
+      multipartContentType = MediaType('application', 'octet-stream');
+    }
+
+    // Mirror Island's drive_service.uploadFileDirect payload shape.
+    // DysonFS reads: FormFile("file"), PostForm parent_id / workspace_id /
+    // usage / index (bool string via optionalBool).
+    final payload = <String, dynamic>{
+      'file': MultipartFile.fromBytes(
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        filename: resolvedName,
+        contentType: multipartContentType,
+      ),
+      if (usage != null && usage.isNotEmpty) 'usage': usage,
+      if (workspaceId != null && workspaceId.isNotEmpty)
+        'workspace_id': workspaceId,
+      if (parentId != null && parentId.isNotEmpty) 'parent_id': parentId,
+      // Only send when true — default on the server is false.
+      if (indexed) 'index': 'true',
+    };
+
+    final response = await client.dio.post<dynamic>(
+      '/drive/files/upload/direct',
+      data: FormData.fromMap(payload),
+      onSendProgress: onSendProgress,
+      options: Options(
+        sendTimeout: const Duration(minutes: 5),
+        receiveTimeout: const Duration(minutes: 5),
+      ),
+    );
+
+    return _parseUploadedCloudFile(response.data);
+  }
+
+  SnCloudFile _parseUploadedCloudFile(dynamic raw) {
+    if (raw is! Map) {
+      throw const OAuthException('Unexpected upload response payload.');
+    }
+    final payload = Map<String, dynamic>.from(raw);
+
+    final directFile = payload['file'];
+    if (directFile is Map) {
+      return SnCloudFile.fromJson(Map<String, dynamic>.from(directFile));
+    }
+    final fileInfo = payload['file_info'];
+    if (fileInfo is Map) {
+      return SnCloudFile.fromJson(Map<String, dynamic>.from(fileInfo));
+    }
+    final nested = payload['data'];
+    if (nested is Map) {
+      final nestedFile = nested['file'];
+      if (nestedFile is Map) {
+        return SnCloudFile.fromJson(Map<String, dynamic>.from(nestedFile));
+      }
+      if (nested['id'] != null) {
+        return SnCloudFile.fromJson(Map<String, dynamic>.from(nested));
+      }
+    }
+    if (payload['id'] != null) {
+      return SnCloudFile.fromJson(payload);
+    }
+    throw const OAuthException('Unable to parse uploaded file response.');
+  }
+
+  /// Creates a **workspace** folder. [workspaceId] is required — SolWatt does
+  /// not manage personal Drive folders.
+  ///
+  /// FileSystem returns **403** when `CheckWorkspaceUploadQuota` fails
+  /// (workspace gRPC not configured, not a member, quota, etc.).
+  Future<SnCloudFile> createCloudFolder({
+    required String name,
+    required String workspaceId,
+    String? parentId,
+  }) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) {
+      throw const OAuthException(
+        'A workspace is required. SolWatt only stores folders on workspace Drive.',
+      );
+    }
     final client = await _authenticatedSdk();
     try {
-      return await client.drive.directUpload(
-        fileBytes: bytes,
-        fileName: fileName,
-        contentType: contentType,
-        usage: usage,
-        onSendProgress: onSendProgress,
-      );
+      try {
+        final response = await client.dio.post<dynamic>(
+          '/drive/files/folders',
+          data: {'name': name, 'workspace_id': ws, 'parent_id': ?parentId},
+        );
+        final raw = response.data;
+        if (raw is! Map) {
+          throw const OAuthException('Unexpected create-folder response.');
+        }
+        return SnCloudFile.fromJson(Map<String, dynamic>.from(raw));
+      } on DioException catch (error) {
+        throw OAuthException(driveApiErrorMessage(error));
+      }
     } finally {
       client.close();
     }
+  }
+
+  /// Lists files owned by the signed-in user (Drive `/files/me`).
+  Future<PaginatedResult<DriveFileEntry>> listMyCloudFiles({
+    int offset = 0,
+    int take = 40,
+    String? query,
+    bool recycled = false,
+  }) async {
+    final client = await _authenticatedSdk();
+    try {
+      final response = await client.dio.get<List<dynamic>>(
+        '/drive/files/me',
+        queryParameters: {
+          'offset': offset,
+          'take': take,
+          'recycled': recycled,
+          if (query != null && query.isNotEmpty) 'query': query,
+        },
+      );
+      return _parseDrivePage(response);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Lists indexed children at Drive root or under [parentId].
+  Future<PaginatedResult<DriveFileEntry>> listCloudFolderChildren({
+    String? parentId,
+    int offset = 0,
+    int take = 50,
+    String? query,
+  }) async {
+    final client = await _authenticatedSdk();
+    try {
+      final path = parentId == null || parentId.isEmpty
+          ? '/drive/files/root/children'
+          : '/drive/files/$parentId/children';
+      final response = await client.dio.get<List<dynamic>>(
+        path,
+        queryParameters: {
+          'offset': offset,
+          'take': take,
+          if (query != null && query.isNotEmpty) 'query': query,
+        },
+      );
+      return _parseDrivePage(response);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<SnCloudFile> getCloudFileInfo(String fileId) async {
+    final client = await _authenticatedSdk();
+    try {
+      return await client.drive.getFileInfo(fileId);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> deleteCloudFile(String fileId) async {
+    final client = await _authenticatedSdk();
+    try {
+      await client.drive.deleteFile(fileId);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<SnCloudFile> renameCloudFile(String fileId, String name) async {
+    final client = await _authenticatedSdk();
+    try {
+      return await client.drive.updateFileName(fileId, name);
+    } finally {
+      client.close();
+    }
+  }
+
+  PaginatedResult<DriveFileEntry> _parseDrivePage(
+    Response<List<dynamic>> response,
+  ) {
+    final totalHeader =
+        response.headers.value('x-total') ??
+        response.headers.value('X-Total') ??
+        '0';
+    final totalCount = int.tryParse(totalHeader) ?? 0;
+    final items = (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => DriveFileEntry.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+    return PaginatedResult(items: items, totalCount: totalCount);
   }
 
   Future<SolarNetworkClient> _authenticatedSdk() async {
@@ -677,6 +912,36 @@ class Workspace {
   );
 }
 
+/// [SnCloudFile] plus the optional `workspace_id` field that the SDK model
+/// does not yet surface. Used for workspace-scoped Drive browsing.
+class DriveFileEntry {
+  const DriveFileEntry({required this.file, this.workspaceId});
+
+  final SnCloudFile file;
+  final String? workspaceId;
+
+  String get id => file.id;
+  String get name => file.name;
+  bool get isFolder => file.isFolder;
+  int get size => file.size;
+  String get mimeType => file.mimeType;
+  String? get parentId => file.parentId;
+  String? get storageUrl => file.storageUrl;
+
+  bool belongsToWorkspace(String workspaceId) =>
+      this.workspaceId != null && this.workspaceId == workspaceId;
+
+  factory DriveFileEntry.fromJson(Map<String, dynamic> json) {
+    final workspaceRaw = json['workspace_id']?.toString();
+    return DriveFileEntry(
+      file: SnCloudFile.fromJson(json),
+      workspaceId: (workspaceRaw == null || workspaceRaw.isEmpty)
+          ? null
+          : workspaceRaw,
+    );
+  }
+}
+
 class WorkspaceQuota {
   const WorkspaceQuota({required this.plan, required this.limits});
   final int plan;
@@ -744,8 +1009,8 @@ class Broad {
   factory Broad.fromJson(Map<String, dynamic> json) => Broad(
     id: json['id']?.toString() ?? '',
     name: (json['name'] ?? json['title'])?.toString() ?? 'Untitled board',
-    description: json['description']?.toString(),
-    content: json['content']?.toString(),
+    description: nonEmptyString(json['description']?.toString()),
+    content: nonEmptyString(json['content']?.toString()),
     workspaceId: json['workspace_id']?.toString(),
     visibility: (json['visibility'] as num?)?.toInt() ?? 0,
     backgroundImage: parseCloudFileReference(json['background_image']),
@@ -838,6 +1103,15 @@ class WorkTask {
 
   bool get isCompleted => completedAt != null || completeReason != null;
 
+  /// Non-blank description for list/card UI (empty string counts as absent).
+  String? get displayDescription => nonEmptyString(description);
+
+  /// Non-blank rich content for detail UI (empty string counts as absent).
+  String? get displayContent => nonEmptyString(content);
+
+  bool get hasDescription => displayDescription != null;
+  bool get hasContent => displayContent != null;
+
   List<String> get assigneeAccountIds =>
       assignees.map((item) => item.accountId).toList(growable: false);
 
@@ -861,10 +1135,11 @@ class WorkTask {
   factory WorkTask.fromJson(Map<String, dynamic> json) => WorkTask(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? 'Untitled task',
-    description: json['description']?.toString(),
-    content: json['content']?.toString(),
+    description: nonEmptyString(json['description']?.toString()),
+    content: nonEmptyString(json['content']?.toString()),
     attachments: parseCloudFileReferenceList(json['attachments']),
-    tags: (json['tags'] as List?)
+    tags:
+        (json['tags'] as List?)
             ?.map((item) => item.toString())
             .where((item) => item.isNotEmpty)
             .toList() ??
@@ -876,7 +1151,8 @@ class WorkTask {
     broadId: json['broad_id']?.toString(),
     parentTaskId: json['parent_task_id']?.toString(),
     groupId: json['group_id']?.toString(),
-    assignees: (json['assignees'] as List?)
+    assignees:
+        (json['assignees'] as List?)
             ?.whereType<Map>()
             .map(
               (item) => TaskAssignee.fromJson(Map<String, dynamic>.from(item)),
@@ -916,8 +1192,9 @@ class WorkTaskDraft {
 
   Map<String, dynamic> toCreateJson() => {
     'name': name,
-    'description': description,
-    'content': content ?? '',
+    'description': nonEmptyString(description),
+    // API accepts empty string; send '' only when explicitly cleared vs omit.
+    'content': nonEmptyString(content) ?? '',
     'attachment_ids': attachmentIds,
     'priority': priority,
     'deadline_at': deadlineAt?.toUtc().toIso8601String(),
@@ -929,8 +1206,8 @@ class WorkTaskDraft {
 
   Map<String, dynamic> toUpdateJson() => {
     'name': name,
-    'description': description,
-    'content': content,
+    'description': nonEmptyString(description),
+    'content': nonEmptyString(content) ?? '',
     'attachment_ids': attachmentIds,
     'priority': priority,
     'deadline_at': deadlineAt?.toUtc().toIso8601String(),
@@ -941,9 +1218,88 @@ class WorkTaskDraft {
   };
 }
 
+/// Trims and returns null when blank (null, empty, or whitespace-only).
+String? nonEmptyString(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  return trimmed;
+}
+
 /// Resolves a display URL for a cloud file reference.
 String cloudFileDisplayUrl(IDisplayableCloudFile file) =>
     file.storageUrl ?? '$_issuer/drive/files/${file.id}';
+
+/// Best-effort human message from a Drive / DysonFS API error response.
+String driveApiErrorMessage(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    String? serverMessage;
+    if (data is Map) {
+      final message =
+          data['error'] ?? data['message'] ?? data['detail'] ?? data['title'];
+      if (message != null && message.toString().trim().isNotEmpty) {
+        serverMessage = message.toString().trim();
+      }
+    } else if (data is String && data.trim().isNotEmpty) {
+      serverMessage = data.trim();
+    }
+
+    if (serverMessage != null) {
+      return _friendlyWorkspaceDriveMessage(serverMessage);
+    }
+    final status = error.response?.statusCode;
+    if (status != null) {
+      return 'Drive request failed (HTTP $status). ${error.message ?? ''}'
+          .trim();
+    }
+    return error.message ?? error.toString();
+  }
+  if (error is OAuthException) {
+    return _friendlyWorkspaceDriveMessage(error.message);
+  }
+  return error.toString();
+}
+
+/// Maps DysonFS workspace-drive errors into clearer SolWatt copy.
+String _friendlyWorkspaceDriveMessage(String message) {
+  final lower = message.toLowerCase();
+  if (lower.contains('workspace uploads are not configured') ||
+      lower.contains('workspace gRPC'.toLowerCase())) {
+    return 'Workspace Drive is not enabled on the server. '
+        'DysonFS needs [workspace] target pointing at WattEngine '
+        '(see FileSystem WORKSPACE_FILES.md).';
+  }
+  if (lower.contains('workspace membership')) {
+    return 'You need Member (or higher) role in this workspace to manage files.';
+  }
+  if (lower.contains('invalid workspace id')) {
+    return 'Invalid workspace. Switch workspace and try again.';
+  }
+  if (lower.contains('quota exceeded') || lower.contains('remaining=')) {
+    return 'Workspace storage quota exceeded. $message';
+  }
+  return message;
+}
+
+String _guessContentType(String fileName) {
+  final name = fileName.toLowerCase();
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+  if (name.endsWith('.gif')) return 'image/gif';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.svg')) return 'image/svg+xml';
+  if (name.endsWith('.pdf')) return 'application/pdf';
+  if (name.endsWith('.mp4')) return 'video/mp4';
+  if (name.endsWith('.mov')) return 'video/quicktime';
+  if (name.endsWith('.mp3')) return 'audio/mpeg';
+  if (name.endsWith('.wav')) return 'audio/wav';
+  if (name.endsWith('.zip')) return 'application/zip';
+  if (name.endsWith('.json')) return 'application/json';
+  if (name.endsWith('.txt')) return 'text/plain';
+  if (name.endsWith('.md')) return 'text/markdown';
+  if (name.endsWith('.csv')) return 'text/csv';
+  return 'application/octet-stream';
+}
 
 SnCloudFileReference? parseCloudFileReference(dynamic value) {
   if (value is! Map) return null;
@@ -1066,11 +1422,15 @@ void invalidateSessionScope(WidgetRef ref) {
   ref.invalidate(workspacesProvider);
   ref.invalidate(selectedWorkspaceProvider);
   ref.invalidate(broadsProvider);
+  ref.invalidate(workspaceFilesProvider);
+  ref.invalidate(workspaceFolderChildrenProvider);
 }
 
 void invalidateWorkspaceScope(WidgetRef ref) {
   ref.invalidate(selectedWorkspaceProvider);
   ref.invalidate(broadsProvider);
+  ref.invalidate(workspaceFilesProvider);
+  ref.invalidate(workspaceFolderChildrenProvider);
 }
 
 final workspacesProvider = FutureProvider<List<Workspace>>((ref) async {
@@ -1102,6 +1462,39 @@ final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(
   (ref, broadId) async =>
       ref.watch(wattEngineClientProvider).listTaskGroups(broadId),
 );
+
+/// Recent Drive files that belong to the active workspace.
+///
+/// SolWatt only manages workspace Drive. DysonFS lists by uploader account;
+/// client-side filtering keeps rows whose `workspace_id` matches.
+final workspaceFilesProvider = FutureProvider<List<DriveFileEntry>>((
+  ref,
+) async {
+  final workspace = await ref.watch(selectedWorkspaceProvider.future);
+  if (workspace == null) return const [];
+  final client = ref.watch(wattEngineClientProvider);
+  final page = await client.listMyCloudFiles(take: 100);
+  return page.items
+      .where((entry) => entry.belongsToWorkspace(workspace.id))
+      .toList(growable: false);
+});
+
+/// Indexed folder children for the active workspace.
+///
+/// [parentId] empty string means workspace root (`/files/root/children`).
+final workspaceFolderChildrenProvider =
+    FutureProvider.family<List<DriveFileEntry>, String>((ref, parentId) async {
+      final workspace = await ref.watch(selectedWorkspaceProvider.future);
+      if (workspace == null) return const [];
+      final client = ref.watch(wattEngineClientProvider);
+      final page = await client.listCloudFolderChildren(
+        parentId: parentId.isEmpty ? null : parentId,
+        take: 100,
+      );
+      return page.items
+          .where((entry) => entry.belongsToWorkspace(workspace.id))
+          .toList(growable: false);
+    });
 
 /// Makes the shared Solar Network SDK available for service APIs that it
 /// already models; the WattEngine routes above use the same bearer session.
