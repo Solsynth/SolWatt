@@ -7,12 +7,15 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/boards/github_integration.dart';
+import 'package:solwatt/boards/task_comments.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 @RoutePage()
 class BoardsPage extends ConsumerWidget {
@@ -319,6 +322,16 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
       appBar: AppBar(
         title: Text(widget.broadName),
         actions: [
+          IconButton(
+            icon: const Icon(Symbols.hub),
+            tooltip: 'GitHub integration',
+            onPressed: () => showGitHubIntegrationSheet(
+              context,
+              ref,
+              broadId: _broadId,
+              broadName: widget.broadName,
+            ),
+          ),
           IconButton(
             icon: const Icon(Symbols.view_column),
             tooltip: 'Manage groups',
@@ -844,6 +857,12 @@ class _TaskTile extends StatelessWidget {
                       icon: Symbols.group,
                       tone: StatusChipTone.primary,
                     ),
+                  if (task.gitHubIssue != null)
+                    StatusChip(
+                      label: task.gitHubIssue!.label,
+                      icon: Symbols.hub,
+                      tone: StatusChipTone.secondary,
+                    ),
                 ],
               ),
             ],
@@ -935,7 +954,7 @@ Future<void> _boardForm(
     ref.invalidate(broadsProvider);
     showSnackBar(board == null ? 'Board created.' : 'Board updated.');
   } catch (error) {
-    showSnackBar(error.toString());
+    showSnackBar(wattApiErrorMessage(error));
   }
 }
 
@@ -1900,6 +1919,37 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                     ),
                 ],
               ),
+            if (task?.gitHubIssue != null) ...[
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Symbols.hub, color: scheme.primary),
+                title: Text('GitHub ${task!.gitHubIssue!.label}'),
+                subtitle: Text(
+                  task.gitHubIssue!.htmlUrl,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Symbols.open_in_new),
+                onTap: () async {
+                  final url = task.gitHubIssue!.htmlUrl;
+                  if (url.isEmpty) return;
+                  final uri = Uri.tryParse(url);
+                  if (uri == null) return;
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (_) {
+                    showSnackBar('Could not open GitHub issue.');
+                  }
+                },
+              ),
+            ],
+            if (task != null) ...[
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 8),
+              TaskCommentsSection(taskId: task.id),
+            ],
             const SizedBox(height: 28),
             FilledButton(onPressed: _submit, child: const Text('Save')),
           ],

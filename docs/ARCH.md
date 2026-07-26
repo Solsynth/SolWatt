@@ -37,6 +37,8 @@ lib/
   ui/page_scaffold.dart           # Shared page chrome for shell screens
   ui/cloud_files.dart             # Cloud upload picker + link attachment
   boards/boards_screen.dart       # Ideask boards and tasks
+  boards/github_integration.dart  # GitHub App link/sync UI for a board
+  boards/task_comments.dart       # Task comments (local + GitHub-mirrored)
   files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
   tasks/                          # Background task overlay (uploads, etc.)
   notifications/                  # Ring multi-tenant inbox + unread badge
@@ -112,7 +114,8 @@ Key providers:
 - `authSessionProvider` / `userInfoProvider` — Solar Network identity
 - `workspacesProvider` / `selectedWorkspaceProvider` — workspace list and active selection
 - `appAccessProvider` — combined gate state (`needsSignIn` | `needsWorkspace` | `ready`)
-- `broadsProvider` / `tasksProvider` — Ideask data scoped to the active workspace
+- `broadsProvider` / `tasksProvider` / `taskGroupsProvider` — Ideask data scoped to the active workspace
+- `gitHubIntegrationProvider` / `taskCommentsProvider` — GitHub App board link and task comments
 - `workspaceFilesProvider` / `workspaceFolderChildrenProvider` / `workspaceUnindexedFilesProvider` — workspace Drive listings (`workspace_id` query; indexed folders vs unindexed assets)
 - `workspaceDriveUsageProvider` — live storage used/total for the active workspace
 - `solarNetworkClientProvider` — authenticated Solar Network SDK (bearer from OAuth session)
@@ -180,6 +183,23 @@ Packet handling:
 - `ideask.broad_*` — invalidate `broadsProvider`
 
 A small status dot on the desktop rail shows connection state; tap retries.
+
+## GitHub App task sync
+
+Boards can link **one** GitHub repository via the WattEngine Ideask GitHub App
+(see WattEngine `docs/GITHUB_APP_TASK_SYNC.md`). SolWatt never collects
+personal access tokens; users install the app and pick a repository.
+
+Client flow (`lib/boards/github_integration.dart`):
+
+1. `GET /ideask/github/broads/{id}/install-url` → open in browser
+2. Poll `GET …/installation` until an installation id is available
+3. List `…/installations/{id}/repositories` and link with `POST …/broads/{id}`
+4. Manage with status `GET`, manual `POST …/sync`, and `DELETE` unlink
+
+Task cards show a GitHub issue chip when linked. The task editor opens the
+issue URL and hosts comments (`task_comments.dart`); GitHub-authored comments
+are read-only.
 
 ## Validation
 

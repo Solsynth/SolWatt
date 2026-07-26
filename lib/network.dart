@@ -387,7 +387,7 @@ class BundledProOverview {
       totalSeats > 0 ? (usedSeats / totalSeats).clamp(0.0, 1.0) : 0.0;
 }
 
-/// Authenticated client for WattEngine. Valve paths map to `/value`; Ideask
+/// Authenticated client for WattEngine. Valve paths map to `/valve`; Ideask
 /// paths map to `/ideask`, as exposed by the Solar Network API gateway.
 class WattEngineClient {
   WattEngineClient(this._authenticator)
@@ -405,7 +405,7 @@ class WattEngineClient {
 
   Future<List<Workspace>> listWorkspaces() async {
     Logger.root.info('[WattEngine] Loading workspaces.');
-    final response = await _get<List<dynamic>>('/value/workspaces');
+    final response = await _get<List<dynamic>>('/valve/workspaces');
     return (response.data ?? const [])
         .whereType<Map>()
         .map((item) => Workspace.fromJson(Map<String, dynamic>.from(item)))
@@ -422,7 +422,7 @@ class WattEngineClient {
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/value/workspaces',
+      '/valve/workspaces',
       data: {
         'slug': slug,
         'name': name,
@@ -446,7 +446,7 @@ class WattEngineClient {
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'PATCH',
-      '/value/workspaces/$slug',
+      '/valve/workspaces/$slug',
       data: {
         'name': name,
         'description': description,
@@ -459,11 +459,11 @@ class WattEngineClient {
   }
 
   Future<void> deleteWorkspace(String slug) =>
-      _request<void>('DELETE', '/value/workspaces/$slug');
+      _request<void>('DELETE', '/valve/workspaces/$slug');
 
   Future<List<WorkspaceMember>> listWorkspaceMembers(String slug) async {
     final response = await _get<List<dynamic>>(
-      '/value/workspaces/$slug/members',
+      '/valve/workspaces/$slug/members',
     );
     return (response.data ?? const [])
         .whereType<Map>()
@@ -480,7 +480,7 @@ class WattEngineClient {
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/value/workspaces/$slug/members/invite',
+      '/valve/workspaces/$slug/members/invite',
       data: {'account_id': accountId, 'role': role},
     );
     return WorkspaceMember.fromJson(response.data!);
@@ -493,7 +493,7 @@ class WattEngineClient {
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'PATCH',
-      '/value/workspaces/$slug/members/$accountId',
+      '/valve/workspaces/$slug/members/$accountId',
       data: {'role': role},
     );
     return WorkspaceMember.fromJson(response.data!);
@@ -502,7 +502,7 @@ class WattEngineClient {
   Future<void> removeWorkspaceMember({
     required String slug,
     required String accountId,
-  }) => _request<void>('DELETE', '/value/workspaces/$slug/members/$accountId');
+  }) => _request<void>('DELETE', '/valve/workspaces/$slug/members/$accountId');
 
   Future<List<SnAccount>> searchAccounts(String query) async {
     if (query.trim().isEmpty) return const [];
@@ -518,14 +518,14 @@ class WattEngineClient {
 
   Future<WorkspaceQuota> getWorkspaceQuota(String slug) async {
     final response = await _get<Map<String, dynamic>>(
-      '/value/workspaces/$slug/quota',
+      '/valve/workspaces/$slug/quota',
     );
     return WorkspaceQuota.fromJson(response.data ?? const {});
   }
 
   Future<WorkspacePlanStatus> getWorkspacePlanStatus(String slug) async {
     final response = await _get<Map<String, dynamic>>(
-      '/value/workspaces/$slug/plan/status',
+      '/valve/workspaces/$slug/plan/status',
     );
     return WorkspacePlanStatus.fromJson(response.data ?? const {});
   }
@@ -533,10 +533,10 @@ class WattEngineClient {
   /// Assigns (or reassigns) the caller's perk-bundled Pro plan to this workspace.
   /// Requires Owner and perk level 3+. Subject to a 7-day reassign cooldown.
   Future<void> assignBundledPlan(String slug) =>
-      _request<void>('POST', '/value/workspaces/$slug/plan/assign-bundled');
+      _request<void>('POST', '/valve/workspaces/$slug/plan/assign-bundled');
 
   Future<void> unassignBundledPlan(String slug) =>
-      _request<void>('POST', '/value/workspaces/$slug/plan/unassign-bundled');
+      _request<void>('POST', '/valve/workspaces/$slug/plan/unassign-bundled');
 
   /// Creates a paid plan subscription order. Complete payment at
   /// [WorkspacePlanOrder.paymentUrl] (`https://solian.app/orders/{orderId}`).
@@ -546,7 +546,7 @@ class WattEngineClient {
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/value/workspaces/$slug/plan/subscribe',
+      '/valve/workspaces/$slug/plan/subscribe',
       data: {'plan': plan},
     );
     return WorkspacePlanOrder.fromJson(response.data ?? const {});
@@ -566,7 +566,7 @@ class WattEngineClient {
         .toList();
   }
 
-  Future<void> createBroad({
+  Future<Broad> createBroad({
     required String name,
     String? description,
     String? content,
@@ -574,19 +574,38 @@ class WattEngineClient {
     String? backgroundImageId,
     String? iconImageId,
     int visibility = 0,
-  }) => _request<void>(
-    'POST',
-    '/ideask/broads',
-    data: {
-      'name': name,
-      'description': description,
-      'content': content ?? '',
-      'visibility': visibility,
-      'workspace_id': workspaceId,
-      'background_image_id': ?backgroundImageId,
-      'icon_image_id': ?iconImageId,
-    },
-  );
+  }) async {
+    try {
+      final response = await _request<Map<String, dynamic>>(
+        'POST',
+        '/ideask/broads',
+        data: {
+          'name': name,
+          'content': content ?? '',
+          'visibility': visibility,
+          'workspace_id': workspaceId,
+          'description': ?nonEmptyString(description),
+          'background_image_id': ?backgroundImageId,
+          'icon_image_id': ?iconImageId,
+        },
+      );
+      final data = response.data;
+      if (data == null) {
+        // 201 with empty body — board still created; list will refresh.
+        return Broad(
+          id: '',
+          name: name,
+          description: description,
+          content: content,
+          workspaceId: workspaceId,
+          visibility: visibility,
+        );
+      }
+      return Broad.fromJson(data);
+    } on DioException catch (error) {
+      throw OAuthException(wattApiErrorMessage(error));
+    }
+  }
 
   Future<Broad> updateBroad({
     required String broadId,
@@ -600,20 +619,24 @@ class WattEngineClient {
     bool updateIconImage = false,
     int? visibility,
   }) async {
-    final response = await _request<Map<String, dynamic>>(
-      'PATCH',
-      '/ideask/broads/$broadId',
-      data: {
-        'name': name,
-        'description': description,
-        'content': content,
-        'workspace_id': ?workspaceId,
-        'visibility': ?visibility,
-        if (updateBackgroundImage) 'background_image_id': backgroundImageId,
-        if (updateIconImage) 'icon_image_id': iconImageId,
-      },
-    );
-    return Broad.fromJson(response.data!);
+    try {
+      final response = await _request<Map<String, dynamic>>(
+        'PATCH',
+        '/ideask/broads/$broadId',
+        data: {
+          'name': name,
+          'description': description,
+          'content': content,
+          'workspace_id': ?workspaceId,
+          'visibility': ?visibility,
+          if (updateBackgroundImage) 'background_image_id': backgroundImageId,
+          if (updateIconImage) 'icon_image_id': iconImageId,
+        },
+      );
+      return Broad.fromJson(response.data!);
+    } on DioException catch (error) {
+      throw OAuthException(wattApiErrorMessage(error));
+    }
   }
 
   Future<List<WorkTask>> listTasks(String broadId) async {
@@ -703,6 +726,126 @@ class WattEngineClient {
 
   Future<void> deleteTaskGroup(String groupId) =>
       _request<void>('DELETE', '/ideask/task-groups/$groupId');
+
+  // --- Task comments -----------------------------------------------------------
+
+  Future<List<TaskComment>> listTaskComments(String taskId) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/tasks/$taskId/comments',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => TaskComment.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaskComment> createTaskComment(String taskId, String content) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/tasks/$taskId/comments',
+      data: {'content': content},
+    );
+    return TaskComment.fromJson(response.data ?? const {});
+  }
+
+  Future<TaskComment> updateTaskComment(
+    String commentId,
+    String content,
+  ) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/task-comments/$commentId',
+      data: {'content': content},
+    );
+    return TaskComment.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteTaskComment(String commentId) =>
+      _request<void>('DELETE', '/ideask/task-comments/$commentId');
+
+  // --- GitHub App integration --------------------------------------------------
+
+  /// Returns a GitHub App installation URL for this board.
+  Future<String> createGitHubInstallUrl(String broadId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/ideask/github/broads/$broadId/install-url',
+    );
+    final url = response.data?['url']?.toString();
+    if (url == null || url.isEmpty) {
+      throw const OAuthException('GitHub install URL was empty.');
+    }
+    return url;
+  }
+
+  /// Completed installation id after the user finishes GitHub setup.
+  ///
+  /// Returns null while installation is still incomplete (HTTP 404).
+  Future<int?> getGitHubInstallation(String broadId) async {
+    try {
+      final response = await _get<Map<String, dynamic>>(
+        '/ideask/github/broads/$broadId/installation',
+      );
+      final raw =
+          response.data?['installation_id'] ?? response.data?['installationId'];
+      if (raw is num) return raw.toInt();
+      return int.tryParse(raw?.toString() ?? '');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<List<GitHubRepository>> listGitHubRepositories(
+    String broadId,
+    int installationId,
+  ) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/github/broads/$broadId/installations/$installationId/repositories',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => GitHubRepository.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  /// Linked repository statuses for this board.
+  Future<List<GitHubIntegration>> getGitHubIntegrations(String broadId) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/github/broads/$broadId',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => GitHubIntegration.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<GitHubIntegration> linkGitHubRepository({
+    required String broadId,
+    required int installationId,
+    required String owner,
+    required String repository,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/github/broads/$broadId',
+      data: {
+        'installation_id': installationId,
+        'owner': owner,
+        'repository': repository,
+      },
+    );
+    return GitHubIntegration.fromJson(response.data ?? const {});
+  }
+
+  Future<void> syncGitHubIntegration(String broadId) =>
+      _request<void>('POST', '/ideask/github/broads/$broadId/sync');
+
+  Future<void> unlinkGitHubIntegration(String integrationId) =>
+      _request<void>('DELETE', '/ideask/github/integrations/$integrationId');
 
   /// Uploads a file to **workspace** Drive (≤ ~20 MB).
   ///
@@ -1412,28 +1555,70 @@ int? _parseOptionalInt(Object? value) => _parseOptionalNum(value)?.toInt();
 
 /// Best-effort human message from a WattEngine (or other gateway) API error.
 String wattApiErrorMessage(Object error) {
+  if (error is OAuthException) return error.message;
   if (error is DioException) {
     final data = error.response?.data;
-    if (data is String && data.trim().isNotEmpty) return data.trim();
-    if (data is Map) {
-      final message =
-          data['error'] ??
-          data['message'] ??
-          data['detail'] ??
-          data['title'] ??
-          data['Message'];
-      if (message != null && message.toString().trim().isNotEmpty) {
-        return message.toString().trim();
-      }
-    }
+    final fromBody = _messageFromResponseData(data);
+    if (fromBody != null) return fromBody;
     final status = error.response?.statusCode;
     if (status != null) {
-      return 'Request failed (HTTP $status). ${error.message ?? ''}'.trim();
+      return 'Request failed (HTTP $status).';
     }
-    return error.message ?? error.toString();
+    return error.message ?? 'Network request failed.';
   }
-  if (error is OAuthException) return error.message;
   return error.toString();
+}
+
+String? _messageFromResponseData(Object? data) {
+  if (data == null) return null;
+  if (data is String) {
+    final trimmed = data.trim();
+    if (trimmed.isEmpty) return null;
+    // ASP.NET often returns a JSON-encoded string: `"error text"`.
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is String && decoded.trim().isNotEmpty) {
+          return decoded.trim();
+        }
+      } catch (_) {}
+    }
+    return trimmed;
+  }
+  if (data is List && data.isNotEmpty) {
+    // ASP.NET validation errors can be a list of strings.
+    final first = data.first;
+    if (first is String && first.trim().isNotEmpty) return first.trim();
+  }
+  if (data is Map) {
+    final errors = data['errors'];
+    if (errors is Map && errors.isNotEmpty) {
+      final parts = <String>[];
+      for (final entry in errors.entries) {
+        final value = entry.value;
+        if (value is List) {
+          for (final item in value) {
+            final text = item.toString().trim();
+            if (text.isNotEmpty) parts.add(text);
+          }
+        } else {
+          final text = value.toString().trim();
+          if (text.isNotEmpty) parts.add(text);
+        }
+      }
+      if (parts.isNotEmpty) return parts.join(' ');
+    }
+    final message =
+        data['error'] ??
+        data['message'] ??
+        data['detail'] ??
+        data['title'] ??
+        data['Message'];
+    if (message != null && message.toString().trim().isNotEmpty) {
+      return message.toString().trim();
+    }
+  }
+  return null;
 }
 
 class WorkspaceMember {
@@ -1641,6 +1826,7 @@ class WorkTask {
     this.parentTaskId,
     this.groupId,
     this.assignees = const [],
+    this.gitHubIssue,
   });
   final String id;
   final String name;
@@ -1656,6 +1842,7 @@ class WorkTask {
   final String? parentTaskId;
   final String? groupId;
   final List<TaskAssignee> assignees;
+  final GitHubIssueLink? gitHubIssue;
 
   bool get isCompleted => completedAt != null || completeReason != null;
 
@@ -1667,6 +1854,7 @@ class WorkTask {
 
   bool get hasDescription => displayDescription != null;
   bool get hasContent => displayContent != null;
+  bool get isLinkedToGitHub => gitHubIssue != null;
 
   List<String> get assigneeAccountIds =>
       assignees.map((item) => item.accountId).toList(growable: false);
@@ -1686,36 +1874,200 @@ class WorkTask {
     parentTaskId: parentTaskId,
     groupId: groupId,
     assignees: assignees,
+    gitHubIssue: gitHubIssue,
   );
 
-  factory WorkTask.fromJson(Map<String, dynamic> json) => WorkTask(
-    id: json['id']?.toString() ?? '',
-    name: json['name']?.toString() ?? 'Untitled task',
-    description: nonEmptyString(json['description']?.toString()),
-    content: nonEmptyString(json['content']?.toString()),
-    attachments: parseCloudFileReferenceList(json['attachments']),
-    tags:
-        (json['tags'] as List?)
-            ?.map((item) => item.toString())
-            .where((item) => item.isNotEmpty)
-            .toList() ??
-        const [],
-    priority: (json['priority'] as num?)?.toInt() ?? 0,
-    deadlineAt: parseInstant(json['deadline_at']),
-    completedAt: parseInstant(json['completed_at']),
-    completeReason: (json['complete_reason'] as num?)?.toInt(),
-    broadId: json['broad_id']?.toString(),
-    parentTaskId: json['parent_task_id']?.toString(),
-    groupId: json['group_id']?.toString(),
-    assignees:
-        (json['assignees'] as List?)
-            ?.whereType<Map>()
-            .map(
-              (item) => TaskAssignee.fromJson(Map<String, dynamic>.from(item)),
-            )
-            .toList() ??
-        const [],
-  );
+  factory WorkTask.fromJson(Map<String, dynamic> json) {
+    final issueRaw = json['git_hub_issue'] ?? json['github_issue'];
+    return WorkTask(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Untitled task',
+      description: nonEmptyString(json['description']?.toString()),
+      content: nonEmptyString(json['content']?.toString()),
+      attachments: parseCloudFileReferenceList(json['attachments']),
+      tags:
+          (json['tags'] as List?)
+              ?.map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList() ??
+          const [],
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      deadlineAt: parseInstant(json['deadline_at']),
+      completedAt: parseInstant(json['completed_at']),
+      completeReason: (json['complete_reason'] as num?)?.toInt(),
+      broadId: json['broad_id']?.toString(),
+      parentTaskId: json['parent_task_id']?.toString(),
+      groupId: json['group_id']?.toString(),
+      assignees:
+          (json['assignees'] as List?)
+              ?.whereType<Map>()
+              .map(
+                (item) =>
+                    TaskAssignee.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList() ??
+          const [],
+      gitHubIssue: issueRaw is Map
+          ? GitHubIssueLink.fromJson(Map<String, dynamic>.from(issueRaw))
+          : null,
+    );
+  }
+}
+
+/// Link between an Ideask task and a GitHub issue.
+class GitHubIssueLink {
+  const GitHubIssueLink({
+    required this.issueNumber,
+    required this.htmlUrl,
+    this.gitHubIssueId,
+  });
+
+  final int issueNumber;
+  final String htmlUrl;
+  final int? gitHubIssueId;
+
+  String get label => '#$issueNumber';
+
+  factory GitHubIssueLink.fromJson(Map<String, dynamic> json) =>
+      GitHubIssueLink(
+        issueNumber: (json['issue_number'] as num?)?.toInt() ?? 0,
+        htmlUrl: json['html_url']?.toString() ?? '',
+        gitHubIssueId: (json['git_hub_issue_id'] as num?)?.toInt(),
+      );
+}
+
+/// Board ↔ repository GitHub App integration status.
+class GitHubIntegration {
+  const GitHubIntegration({
+    required this.id,
+    required this.broadId,
+    required this.installationId,
+    required this.owner,
+    required this.repository,
+    this.gitHubRepositoryId,
+    this.lastSyncedAt,
+    this.lastError,
+  });
+
+  final String id;
+  final String broadId;
+  final int installationId;
+  final String owner;
+  final String repository;
+  final int? gitHubRepositoryId;
+  final DateTime? lastSyncedAt;
+  final String? lastError;
+
+  String get fullName => '$owner/$repository';
+
+  factory GitHubIntegration.fromJson(Map<String, dynamic> json) =>
+      GitHubIntegration(
+        id: json['id']?.toString() ?? '',
+        broadId: json['broad_id']?.toString() ?? '',
+        installationId: (json['installation_id'] as num?)?.toInt() ?? 0,
+        owner: json['owner']?.toString() ?? '',
+        repository: json['repository']?.toString() ?? '',
+        gitHubRepositoryId: (json['git_hub_repository_id'] as num?)?.toInt(),
+        lastSyncedAt: parseInstant(json['last_synced_at']),
+        lastError: nonEmptyString(json['last_error']?.toString()),
+      );
+}
+
+/// Repository available to a GitHub App installation.
+class GitHubRepository {
+  const GitHubRepository({
+    required this.id,
+    required this.fullName,
+    required this.owner,
+    required this.name,
+    this.htmlUrl,
+  });
+
+  final int id;
+  final String fullName;
+  final String owner;
+  final String name;
+  final String? htmlUrl;
+
+  factory GitHubRepository.fromJson(Map<String, dynamic> json) {
+    final owner = json['owner']?.toString() ?? '';
+    final name = json['name']?.toString() ?? '';
+    final fullName = json['full_name']?.toString();
+    return GitHubRepository(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      fullName: (fullName != null && fullName.isNotEmpty)
+          ? fullName
+          : (owner.isEmpty ? name : '$owner/$name'),
+      owner: owner,
+      name: name,
+      htmlUrl: nonEmptyString(json['html_url']?.toString()),
+    );
+  }
+}
+
+/// Task comment (local or mirrored from GitHub).
+class TaskComment {
+  const TaskComment({
+    required this.id,
+    required this.taskId,
+    required this.content,
+    this.authorAccountId,
+    this.externalAuthorLogin,
+    this.externalAuthorAvatarUrl,
+    this.createdAt,
+    this.updatedAt,
+    this.hasGitHubLink = false,
+  });
+
+  final String id;
+  final String taskId;
+  final String content;
+  final String? authorAccountId;
+  final String? externalAuthorLogin;
+  final String? externalAuthorAvatarUrl;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final bool hasGitHubLink;
+
+  /// Comments authored on GitHub (no local account) are read-only in SolWatt.
+  bool get isFromGitHub =>
+      externalAuthorLogin != null && externalAuthorLogin!.isNotEmpty;
+
+  bool isOwnedBy(String? accountId) =>
+      accountId != null &&
+      authorAccountId != null &&
+      authorAccountId == accountId;
+
+  bool canEditOrDelete(String? accountId) =>
+      !isFromGitHub && isOwnedBy(accountId);
+
+  String authorLabel({String? currentAccountId}) {
+    if (isFromGitHub) return externalAuthorLogin!;
+    if (isOwnedBy(currentAccountId)) return 'You';
+    if (authorAccountId != null && authorAccountId!.isNotEmpty) {
+      return 'Member ${_shortId(authorAccountId!)}';
+    }
+    return 'Unknown';
+  }
+
+  factory TaskComment.fromJson(Map<String, dynamic> json) {
+    final github = json['git_hub_comment'] ?? json['github_comment'];
+    return TaskComment(
+      id: json['id']?.toString() ?? '',
+      taskId: json['task_id']?.toString() ?? '',
+      content: json['content']?.toString() ?? '',
+      authorAccountId: json['author_account_id']?.toString(),
+      externalAuthorLogin: nonEmptyString(
+        json['external_author_login']?.toString(),
+      ),
+      externalAuthorAvatarUrl: nonEmptyString(
+        json['external_author_avatar_url']?.toString(),
+      ),
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
+      hasGitHubLink: github != null,
+    );
+  }
 }
 
 class WorkTaskDraft {
@@ -2079,6 +2431,18 @@ final tasksProvider = FutureProvider.family<List<WorkTask>, String>(
 final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(
   (ref, broadId) async =>
       ref.watch(wattEngineClientProvider).listTaskGroups(broadId),
+);
+
+/// Linked GitHub repositories for a board.
+final gitHubIntegrationProvider =
+    FutureProvider.family<List<GitHubIntegration>, String>(
+      (ref, broadId) async =>
+          ref.watch(wattEngineClientProvider).getGitHubIntegrations(broadId),
+    );
+
+final taskCommentsProvider = FutureProvider.family<List<TaskComment>, String>(
+  (ref, taskId) async =>
+      ref.watch(wattEngineClientProvider).listTaskComments(taskId),
 );
 
 /// Soft filter when the API may still embed `workspace_id` on each row.
