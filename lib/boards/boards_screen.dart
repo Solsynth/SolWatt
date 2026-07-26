@@ -13,6 +13,7 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -256,8 +257,35 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
   /// Optimistic group placement while a move API request is in flight.
   /// Key: task id, value: target group id (`null` = Ungrouped).
   final Map<String, String?> _groupOverrides = {};
+  final ValueNotifier<bool> _showTaskSidebar = ValueNotifier(false);
+  WorkTask? _selectedTask;
 
   String get _broadId => widget.broadId;
+
+  @override
+  void dispose() {
+    _showTaskSidebar.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openTask(WorkTask task) async {
+    setState(() => _selectedTask = task);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _selectedTask?.id == task.id) {
+        _showTaskSidebar.value = true;
+      }
+    });
+
+    try {
+      final detailed = await ref
+          .read(wattEngineClientProvider)
+          .getTask(task.id);
+      if (!mounted || _selectedTask?.id != task.id) return;
+      setState(() => _selectedTask = detailed);
+    } catch (_) {
+      // The list item still provides a useful detail view if loading fails.
+    }
+  }
 
   List<WorkTask> _effectiveTasks(List<WorkTask> serverTasks) {
     if (_groupOverrides.isEmpty) return serverTasks;
@@ -345,69 +373,113 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
           const SizedBox(width: 12),
         ],
       ),
-      body: tasks.when(
-        loading: () => const PageLoading(),
-        error: (error, _) => PageError(
-          message: error.toString(),
-          onRetry: () {
-            ref.invalidate(tasksProvider(_broadId));
-            ref.invalidate(taskGroupsProvider(_broadId));
-          },
-        ),
-        data: (taskItems) {
-          return groups.when(
-            loading: () => const PageLoading(),
-            error: (error, _) => PageError(
-              message: error.toString(),
-              onRetry: () => ref.invalidate(taskGroupsProvider(_broadId)),
-            ),
-            data: (groupItems) {
-              final effective = _effectiveTasks(taskItems);
-              if (effective.isEmpty && groupItems.isEmpty) {
-                return EmptyState(
-                  icon: Symbols.task_alt,
-                  title: 'No tasks yet',
-                  message: 'Add a task or create groups for this board.',
-                  action: FilledButton.icon(
-                    onPressed: () => _taskForm(context, ref, _broadId),
-                    icon: const Icon(Symbols.add_task),
-                    label: const Text('New task'),
-                  ),
-                );
-              }
-
-              final columns = _buildColumns(groupItems, effective);
-              return ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                itemCount: columns.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
-                itemBuilder: (context, index) {
-                  final column = columns[index];
-                  return _TaskGroupColumn(
-                    title: column.title,
-                    groupId: column.groupId,
-                    isUngrouped: column.isUngrouped,
-                    tasks: column.tasks,
-                    onOpenTask: (task) =>
-                        _taskForm(context, ref, _broadId, task: task),
-                    onToggleComplete: (task) =>
-                        _toggleTaskComplete(context, ref, _broadId, task),
-                    onDeleteTask: (task) =>
-                        _deleteTask(context, ref, _broadId, task),
-                    onMoveTask: (task) => _onMoveTask(task, column.groupId),
-                    onAddTask: () => _taskForm(
-                      context,
-                      ref,
-                      _broadId,
-                      initialGroupId: column.groupId,
+      body: ResponsiveSidebar(
+        showSidebar: _showTaskSidebar,
+        sidebarWidth: 480,
+        minWideSidebarWidth: 360,
+        sidebarContent: _selectedTask == null
+            ? const SizedBox.shrink()
+            : _TaskDetailSidebar(
+                task: _selectedTask!,
+                onClose: () => _showTaskSidebar.value = false,
+                onEdit: () =>
+                    _taskForm(context, ref, _broadId, task: _selectedTask),
+                onToggleComplete: () =>
+                    _toggleTaskComplete(context, ref, _broadId, _selectedTask!),
+              ),
+        mainContent: tasks.when(
+          loading: () => const PageLoading(),
+          error: (error, _) => PageError(
+            message: error.toString(),
+            onRetry: () {
+              ref.invalidate(tasksProvider(_broadId));
+              ref.invalidate(taskGroupsProvider(_broadId));
+            },
+          ),
+          data: (taskItems) {
+            return groups.when(
+              loading: () => const PageLoading(),
+              error: (error, _) => PageError(
+                message: error.toString(),
+                onRetry: () => ref.invalidate(taskGroupsProvider(_broadId)),
+              ),
+              data: (groupItems) {
+                final effective = _effectiveTasks(taskItems);
+                if (effective.isEmpty && groupItems.isEmpty) {
+                  return EmptyState(
+                    icon: Symbols.task_alt,
+                    title: 'No tasks yet',
+                    message: 'Add a task or create groups for this board.',
+                    action: FilledButton.icon(
+                      onPressed: () => _taskForm(context, ref, _broadId),
+                      icon: const Icon(Symbols.add_task),
+                      label: const Text('New task'),
                     ),
                   );
-                },
-              );
-            },
-          );
-        },
+                }
+
+                final columns = _buildColumns(groupItems, effective);
+                if (groupItems.isEmpty) {
+                  final ungrouped = columns.single;
+                  return Center(
+                    child: SizedBox(
+                      width: 720,
+                      height: double.infinity,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        itemCount: ungrouped.tasks.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final task = ungrouped.tasks[index];
+                          return _TaskTile(
+                            task: task,
+                            onOpen: () => _openTask(task),
+                            onToggleComplete: () => _toggleTaskComplete(
+                              context,
+                              ref,
+                              _broadId,
+                              task,
+                            ),
+                            onDelete: () =>
+                                _deleteTask(context, ref, _broadId, task),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  itemCount: columns.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final column = columns[index];
+                    return _TaskGroupColumn(
+                      title: column.title,
+                      groupId: column.groupId,
+                      isUngrouped: column.isUngrouped,
+                      tasks: column.tasks,
+                      onOpenTask: _openTask,
+                      onToggleComplete: (task) =>
+                          _toggleTaskComplete(context, ref, _broadId, task),
+                      onDeleteTask: (task) =>
+                          _deleteTask(context, ref, _broadId, task),
+                      onMoveTask: (task) => _onMoveTask(task, column.groupId),
+                      onAddTask: () => _taskForm(
+                        context,
+                        ref,
+                        _broadId,
+                        initialGroupId: column.groupId,
+                      ),
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -868,6 +940,193 @@ class _TaskTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TaskDetailSidebar extends StatelessWidget {
+  const _TaskDetailSidebar({
+    required this.task,
+    required this.onClose,
+    required this.onEdit,
+    required this.onToggleComplete,
+  });
+
+  final WorkTask task;
+  final VoidCallback onClose;
+  final VoidCallback onEdit;
+  final VoidCallback onToggleComplete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final priority = _priorityMeta(task.priority);
+    final completeLabel = _completeReasonLabel(task.completeReason);
+
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            child: Row(
+              children: [
+                Expanded(child: Text('Task details', style: text.titleMedium)),
+                IconButton(
+                  tooltip: 'Edit task',
+                  onPressed: onEdit,
+                  icon: const Icon(Symbols.edit),
+                ),
+                IconButton(
+                  tooltip: 'Close details',
+                  onPressed: onClose,
+                  icon: const Icon(Symbols.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      IconButton(
+                        tooltip: task.isCompleted
+                            ? 'Reopen task'
+                            : 'Mark completed',
+                        onPressed: onToggleComplete,
+                        icon: Icon(
+                          task.isCompleted
+                              ? Symbols.check_circle
+                              : Symbols.radio_button_unchecked,
+                          color: task.isCompleted
+                              ? scheme.tertiary
+                              : scheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          task.name,
+                          style: text.headlineSmall?.copyWith(
+                            decoration: task.isCompleted
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      StatusChip(
+                        label: priority.label,
+                        icon: priority.icon,
+                        tone: priority.tone,
+                      ),
+                      if (completeLabel != null)
+                        StatusChip(
+                          label: completeLabel,
+                          icon: Symbols.done_all,
+                          tone: StatusChipTone.secondary,
+                        ),
+                      if (task.deadlineAt != null)
+                        StatusChip(
+                          label: _formatDeadline(task.deadlineAt!),
+                          icon: Symbols.event,
+                          tone:
+                              task.deadlineAt!.isBefore(DateTime.now()) &&
+                                  !task.isCompleted
+                              ? StatusChipTone.error
+                              : StatusChipTone.neutral,
+                        ),
+                      for (final tag in task.tags)
+                        StatusChip(
+                          label: tag,
+                          icon: Symbols.label,
+                          tone: StatusChipTone.neutral,
+                        ),
+                    ],
+                  ),
+                  if (task.displayDescription case final description?) ...[
+                    const SizedBox(height: 24),
+                    Text('Description', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    Text(description),
+                  ],
+                  if (task.displayContent case final content?) ...[
+                    const SizedBox(height: 24),
+                    Text('Details', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    MarkdownTextContent(content: content),
+                  ],
+                  if (task.assignees.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Text('Assignees', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final assignee in task.assignees)
+                          Chip(
+                            avatar: CircleAvatar(
+                              child: Text(
+                                assignee.label.isEmpty
+                                    ? '?'
+                                    : assignee.label[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            label: Text(assignee.label),
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (task.attachments.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Text('Attachments', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final file in task.attachments)
+                          CloudFileChip(file: file),
+                      ],
+                    ),
+                  ],
+                  if (task.gitHubIssue != null) ...[
+                    const SizedBox(height: 24),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Symbols.hub, color: scheme.primary),
+                      title: Text('GitHub ${task.gitHubIssue!.label}'),
+                      subtitle: Text(
+                        task.gitHubIssue!.htmlUrl,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  TaskCommentsSection(taskId: task.id),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
