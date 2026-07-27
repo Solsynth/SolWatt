@@ -840,34 +840,40 @@ class _TaskTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: hasDescription
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                task.name,
-                                maxLines: compact ? 2 : 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: titleStyle,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (task.displayKey case final key?)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 2),
+                            child: Text(
+                              key,
+                              style: text.labelSmall?.copyWith(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w700,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                task.displayDescription!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          )
-                        : Text(
-                            task.name,
-                            maxLines: compact ? 3 : 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: titleStyle,
+                            ),
                           ),
+                        Text(
+                          task.name,
+                          maxLines: compact ? 2 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: titleStyle,
+                        ),
+                        if (hasDescription) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            task.displayDescription!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                   IconButton(
                     tooltip: 'Delete task',
@@ -1012,13 +1018,26 @@ class _TaskDetailSidebar extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          task.name,
-                          style: text.headlineSmall?.copyWith(
-                            decoration: task.isCompleted
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (task.displayKey case final key?)
+                              Text(
+                                key,
+                                style: text.labelLarge?.copyWith(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            Text(
+                              task.name,
+                              style: text.headlineSmall?.copyWith(
+                                decoration: task.isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -1196,6 +1215,7 @@ Future<void> _boardForm(
         backgroundImageId: draft.updateBackgroundImage
             ? draft.backgroundImageId
             : null,
+        taskPrefix: draft.taskPrefix,
       );
     } else {
       await client.updateBroad(
@@ -1208,6 +1228,8 @@ Future<void> _boardForm(
         updateIconImage: draft.updateIconImage,
         backgroundImageId: draft.backgroundImageId,
         updateBackgroundImage: draft.updateBackgroundImage,
+        taskPrefix: draft.taskPrefix,
+        clearTaskPrefix: draft.clearTaskPrefix,
       );
     }
     ref.invalidate(broadsProvider);
@@ -1222,6 +1244,8 @@ class _BoardDraft {
     required this.name,
     this.description,
     this.content,
+    this.taskPrefix,
+    this.clearTaskPrefix = false,
     this.iconImageId,
     this.updateIconImage = false,
     this.backgroundImageId,
@@ -1231,6 +1255,8 @@ class _BoardDraft {
   final String name;
   final String? description;
   final String? content;
+  final String? taskPrefix;
+  final bool clearTaskPrefix;
   final String? iconImageId;
   final bool updateIconImage;
   final String? backgroundImageId;
@@ -1250,6 +1276,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
   late final TextEditingController _name;
   late final TextEditingController _description;
   late final TextEditingController _content;
+  late final TextEditingController _taskPrefix;
   SnCloudFileReference? _icon;
   SnCloudFileReference? _background;
   var _iconChanged = false;
@@ -1262,6 +1289,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
     _name = TextEditingController(text: board?.name ?? '');
     _description = TextEditingController(text: board?.description ?? '');
     _content = TextEditingController(text: board?.content ?? '');
+    _taskPrefix = TextEditingController(text: board?.taskPrefix ?? '');
     _icon = board?.iconImage;
     _background = board?.backgroundImage;
   }
@@ -1271,6 +1299,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
     _name.dispose();
     _description.dispose();
     _content.dispose();
+    _taskPrefix.dispose();
     super.dispose();
   }
 
@@ -1321,6 +1350,11 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             ? null
             : _description.text.trim(),
         content: _content.text.trim().isEmpty ? null : _content.text.trim(),
+        taskPrefix: _taskPrefix.text.trim().isEmpty
+            ? null
+            : _taskPrefix.text.trim(),
+        clearTaskPrefix:
+            widget.board?.taskPrefix != null && _taskPrefix.text.trim().isEmpty,
         iconImageId: _icon?.id,
         updateIconImage: _iconChanged,
         backgroundImageId: _background?.id,
@@ -1454,6 +1488,19 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                 hintText: 'Optional long-form detail',
               ),
               maxLines: 4,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _taskPrefix,
+              decoration: InputDecoration(
+                labelText: 'Task prefix',
+                hintText: 'SN',
+                helperText:
+                    'Tasks are numbered automatically (for example SN-1).',
+                prefixIcon: inputPrefixIcon(Symbols.tag),
+              ),
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 32,
             ),
             const SizedBox(height: 28),
             FilledButton(

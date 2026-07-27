@@ -574,6 +574,7 @@ class WattEngineClient {
     String? backgroundImageId,
     String? iconImageId,
     int visibility = 0,
+    String? taskPrefix,
   }) async {
     try {
       final response = await _request<Map<String, dynamic>>(
@@ -587,6 +588,7 @@ class WattEngineClient {
           'description': ?nonEmptyString(description),
           'background_image_id': ?backgroundImageId,
           'icon_image_id': ?iconImageId,
+          'task_prefix': ?nonEmptyString(taskPrefix),
         },
       );
       final data = response.data;
@@ -599,6 +601,7 @@ class WattEngineClient {
           content: content,
           workspaceId: workspaceId,
           visibility: visibility,
+          taskPrefix: taskPrefix,
         );
       }
       return Broad.fromJson(data);
@@ -618,6 +621,8 @@ class WattEngineClient {
     String? iconImageId,
     bool updateIconImage = false,
     int? visibility,
+    String? taskPrefix,
+    bool clearTaskPrefix = false,
   }) async {
     try {
       final response = await _request<Map<String, dynamic>>(
@@ -631,6 +636,8 @@ class WattEngineClient {
           'visibility': ?visibility,
           if (updateBackgroundImage) 'background_image_id': backgroundImageId,
           if (updateIconImage) 'icon_image_id': iconImageId,
+          'task_prefix': ?taskPrefix,
+          if (clearTaskPrefix) 'clear_task_prefix': true,
         },
       );
       return Broad.fromJson(response.data!);
@@ -1736,6 +1743,7 @@ class Broad {
     this.content,
     this.workspaceId,
     this.visibility = 0,
+    this.taskPrefix,
     this.backgroundImage,
     this.iconImage,
   });
@@ -1745,6 +1753,7 @@ class Broad {
   final String? content;
   final String? workspaceId;
   final int visibility;
+  final String? taskPrefix;
   final SnCloudFileReference? backgroundImage;
   final SnCloudFileReference? iconImage;
   factory Broad.fromJson(Map<String, dynamic> json) => Broad(
@@ -1754,6 +1763,7 @@ class Broad {
     content: nonEmptyString(json['content']?.toString()),
     workspaceId: json['workspace_id']?.toString(),
     visibility: (json['visibility'] as num?)?.toInt() ?? 0,
+    taskPrefix: nonEmptyString(json['task_prefix']?.toString()),
     backgroundImage: parseCloudFileReference(json['background_image']),
     iconImage: parseCloudFileReference(json['icon_image']),
   );
@@ -1819,6 +1829,8 @@ class WorkTask {
     this.attachments = const [],
     this.tags = const [],
     this.priority = 0,
+    this.serialNumber,
+    this.taskKey,
     this.deadlineAt,
     this.completedAt,
     this.completeReason,
@@ -1835,6 +1847,8 @@ class WorkTask {
   final List<SnCloudFileReference> attachments;
   final List<String> tags;
   final int priority;
+  final int? serialNumber;
+  final String? taskKey;
   final DateTime? deadlineAt;
   final DateTime? completedAt;
   final int? completeReason;
@@ -1855,6 +1869,7 @@ class WorkTask {
   bool get hasDescription => displayDescription != null;
   bool get hasContent => displayContent != null;
   bool get isLinkedToGitHub => gitHubIssue != null;
+  String? get displayKey => taskKey ?? serialNumber?.toString();
 
   List<String> get assigneeAccountIds =>
       assignees.map((item) => item.accountId).toList(growable: false);
@@ -1867,6 +1882,8 @@ class WorkTask {
     attachments: attachments,
     tags: tags,
     priority: priority,
+    serialNumber: serialNumber,
+    taskKey: taskKey,
     deadlineAt: deadlineAt,
     completedAt: completedAt,
     completeReason: completeReason,
@@ -1892,6 +1909,8 @@ class WorkTask {
               .toList() ??
           const [],
       priority: (json['priority'] as num?)?.toInt() ?? 0,
+      serialNumber: (json['serial_number'] as num?)?.toInt(),
+      taskKey: nonEmptyString(json['task_key']?.toString()),
       deadlineAt: parseInstant(json['deadline_at']),
       completedAt: parseInstant(json['completed_at']),
       completeReason: (json['complete_reason'] as num?)?.toInt(),
