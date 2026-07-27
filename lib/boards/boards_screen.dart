@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -30,12 +31,14 @@ class BoardsPage extends ConsumerWidget {
     final wide = MediaQuery.sizeOf(context).width >= 900;
 
     return PageScaffold(
-      title: 'Boards',
-      subtitle: workspace == null ? 'Ideask boards' : 'In ${workspace.name}',
+      title: 'boards'.tr(),
+      subtitle: workspace == null
+          ? 'ideaskBoards'.tr()
+          : 'inWorkspace'.tr(namedArgs: {'name': workspace.name}),
       action: FilledButton.tonalIcon(
         onPressed: () => _boardForm(context, ref),
         icon: const Icon(Symbols.add, size: 18),
-        label: const Text('New board'),
+        label: Text('newBoard'.tr()),
       ),
       child: boards.when(
         loading: () => const PageLoading(),
@@ -47,12 +50,12 @@ class BoardsPage extends ConsumerWidget {
           if (items.isEmpty) {
             return EmptyState(
               icon: Symbols.view_kanban,
-              title: 'No boards yet',
-              message: 'Create a board to organize tasks in this workspace.',
+              title: 'noBoardsEmpty'.tr(),
+              message: 'createBoardToOrganize'.tr(),
               action: FilledButton.icon(
                 onPressed: () => _boardForm(context, ref),
                 icon: const Icon(Symbols.add),
-                label: const Text('New board'),
+                label: Text('newBoard'.tr()),
               ),
             );
           }
@@ -110,9 +113,9 @@ class BoardsPage extends ConsumerWidget {
                         _boardForm(context, ref, board: board);
                       }
                     },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'open', child: Text('Open')),
-                      PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'open', child: Text('Open')),
+                      PopupMenuItem(value: 'edit', child: Text('edit'.tr())),
                     ],
                   ),
                   onTap: () => _openBoard(context, board),
@@ -194,7 +197,7 @@ class _BoardCard extends StatelessWidget {
                       ),
                       const Spacer(),
                       IconButton(
-                        tooltip: 'Edit board',
+                        tooltip: 'editBoard'.tr(),
                         visualDensity: VisualDensity.compact,
                         icon: Icon(
                           Symbols.edit,
@@ -254,8 +257,6 @@ class TaskBoardPage extends ConsumerStatefulWidget {
 }
 
 class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
-  /// Optimistic group placement while a move API request is in flight.
-  /// Key: task id, value: target group id (`null` = Ungrouped).
   final Map<String, String?> _groupOverrides = {};
   final ValueNotifier<bool> _showTaskSidebar = ValueNotifier(false);
   WorkTask? _selectedTask;
@@ -282,9 +283,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
           .getTask(task.id);
       if (!mounted || _selectedTask?.id != task.id) return;
       setState(() => _selectedTask = detailed);
-    } catch (_) {
-      // The list item still provides a useful detail view if loading fails.
-    }
+    } catch (_) {}
   }
 
   List<WorkTask> _effectiveTasks(List<WorkTask> serverTasks) {
@@ -304,7 +303,6 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
         : task.groupId == targetGroupId;
     if (alreadyThere) return;
 
-    // Paint the new column immediately; do not wait for the network.
     setState(() => _groupOverrides[task.id] = targetGroupId);
 
     try {
@@ -325,14 +323,12 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
               ungroup: targetGroupId == null ? true : null,
             ),
           );
-      // Refresh server data, then drop the override once it matches.
       ref.invalidate(tasksProvider(_broadId));
       await ref.read(tasksProvider(_broadId).future);
       if (!mounted) return;
       setState(() => _groupOverrides.remove(task.id));
     } catch (error) {
       if (!mounted) return;
-      // Drop the optimistic override so the card returns to server state.
       setState(() => _groupOverrides.remove(task.id));
       showSnackBar(error.toString());
       ref.invalidate(tasksProvider(_broadId));
@@ -352,7 +348,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
         actions: [
           IconButton(
             icon: const Icon(Symbols.hub),
-            tooltip: 'GitHub integration',
+            tooltip: 'githubIntegration'.tr(),
             onPressed: () => showGitHubIntegrationSheet(
               context,
               ref,
@@ -362,12 +358,12 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
           ),
           IconButton(
             icon: const Icon(Symbols.view_column),
-            tooltip: 'Manage groups',
+            tooltip: 'manageGroups'.tr(),
             onPressed: () => _manageGroups(context, ref, _broadId),
           ),
           IconButton.filledTonal(
             icon: const Icon(Symbols.add_task),
-            tooltip: 'New task',
+            tooltip: 'newTask'.tr(),
             onPressed: () => _taskForm(context, ref, _broadId),
           ),
           const SizedBox(width: 12),
@@ -408,12 +404,12 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                 if (effective.isEmpty && groupItems.isEmpty) {
                   return EmptyState(
                     icon: Symbols.task_alt,
-                    title: 'No tasks yet',
-                    message: 'Add a task or create groups for this board.',
+                    title: 'noTasksYet'.tr(),
+                    message: 'addTaskOrCreateGroups'.tr(),
                     action: FilledButton.icon(
                       onPressed: () => _taskForm(context, ref, _broadId),
                       icon: const Icon(Symbols.add_task),
-                      label: const Text('New task'),
+                      label: Text('newTask'.tr()),
                     ),
                   );
                 }
@@ -499,7 +495,6 @@ class _TaskColumn {
   final bool isUngrouped;
 }
 
-/// Ungrouped first (leftmost), then groups in position order.
 List<_TaskColumn> _buildColumns(List<TaskGroup> groups, List<WorkTask> tasks) {
   final groupIds = {for (final group in groups) group.id};
   final byGroup = <String, List<WorkTask>>{};
@@ -515,7 +510,7 @@ List<_TaskColumn> _buildColumns(List<TaskGroup> groups, List<WorkTask> tasks) {
   }
 
   return [
-    _TaskColumn(title: 'Ungrouped', tasks: ungrouped, isUngrouped: true),
+    _TaskColumn(title: 'ungrouped'.tr(), tasks: ungrouped, isUngrouped: true),
     for (final group in groups)
       _TaskColumn(
         title: group.name,
@@ -621,7 +616,7 @@ class _TaskGroupColumn extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Add task',
+                        tooltip: 'addTask'.tr(),
                         visualDensity: VisualDensity.compact,
                         icon: const Icon(Symbols.add, size: 20),
                         onPressed: onAddTask,
@@ -636,10 +631,10 @@ class _TaskGroupColumn extends StatelessWidget {
                             padding: const EdgeInsets.all(16),
                             child: Text(
                               hovering
-                                  ? 'Drop task here'
+                                  ? 'dropTaskHere'.tr()
                                   : isUngrouped
-                                  ? 'No ungrouped tasks'
-                                  : 'No tasks in this group',
+                                      ? 'noUngroupedTasks'.tr()
+                                      : 'noTasksInGroup'.tr(),
                               textAlign: TextAlign.center,
                               style: text.bodySmall?.copyWith(
                                 color: scheme.onSurfaceVariant,
@@ -694,7 +689,6 @@ class _DraggableTaskCard extends StatelessWidget {
       onDelete: onDelete,
     );
 
-    // Immediate drag (desktop-first). Long-press still works via the same path.
     return Draggable<WorkTask>(
       data: task,
       maxSimultaneousDrags: 1,
@@ -724,7 +718,6 @@ Future<void> _toggleTaskComplete(
 ) async {
   final complete = !task.isCompleted;
   try {
-    // completeReason 0 = Completed. Null (omitted in JSON) reopens the task.
     await ref
         .read(wattEngineClientProvider)
         .updateTask(
@@ -742,7 +735,7 @@ Future<void> _toggleTaskComplete(
           ),
         );
     ref.invalidate(tasksProvider(broadId));
-    showSnackBar(complete ? 'Task completed.' : 'Task reopened.');
+    showSnackBar(complete ? 'taskCompleted'.tr() : 'taskReopened'.tr());
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -755,17 +748,17 @@ Future<void> _deleteTask(
   WorkTask task,
 ) async {
   final confirmed = await showConfirmAlert(
-    '“${task.name}” will be permanently removed.',
-    'Delete task?',
+    'deleteTaskConfirm'.tr(namedArgs: {'name': task.name}),
+    'deleteTaskTitle'.tr(),
     icon: Symbols.delete,
     isDanger: true,
-    confirmLabel: 'Delete',
+    confirmLabel: 'delete'.tr(),
   );
   if (!confirmed) return;
   try {
     await ref.read(wattEngineClientProvider).deleteTask(task.id);
     ref.invalidate(tasksProvider(broadId));
-    showSnackBar('Task deleted.');
+    showSnackBar('taskDeleted'.tr());
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -811,16 +804,14 @@ class _TaskTile extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
-                // Title-only cards: center with action buttons (no dead space).
-                // With description: top-align so text stacks under the title.
                 crossAxisAlignment: hasDescription
                     ? CrossAxisAlignment.start
                     : CrossAxisAlignment.center,
                 children: [
                   IconButton(
                     tooltip: task.isCompleted
-                        ? 'Reopen task'
-                        : 'Mark completed',
+                        ? 'reopenTask'.tr()
+                        : 'markCompleted'.tr(),
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(
@@ -876,7 +867,7 @@ class _TaskTile extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Delete task',
+                    tooltip: 'deleteTask'.tr(),
                     visualDensity: VisualDensity.compact,
                     icon: Icon(
                       Symbols.delete,
@@ -909,9 +900,9 @@ class _TaskTile extends StatelessWidget {
                       icon: Symbols.event,
                       tone:
                           task.deadlineAt!.isBefore(DateTime.now()) &&
-                              !task.isCompleted
-                          ? StatusChipTone.error
-                          : StatusChipTone.neutral,
+                                  !task.isCompleted
+                              ? StatusChipTone.error
+                              : StatusChipTone.neutral,
                     ),
                   for (final tag in task.tags.take(compact ? 2 : 4))
                     StatusChip(
@@ -921,9 +912,7 @@ class _TaskTile extends StatelessWidget {
                     ),
                   if (task.attachments.isNotEmpty)
                     StatusChip(
-                      label:
-                          '${task.attachments.length} file'
-                          '${task.attachments.length == 1 ? '' : 's'}',
+                      label: '${task.attachments.length} file${task.attachments.length == 1 ? '' : 's'}',
                       icon: Symbols.attach_file,
                       tone: StatusChipTone.neutral,
                     ),
@@ -931,7 +920,7 @@ class _TaskTile extends StatelessWidget {
                     StatusChip(
                       label: task.assignees.length == 1
                           ? task.assignees.first.label
-                          : '${task.assignees.length} assignees',
+                          : 'assignees'.tr(args: [task.assignees.length.toString()]),
                       icon: Symbols.group,
                       tone: StatusChipTone.primary,
                     ),
@@ -978,14 +967,14 @@ class _TaskDetailSidebar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
             child: Row(
               children: [
-                Expanded(child: Text('Task details', style: text.titleMedium)),
+                Expanded(child: Text('taskDetails'.tr(), style: text.titleMedium)),
                 IconButton(
-                  tooltip: 'Edit task',
+                  tooltip: 'editTask'.tr(),
                   onPressed: onEdit,
                   icon: const Icon(Symbols.edit),
                 ),
                 IconButton(
-                  tooltip: 'Close details',
+                  tooltip: 'closeDetails'.tr(),
                   onPressed: onClose,
                   icon: const Icon(Symbols.close),
                 ),
@@ -1004,8 +993,8 @@ class _TaskDetailSidebar extends StatelessWidget {
                     children: [
                       IconButton(
                         tooltip: task.isCompleted
-                            ? 'Reopen task'
-                            : 'Mark completed',
+                            ? 'reopenTask'.tr()
+                            : 'markCompleted'.tr(),
                         onPressed: onToggleComplete,
                         icon: Icon(
                           task.isCompleted
@@ -1062,8 +1051,7 @@ class _TaskDetailSidebar extends StatelessWidget {
                         StatusChip(
                           label: _formatDeadline(task.deadlineAt!),
                           icon: Symbols.event,
-                          tone:
-                              task.deadlineAt!.isBefore(DateTime.now()) &&
+                          tone: task.deadlineAt!.isBefore(DateTime.now()) &&
                                   !task.isCompleted
                               ? StatusChipTone.error
                               : StatusChipTone.neutral,
@@ -1078,19 +1066,19 @@ class _TaskDetailSidebar extends StatelessWidget {
                   ),
                   if (task.displayDescription case final description?) ...[
                     const SizedBox(height: 24),
-                    Text('Description', style: text.titleSmall),
+                    Text('description'.tr(), style: text.titleSmall),
                     const SizedBox(height: 8),
                     Text(description),
                   ],
                   if (task.displayContent case final content?) ...[
                     const SizedBox(height: 24),
-                    Text('Details', style: text.titleSmall),
+                    Text('details'.tr(), style: text.titleSmall),
                     const SizedBox(height: 8),
                     MarkdownTextContent(content: content),
                   ],
                   if (task.assignees.isNotEmpty) ...[
                     const SizedBox(height: 24),
-                    Text('Assignees', style: text.titleSmall),
+                    Text('assigneesLabel'.tr(), style: text.titleSmall),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -1113,7 +1101,7 @@ class _TaskDetailSidebar extends StatelessWidget {
                   ],
                   if (task.attachments.isNotEmpty) ...[
                     const SizedBox(height: 24),
-                    Text('Attachments', style: text.titleSmall),
+                    Text('attachments'.tr(), style: text.titleSmall),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -1156,25 +1144,29 @@ class _TaskDetailSidebar extends StatelessWidget {
 ) {
   return switch (priority) {
     1 => (
-      label: 'High',
+      label: 'high'.tr(),
       icon: Symbols.keyboard_double_arrow_up,
       tone: StatusChipTone.tertiary,
     ),
     2 => (
-      label: 'Urgent',
+      label: 'urgent'.tr(),
       icon: Symbols.priority_high,
       tone: StatusChipTone.error,
     ),
-    _ => (label: 'Normal', icon: Symbols.remove, tone: StatusChipTone.neutral),
+    _ => (
+      label: 'normal'.tr(),
+      icon: Symbols.remove,
+      tone: StatusChipTone.neutral,
+    ),
   };
 }
 
 String? _completeReasonLabel(int? reason) => switch (reason) {
-  0 => 'Completed',
-  1 => 'Skipped',
-  2 => 'Duplicated',
-  _ => null,
-};
+      0 => 'completed'.tr(),
+      1 => 'skipped'.tr(),
+      2 => 'duplicated'.tr(),
+      _ => null,
+    };
 
 String _formatDeadline(DateTime deadline) {
   final local = deadline.toLocal();
@@ -1184,8 +1176,6 @@ String _formatDeadline(DateTime deadline) {
   return '$y-$m-$d';
 }
 
-// --- Board editor ----------------------------------------------------------------
-
 Future<void> _boardForm(
   BuildContext context,
   WidgetRef ref, {
@@ -1193,7 +1183,7 @@ Future<void> _boardForm(
 }) async {
   final workspace = await ref.read(selectedWorkspaceProvider.future);
   if (workspace == null) {
-    showSnackBar('Select a workspace before creating a board.');
+    showSnackBar('selectWorkspaceBeforeCreatingBoard'.tr());
     return;
   }
   if (!context.mounted) return;
@@ -1233,7 +1223,7 @@ Future<void> _boardForm(
       );
     }
     ref.invalidate(broadsProvider);
-    showSnackBar(board == null ? 'Board created.' : 'Board updated.');
+    showSnackBar(board == null ? 'boardCreated'.tr() : 'boardUpdated'.tr());
   } catch (error) {
     showSnackBar(wattApiErrorMessage(error));
   }
@@ -1311,7 +1301,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
       ref,
       usage: 'board.icon',
       workspaceId: workspace?.id,
-      title: 'Board icon',
+      title: 'boardIcon'.tr(),
     );
     if (file == null || !mounted) return;
     setState(() {
@@ -1328,7 +1318,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
       ref,
       usage: 'board.background',
       workspaceId: workspace?.id,
-      title: 'Board background',
+      title: 'backgroundImage'.tr(),
     );
     if (file == null || !mounted) return;
     setState(() {
@@ -1339,7 +1329,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
 
   void _submit() {
     if (_name.text.trim().isEmpty) {
-      showSnackBar('Name is required.');
+      showSnackBar('nameIsRequired'.tr());
       return;
     }
     Navigator.pop(
@@ -1370,7 +1360,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
     final board = widget.board;
 
     return SheetScaffold(
-      titleText: board == null ? 'New board' : 'Edit board',
+      titleText: board == null ? 'newBoard'.tr() : 'editBoard'.tr(),
       heightFactor: 0.8,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
@@ -1393,10 +1383,10 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Board icon', style: text.titleSmall),
+                      Text('boardIcon'.tr(), style: text.titleSmall),
                       const SizedBox(height: 4),
                       Text(
-                        'Displayed on the boards grid and list.',
+                        'boardIconDescription'.tr(),
                         style: text.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -1408,7 +1398,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                           TextButton.icon(
                             onPressed: _pickIcon,
                             icon: const Icon(Symbols.upload, size: 18),
-                            label: Text(_icon == null ? 'Upload' : 'Change'),
+                            label: Text(_icon == null ? 'upload'.tr() : 'change'.tr()),
                           ),
                           if (_icon != null)
                             TextButton(
@@ -1416,7 +1406,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                                 _icon = null;
                                 _iconChanged = true;
                               }),
-                              child: const Text('Clear'),
+                              child: Text('clear'.tr()),
                             ),
                         ],
                       ),
@@ -1433,10 +1423,10 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                 fallbackIcon: Symbols.wallpaper,
                 size: 40,
               ),
-              title: const Text('Background image'),
+              title: Text('backgroundImage'.tr()),
               subtitle: Text(
                 _background == null
-                    ? 'Optional cover image'
+                    ? 'optionalCoverImage'.tr()
                     : _background!.name,
               ),
               trailing: Row(
@@ -1444,7 +1434,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                 children: [
                   if (_background != null)
                     IconButton(
-                      tooltip: 'Clear background',
+                      tooltip: 'clearBackground'.tr(),
                       icon: const Icon(Symbols.close),
                       onPressed: () => setState(() {
                         _background = null;
@@ -1452,7 +1442,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                       }),
                     ),
                   IconButton(
-                    tooltip: 'Choose background',
+                    tooltip: 'chooseBackground'.tr(),
                     icon: const Icon(Symbols.upload),
                     onPressed: _pickBackground,
                   ),
@@ -1463,7 +1453,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             TextField(
               controller: _name,
               decoration: InputDecoration(
-                labelText: 'Name',
+                labelText: 'name'.tr(),
                 prefixIcon: inputPrefixIcon(Symbols.title),
               ),
               textInputAction: TextInputAction.next,
@@ -1472,7 +1462,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             TextField(
               controller: _description,
               decoration: InputDecoration(
-                labelText: 'Description',
+                labelText: 'description'.tr(),
                 alignLabelWithHint: true,
                 prefixIcon: inputPrefixIcon(Symbols.notes, maxLines: 3),
               ),
@@ -1482,7 +1472,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             TextField(
               controller: _content,
               decoration: InputDecoration(
-                labelText: 'Content',
+                labelText: 'content'.tr(),
                 alignLabelWithHint: true,
                 prefixIcon: inputPrefixIcon(Symbols.article, maxLines: 4),
                 hintText: 'Optional long-form detail',
@@ -1493,10 +1483,9 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             TextField(
               controller: _taskPrefix,
               decoration: InputDecoration(
-                labelText: 'Task prefix',
+                labelText: 'taskPrefix'.tr(),
                 hintText: 'SN',
-                helperText:
-                    'Tasks are numbered automatically (for example SN-1).',
+                helperText: 'taskPrefixDescription'.tr(),
                 prefixIcon: inputPrefixIcon(Symbols.tag),
               ),
               textCapitalization: TextCapitalization.characters,
@@ -1505,7 +1494,7 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             const SizedBox(height: 28),
             FilledButton(
               onPressed: _submit,
-              child: Text(board == null ? 'Create board' : 'Save changes'),
+              child: Text(board == null ? 'createBoard'.tr() : 'saveChanges'.tr()),
             ),
           ],
         ),
@@ -1513,8 +1502,6 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
     );
   }
 }
-
-// --- Task groups -----------------------------------------------------------------
 
 Future<void> _manageGroups(
   BuildContext context,
@@ -1550,7 +1537,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
   Future<void> _create() async {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      showSnackBar('Group name is required.');
+      showSnackBar('groupNameRequired'.tr());
       return;
     }
     setState(() => _busy = true);
@@ -1560,7 +1547,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
           .createTaskGroup(widget.broadId, name: name);
       _name.clear();
       ref.invalidate(taskGroupsProvider(widget.broadId));
-      showSnackBar('Group created.');
+      showSnackBar('groupCreated'.tr());
     } catch (error) {
       showSnackBar(error.toString());
     } finally {
@@ -1571,9 +1558,9 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
   Future<void> _rename(TaskGroup group) async {
     final name = await showNameInputSheet(
       context,
-      title: 'Rename group',
-      label: 'Name',
-      confirmLabel: 'Save',
+      title: 'renameGroup'.tr(),
+      label: 'name'.tr(),
+      confirmLabel: 'save'.tr(),
       initialValue: group.name,
       icon: Symbols.folder,
     );
@@ -1585,7 +1572,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
           .read(wattEngineClientProvider)
           .updateTaskGroup(group.id, name: name.trim());
       ref.invalidate(taskGroupsProvider(widget.broadId));
-      showSnackBar('Group updated.');
+      showSnackBar('groupUpdated'.tr());
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -1593,18 +1580,18 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
 
   Future<void> _delete(TaskGroup group) async {
     final confirmed = await showConfirmAlert(
-      'Tasks in this group stay on the board and become ungrouped.',
-      'Delete ${group.name}?',
+      'deleteGroupConfirm'.tr(namedArgs: {'name': group.name}),
+      'deleteGroupTitle'.tr(namedArgs: {'name': group.name}),
       icon: Symbols.delete,
       isDanger: true,
-      confirmLabel: 'Delete',
+      confirmLabel: 'delete'.tr(),
     );
     if (!confirmed) return;
     try {
       await ref.read(wattEngineClientProvider).deleteTaskGroup(group.id);
       ref.invalidate(taskGroupsProvider(widget.broadId));
       ref.invalidate(tasksProvider(widget.broadId));
-      showSnackBar('Group deleted.');
+      showSnackBar('groupDeleted'.tr());
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -1616,7 +1603,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
     final scheme = Theme.of(context).colorScheme;
 
     return SheetScaffold(
-      titleText: 'Task groups',
+      titleText: 'taskGroups'.tr(),
       heightFactor: 0.7,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
@@ -1624,10 +1611,10 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Organize board tasks into columns or swimlanes.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              'organizeBoardTasks'.tr(),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
             ),
             const SizedBox(height: 16),
             Row(
@@ -1637,8 +1624,8 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
                     controller: _name,
                     enabled: !_busy,
                     decoration: InputDecoration(
-                      labelText: 'New group',
-                      hintText: 'In Progress',
+                      labelText: 'newGroup'.tr(),
+                      hintText: 'inProgress'.tr(),
                       prefixIcon: inputPrefixIcon(Symbols.folder),
                     ),
                     onSubmitted: (_) => _create(),
@@ -1647,7 +1634,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
                 const SizedBox(width: 8),
                 FilledButton(
                   onPressed: _busy ? null : _create,
-                  child: const Text('Add'),
+                  child: Text('add'.tr()),
                 ),
               ],
             ),
@@ -1657,20 +1644,20 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => EmptyState(
                   icon: Symbols.error,
-                  title: 'Could not load groups',
+                  title: 'couldNotLoadGroups'.tr(),
                   message: error.toString(),
                   action: FilledButton(
                     onPressed: () =>
                         ref.invalidate(taskGroupsProvider(widget.broadId)),
-                    child: const Text('Try again'),
+                    child: Text('tryAgain'.tr()),
                   ),
                 ),
                 data: (items) {
                   if (items.isEmpty) {
-                    return const EmptyState(
+                    return EmptyState(
                       icon: Symbols.view_column,
-                      title: 'No groups yet',
-                      message: 'Create a group to organize tasks.',
+                      title: 'noGroupsYet'.tr(),
+                      message: 'createGroupToOrganize'.tr(),
                     );
                   }
                   return ListView.separated(
@@ -1682,20 +1669,20 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Symbols.folder),
                         title: Text(group.name),
-                        subtitle: Text('Position ${group.position}'),
+                        subtitle: Text('${'position'.tr()} ${group.position}'),
                         trailing: PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'rename') _rename(group);
                             if (value == 'delete') _delete(group);
                           },
-                          itemBuilder: (_) => const [
+                          itemBuilder: (_) => [
                             PopupMenuItem(
                               value: 'rename',
-                              child: Text('Rename'),
+                              child: Text('rename'.tr()),
                             ),
                             PopupMenuItem(
                               value: 'delete',
-                              child: Text('Delete'),
+                              child: Text('delete'.tr()),
                             ),
                           ],
                         ),
@@ -1712,8 +1699,6 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
   }
 }
 
-// --- Task editor -----------------------------------------------------------------
-
 Future<void> _taskForm(
   BuildContext context,
   WidgetRef ref,
@@ -1724,7 +1709,6 @@ Future<void> _taskForm(
   WorkTask? editable = task;
   if (task != null) {
     try {
-      // List endpoints may omit assignees; load full task for edit.
       editable = await ref.read(wattEngineClientProvider).getTask(task.id);
     } catch (_) {
       editable = task;
@@ -1762,7 +1746,7 @@ Future<void> _taskForm(
       }
     }
     ref.invalidate(tasksProvider(broadId));
-    showSnackBar(task == null ? 'Task created.' : 'Task updated.');
+    showSnackBar(task == null ? 'taskCreated'.tr() : 'taskUpdated'.tr());
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -1819,7 +1803,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     _deadline = task?.deadlineAt;
     _completeReason = task?.completeReason;
     _groupId = task?.groupId ?? widget.initialGroupId;
-    // Keep empty optional fields collapsed until the user adds them.
     _showDescription = task?.hasDescription == true;
     _showContent = task?.hasContent == true;
     if (task != null) {
@@ -1877,7 +1860,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
       allowMultiple: true,
       usage: 'task.attachment',
       workspaceId: workspace?.id,
-      title: 'Attach files',
+      title: 'attachFiles'.tr(),
     );
     if (files == null || files.isEmpty || !mounted) return;
     setState(() {
@@ -1918,7 +1901,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
 
   void _submit() {
     if (_name.text.trim().isEmpty) {
-      showSnackBar('Name is required.');
+      showSnackBar('nameIsRequired'.tr());
       return;
     }
     final hadGroup = widget.task?.groupId != null;
@@ -1954,7 +1937,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     final groups = ref.watch(taskGroupsProvider(widget.broadId));
 
     return SheetScaffold(
-      titleText: task == null ? 'New task' : 'Edit task',
+      titleText: task == null ? 'newTask'.tr() : 'editTask'.tr(),
       heightFactor: 0.92,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
@@ -1964,7 +1947,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             TextField(
               controller: _name,
               decoration: InputDecoration(
-                labelText: 'Name',
+                labelText: 'name'.tr(),
                 prefixIcon: inputPrefixIcon(Symbols.title),
               ),
               textInputAction: TextInputAction.next,
@@ -1974,11 +1957,11 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               TextField(
                 controller: _description,
                 decoration: InputDecoration(
-                  labelText: 'Description',
+                  labelText: 'description'.tr(),
                   alignLabelWithHint: true,
                   prefixIcon: inputPrefixIcon(Symbols.notes, maxLines: 3),
                   suffixIcon: IconButton(
-                    tooltip: 'Remove description',
+                    tooltip: 'removeDescription'.tr(),
                     icon: const Icon(Symbols.close, size: 18),
                     onPressed: () => setState(() {
                       _description.clear();
@@ -1994,12 +1977,12 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               TextField(
                 controller: _content,
                 decoration: InputDecoration(
-                  labelText: 'Details',
+                  labelText: 'details'.tr(),
                   alignLabelWithHint: true,
                   prefixIcon: inputPrefixIcon(Symbols.article, maxLines: 4),
-                  hintText: 'Rich detail / notes',
+                  hintText: 'richDetailNotes'.tr(),
                   suffixIcon: IconButton(
-                    tooltip: 'Remove details',
+                    tooltip: 'removeDetails'.tr(),
                     icon: const Icon(Symbols.close, size: 18),
                     onPressed: () => setState(() {
                       _content.clear();
@@ -2020,13 +2003,13 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                     TextButton.icon(
                       onPressed: () => setState(() => _showDescription = true),
                       icon: const Icon(Symbols.notes, size: 18),
-                      label: const Text('Add description'),
+                      label: Text('addDescription'.tr()),
                     ),
                   if (!_showContent)
                     TextButton.icon(
                       onPressed: () => setState(() => _showContent = true),
                       icon: const Icon(Symbols.article, size: 18),
-                      label: const Text('Add details'),
+                      label: Text('addDetails'.tr()),
                     ),
                 ],
               ),
@@ -2036,11 +2019,10 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             groups.when(
               loading: () => const LinearProgressIndicator(),
               error: (error, _) => Text(
-                'Groups unavailable: $error',
+                'groupsUnavailable'.tr(args: [error.toString()]),
                 style: text.bodySmall?.copyWith(color: scheme.error),
               ),
               data: (items) {
-                // Drop stale selection if the group was deleted.
                 final validGroupId = items.any((group) => group.id == _groupId)
                     ? _groupId
                     : null;
@@ -2048,13 +2030,13 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                   key: ValueKey('group-$validGroupId-${items.length}'),
                   initialValue: validGroupId,
                   decoration: InputDecoration(
-                    labelText: 'Group',
+                    labelText: 'group'.tr(),
                     prefixIcon: inputPrefixIcon(Symbols.folder),
                   ),
                   items: [
-                    const DropdownMenuItem<String?>(
+                    DropdownMenuItem<String?>(
                       value: null,
-                      child: Text('Ungrouped'),
+                      child: Text('ungrouped'.tr()),
                     ),
                     for (final group in items)
                       DropdownMenuItem<String?>(
@@ -2067,24 +2049,24 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               },
             ),
             const SizedBox(height: 16),
-            Text('Priority', style: text.titleSmall),
+            Text('priority'.tr(), style: text.titleSmall),
             const SizedBox(height: 8),
             SegmentedButton<int>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: 0,
-                  label: Text('Normal'),
-                  icon: Icon(Symbols.remove, size: 18),
+                  label: Text('normal'.tr()),
+                  icon: const Icon(Symbols.remove, size: 18),
                 ),
                 ButtonSegment(
                   value: 1,
-                  label: Text('High'),
-                  icon: Icon(Symbols.keyboard_double_arrow_up, size: 18),
+                  label: Text('high'.tr()),
+                  icon: const Icon(Symbols.keyboard_double_arrow_up, size: 18),
                 ),
                 ButtonSegment(
                   value: 2,
-                  label: Text('Urgent'),
-                  icon: Icon(Symbols.priority_high, size: 18),
+                  label: Text('urgent'.tr()),
+                  icon: const Icon(Symbols.priority_high, size: 18),
                 ),
               ],
               selected: {_priority},
@@ -2095,10 +2077,10 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Symbols.event, color: scheme.primary),
-              title: const Text('Deadline'),
+              title: Text('deadline'.tr()),
               subtitle: Text(
                 _deadline == null
-                    ? 'No deadline'
+                    ? 'noDeadline'.tr()
                     : _deadline!.toLocal().toString().split('.').first,
               ),
               trailing: Row(
@@ -2106,12 +2088,12 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                 children: [
                   if (_deadline != null)
                     IconButton(
-                      tooltip: 'Clear deadline',
+                      tooltip: 'clearDeadline'.tr(),
                       icon: const Icon(Symbols.clear),
                       onPressed: () => setState(() => _deadline = null),
                     ),
                   IconButton(
-                    tooltip: 'Set deadline',
+                    tooltip: 'setDeadline'.tr(),
                     icon: const Icon(Symbols.edit_calendar),
                     onPressed: _pickDeadline,
                   ),
@@ -2120,28 +2102,28 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             ),
             if (task != null) ...[
               const SizedBox(height: 8),
-              Text('Completion', style: text.titleSmall),
+              Text('completion'.tr(), style: text.titleSmall),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 children: [
                   FilterChip(
-                    label: const Text('Open'),
+                    label: Text('open'.tr()),
                     selected: _completeReason == null,
                     onSelected: (_) => setState(() => _completeReason = null),
                   ),
                   FilterChip(
-                    label: const Text('Completed'),
+                    label: Text('completed'.tr()),
                     selected: _completeReason == 0,
                     onSelected: (_) => setState(() => _completeReason = 0),
                   ),
                   FilterChip(
-                    label: const Text('Skipped'),
+                    label: Text('skipped'.tr()),
                     selected: _completeReason == 1,
                     onSelected: (_) => setState(() => _completeReason = 1),
                   ),
                   FilterChip(
-                    label: const Text('Duplicated'),
+                    label: Text('duplicated'.tr()),
                     selected: _completeReason == 2,
                     onSelected: (_) => setState(() => _completeReason = 2),
                   ),
@@ -2152,27 +2134,27 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             TextField(
               controller: _tags,
               decoration: InputDecoration(
-                labelText: 'Tags',
-                hintText: 'backend, urgent',
+                labelText: 'tags'.tr(),
+                hintText: 'tagsHint'.tr(),
                 prefixIcon: inputPrefixIcon(Symbols.label),
-                helperText: 'Comma-separated tags',
+                helperText: 'commaSeparatedTags'.tr(),
               ),
             ),
             const SizedBox(height: 16),
             Row(
               children: [
-                Text('Assignees', style: text.titleSmall),
+                Text('assigneesLabel'.tr(), style: text.titleSmall),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: _addAssignee,
                   icon: const Icon(Symbols.person_add, size: 18),
-                  label: const Text('Add'),
+                  label: Text('add'.tr()),
                 ),
               ],
             ),
             if (_assignees.isEmpty)
               Text(
-                'No assignees yet.',
+                'noAssigneesYet'.tr(),
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             else
@@ -2199,18 +2181,18 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Text('Attachments', style: text.titleSmall),
+                Text('attachments'.tr(), style: text.titleSmall),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: _addAttachments,
                   icon: const Icon(Symbols.attach_file, size: 18),
-                  label: const Text('Add'),
+                  label: Text('add'.tr()),
                 ),
               ],
             ),
             if (_attachments.isEmpty)
               Text(
-                'No files attached.',
+                'noFilesAttached'.tr(),
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             else
@@ -2245,7 +2227,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                   try {
                     await launchUrl(uri, mode: LaunchMode.externalApplication);
                   } catch (_) {
-                    showSnackBar('Could not open GitHub issue.');
+                    showSnackBar('couldNotOpenGitHubIssue'.tr());
                   }
                 },
               ),
@@ -2257,7 +2239,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               TaskCommentsSection(taskId: task.id),
             ],
             const SizedBox(height: 28),
-            FilledButton(onPressed: _submit, child: const Text('Save')),
+            FilledButton(onPressed: _submit, child: Text('save'.tr())),
           ],
         ),
       ),
@@ -2419,7 +2401,7 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
     final searching = _controller.text.trim().isNotEmpty;
 
     return SheetScaffold(
-      titleText: 'Add assignee',
+      titleText: 'addAssignee'.tr(),
       heightFactor: 0.7,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -2427,19 +2409,19 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
           children: [
             SearchBar(
               controller: _controller,
-              hintText: 'Search accounts',
+              hintText: 'searchAccounts'.tr(),
               leading: const Icon(Symbols.search),
               onChanged: _search,
             ),
             const SizedBox(height: 8),
             Expanded(
               child: searching
-                  ? _list(_results, empty: 'No accounts found.')
+                  ? _list(_results, empty: 'noAccountsFound'.tr())
                   : _list(
                       _members,
                       empty: widget.workspaceSlug == null
-                          ? 'Search for an account to assign.'
-                          : 'No workspace members available.',
+                          ? 'searchAccountToAssign'.tr()
+                          : 'noWorkspaceMembersAvailable'.tr(),
                     ),
             ),
           ],

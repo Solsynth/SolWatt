@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,31 +14,22 @@ import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
-/// Browser mode: folder tree (indexed) vs flat assets (unindexed).
-///
-/// Unindexed holds logos, board backgrounds, and other decoration files that
-/// should not appear in the folder hierarchy (same idea as Island Drive).
 enum WorkspaceFileMode { indexed, unindexed }
 
-/// Layout for the current file list.
 enum WorkspaceFileViewMode { list, grid }
 
-/// Kind chip: all / folders only / files only (indexed mode).
 enum WorkspaceFileKindFilter { all, folders, files }
 
-/// Media kind filter (mime prefix).
 enum WorkspaceMediaFilter { all, image, video, audio, document }
 
 enum WorkspaceFileSort { name, size, date }
 
-/// Per-tab browser state (Island-style multi-tab Drive).
 class _DriveTab {
   _DriveTab({required this.id, required this.mode});
 
   final String id;
   final WorkspaceFileMode mode;
 
-  /// Empty = workspace root. Indexed tabs only.
   final List<({String id, String name})> path = [];
   WorkspaceFileViewMode viewMode = WorkspaceFileViewMode.list;
   WorkspaceFileKindFilter kindFilter = WorkspaceFileKindFilter.all;
@@ -46,7 +38,6 @@ class _DriveTab {
   bool sortDesc = false;
   String? query;
 
-  /// Island-style collapsible filter panel (search + chips).
   bool showFilters = true;
   final searchController = TextEditingController();
 
@@ -55,12 +46,11 @@ class _DriveTab {
   String get parentId => path.isEmpty ? '' : path.last.id;
 
   String get title {
-    if (isUnindexed) return 'Assets';
-    if (path.isEmpty) return 'Folders';
+    if (isUnindexed) return 'assets'.tr();
+    if (path.isEmpty) return 'folders'.tr();
     return path.last.name;
   }
 
-  /// Non-default filters that warrant a badge when the panel is collapsed.
   int get activeFilterCount {
     var count = 0;
     if (!isUnindexed && kindFilter != WorkspaceFileKindFilter.all) count++;
@@ -75,15 +65,6 @@ class _DriveTab {
   }
 }
 
-/// Workspace-scoped Drive browser with Island-style tabs.
-///
-/// - Multiple tabs (indexed folders and/or unindexed assets)
-/// - Per-tab path, view mode, and filters
-/// - Open folder in a new tab
-/// - Storage quota from DysonFS workspace billing
-///
-/// Uploads and folders always send `workspace_id` so storage is charged to the
-/// workspace plan (see FileSystem `WORKSPACE_FILES.md`).
 @RoutePage()
 class FilesPage extends ConsumerStatefulWidget {
   const FilesPage({super.key});
@@ -99,7 +80,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   @override
   void initState() {
     super.initState();
-    // Start with one folders tab, like opening Island Drive.
     _createTab(WorkspaceFileMode.indexed);
   }
 
@@ -122,10 +102,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     return index < 0 ? 0 : index;
   }
 
-  /// Parent rebuild after tab state mutates (filters, path, view mode).
-  ///
-  /// Never dispose [TextEditingController]s or call [setState] from a child
-  /// build — that triggers “dirty widget in the wrong build scope”.
   void _notifyTabsChanged() {
     if (!mounted) return;
     setState(() {});
@@ -134,7 +110,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   void _clearTabSearch(_DriveTab tab) {
     tab.query = null;
     if (tab.searchController.text.isNotEmpty) {
-      // Assigning value is safer mid-tree than clear()+parent setState races.
       tab.searchController.value = TextEditingValue.empty;
     }
   }
@@ -168,7 +143,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     }
 
     final tab = _DriveTab(id: _newTabId(), mode: WorkspaceFileMode.indexed);
-    // Copy path up to current location, then append the folder.
     tab.path
       ..addAll(from.path)
       ..add((id: folder.id, name: folder.name));
@@ -199,15 +173,11 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         }
       }
     });
-    // Dispose after the tab body element is deactivated (avoids build-scope
-    // errors when a TextField still held the controller this frame).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       closing.dispose();
     });
   }
 
-  /// Uses [ReorderableListView.onReorderItem], which already adjusts [newIndex]
-  /// for the removed item (no manual `newIndex -= 1`).
   void _reorderTab(int oldIndex, int newIndex) {
     setState(() {
       final tab = _tabs.removeAt(oldIndex);
@@ -222,7 +192,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   }
 
   void _navigatePath(_DriveTab tab, int keepThroughIndex) {
-    // keepThroughIndex == -1 means root.
     if (keepThroughIndex < 0) {
       tab.path.clear();
     } else if (keepThroughIndex < tab.path.length - 1) {
@@ -237,7 +206,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   Future<void> _uploadFiles(_DriveTab tab) async {
     final workspace = await ref.read(selectedWorkspaceProvider.future);
     if (workspace == null) {
-      showSnackBar('Select a workspace first.');
+      showSnackBar('selectAWorkspaceFirst'.tr());
       return;
     }
     if (!mounted) return;
@@ -255,8 +224,8 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     _invalidateDrive();
     showSnackBar(
       files.length == 1
-          ? 'Uploaded ${files.first.name}.'
-          : 'Uploaded ${files.length} files.',
+          ? 'uploadedFile'.tr(namedArgs: {'name': files.first.name})
+          : 'uploadedCountFiles'.tr(args: [files.length.toString()]),
     );
   }
 
@@ -264,15 +233,15 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     if (tab.isUnindexed) return;
     final workspace = await ref.read(selectedWorkspaceProvider.future);
     if (workspace == null) {
-      showSnackBar('Select a workspace first.');
+      showSnackBar('selectAWorkspaceFirst'.tr());
       return;
     }
     if (!mounted) return;
     final name = await showNameInputSheet(
       context,
-      title: 'New folder',
-      label: 'Folder name',
-      confirmLabel: 'Create',
+      title: 'newFolder'.tr(),
+      label: 'folderName'.tr(),
+      confirmLabel: 'create'.tr(),
       icon: Symbols.folder,
     );
     if (name == null || name.trim().isEmpty) return;
@@ -285,7 +254,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
             parentId: tab.parentId.isEmpty ? null : tab.parentId,
           );
       _invalidateDrive();
-      showSnackBar('Folder created.');
+      showSnackBar('folderCreated'.tr());
     } catch (error) {
       showSnackBar(driveApiErrorMessage(error));
     }
@@ -294,9 +263,9 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   Future<void> _rename(DriveFileEntry entry) async {
     final name = await showNameInputSheet(
       context,
-      title: entry.isFolder ? 'Rename folder' : 'Rename file',
-      label: 'Name',
-      confirmLabel: 'Save',
+      title: entry.isFolder ? 'renameFolder'.tr() : 'renameFile'.tr(),
+      label: 'name'.tr(),
+      confirmLabel: 'save'.tr(),
       initialValue: entry.name,
       icon: entry.isFolder ? Symbols.folder : Symbols.draft,
     );
@@ -308,7 +277,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           .read(wattEngineClientProvider)
           .renameCloudFile(entry.id, name.trim());
       _invalidateDrive();
-      showSnackBar('Renamed.');
+      showSnackBar('renamed'.tr());
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -316,18 +285,19 @@ class _FilesPageState extends ConsumerState<FilesPage> {
 
   Future<void> _delete(DriveFileEntry entry) async {
     final confirmed = await showConfirmAlert(
-      'Permanently delete “${entry.name.isEmpty ? entry.id : entry.name}”? '
-      'This cannot be undone.',
-      entry.isFolder ? 'Delete folder?' : 'Delete file?',
+      'permanentlyDelete'.tr(namedArgs: {
+        'name': entry.name.isEmpty ? entry.id : entry.name,
+      }),
+      entry.isFolder ? 'deleteFolder'.tr() : 'deleteFile'.tr(),
       icon: Symbols.delete,
       isDanger: true,
-      confirmLabel: 'Delete',
+      confirmLabel: 'delete'.tr(),
     );
     if (!confirmed) return;
     try {
       await ref.read(wattEngineClientProvider).deleteCloudFile(entry.id);
       _invalidateDrive();
-      showSnackBar('Deleted.');
+      showSnackBar('deleted'.tr());
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -426,8 +396,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     final tab = _activeTab;
     final scheme = Theme.of(context).colorScheme;
 
-    // No page title — shell already labels this destination. Chrome is just
-    // tab strip (with actions) → content → edge-snapped status bar.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -457,8 +425,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                 constraints: const BoxConstraints(maxWidth: 1100),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                  // IndexedStack keeps each tab body mounted so Riverpod watches
-                  // are not disposed mid-rebuild when switching tabs.
                   child: _tabs.isEmpty
                       ? _EmptyTabsState(
                           onOpenIndexed: () =>
@@ -497,7 +463,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
             ),
           ),
         ),
-        // Full-bleed bottom status bar (Island-style, snapped to edges).
         _DriveStorageStatusBar(
           usageAsync: usageAsync,
           onTapDetails: workspace == null
@@ -509,8 +474,6 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     );
   }
 }
-
-// ── Browser-style tab strip ─────────────────────────────────────────────────
 
 class _DriveTabStrip extends StatelessWidget {
   const _DriveTabStrip({
@@ -585,7 +548,7 @@ class _DriveTabStrip extends StatelessWidget {
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'No open tabs',
+                            'noOpenTabs'.tr(),
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: scheme.onSurfaceVariant),
                           ),
@@ -637,7 +600,7 @@ class _DriveTabStrip extends StatelessWidget {
               ),
               VerticalDivider(width: 1, thickness: 1, color: border),
               PopupMenuButton<String>(
-                tooltip: 'New tab',
+                tooltip: 'newTab'.tr(),
                 padding: EdgeInsets.zero,
                 onSelected: (value) {
                   switch (value) {
@@ -648,24 +611,24 @@ class _DriveTabStrip extends StatelessWidget {
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'indexed',
                     child: ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: Icon(Symbols.folder, size: 20),
-                      title: Text('Folders'),
-                      subtitle: Text('Indexed workspace tree'),
+                      leading: const Icon(Symbols.folder, size: 20),
+                      title: Text('folders'.tr()),
+                      subtitle: Text('indexedWorkspaceTree'.tr()),
                     ),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'unindexed',
                     child: ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: Icon(Symbols.inventory_2, size: 20),
-                      title: Text('Assets'),
-                      subtitle: Text('Logos & backgrounds'),
+                      leading: const Icon(Symbols.inventory_2, size: 20),
+                      title: Text('assets'.tr()),
+                      subtitle: Text('logosAndBackgrounds'.tr()),
                     ),
                   ),
                 ],
@@ -681,17 +644,17 @@ class _DriveTabStrip extends StatelessWidget {
               ),
               VerticalDivider(width: 1, thickness: 1, color: border),
               toolButton(
-                tooltip: 'Refresh',
+                tooltip: 'refresh'.tr(),
                 icon: Symbols.refresh,
                 onPressed: onRefresh,
               ),
               toolButton(
-                tooltip: 'New folder',
+                tooltip: 'newFolder'.tr(),
                 icon: Symbols.create_new_folder,
                 onPressed: onNewFolder,
               ),
               toolButton(
-                tooltip: uploadIsAsset ? 'Upload asset' : 'Upload',
+                tooltip: uploadIsAsset ? 'uploadAsset'.tr() : 'upload'.tr(),
                 icon: Symbols.upload,
                 onPressed: onUpload,
               ),
@@ -704,7 +667,6 @@ class _DriveTabStrip extends StatelessWidget {
   }
 }
 
-/// Single document tab — flat browser chrome, not a floating chip.
 class _DriveTabItem extends StatelessWidget {
   const _DriveTabItem({
     required this.title,
@@ -747,8 +709,6 @@ class _DriveTabItem extends StatelessWidget {
                   left: showDivider
                       ? BorderSide(color: border)
                       : BorderSide.none,
-                  // Selected tab sits on the content surface: hide bar bottom
-                  // edge and draw a thin top accent.
                   top: isSelected
                       ? BorderSide(color: scheme.primary, width: 2)
                       : BorderSide.none,
@@ -775,14 +735,14 @@ class _DriveTabItem extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: isSelected
-                              ? scheme.onSurface
-                              : scheme.onSurfaceVariant,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                          fontSize: 13,
-                        ),
+                              color: isSelected
+                                  ? scheme.onSurface
+                                  : scheme.onSurfaceVariant,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                              fontSize: 13,
+                            ),
                       ),
                     ),
                     SizedBox(
@@ -792,7 +752,7 @@ class _DriveTabItem extends StatelessWidget {
                         padding: EdgeInsets.zero,
                         visualDensity: VisualDensity.compact,
                         iconSize: 15,
-                        tooltip: 'Close tab',
+                        tooltip: 'closeTab'.tr(),
                         onPressed: onClose,
                         style: IconButton.styleFrom(
                           foregroundColor: scheme.onSurfaceVariant,
@@ -825,10 +785,8 @@ class _EmptyTabsState extends StatelessWidget {
   Widget build(BuildContext context) {
     return EmptyState(
       icon: Symbols.tab,
-      title: 'No tabs open',
-      message:
-          'Open a Folders tab to browse the workspace tree, or an Assets tab '
-          'for unindexed logos and backgrounds.',
+      title: 'noTabsOpen'.tr(),
+      message: 'openFoldersDescription'.tr(),
       action: Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -837,20 +795,18 @@ class _EmptyTabsState extends StatelessWidget {
           FilledButton.icon(
             onPressed: onOpenIndexed,
             icon: const Icon(Symbols.folder),
-            label: const Text('Open folders'),
+            label: Text('openFoldersTab'.tr()),
           ),
           OutlinedButton.icon(
             onPressed: onOpenUnindexed,
             icon: const Icon(Symbols.inventory_2),
-            label: const Text('Open assets'),
+            label: Text('openAssetsTab'.tr()),
           ),
         ],
       ),
     );
   }
 }
-
-// ── Active tab body ─────────────────────────────────────────────────────────
 
 class _TabBrowserBody extends ConsumerWidget {
   const _TabBrowserBody({
@@ -874,8 +830,6 @@ class _TabBrowserBody extends ConsumerWidget {
   final VoidCallback onChanged;
   final VoidCallback onInvalidate;
   final VoidCallback onUpload;
-
-  /// `-1` = root; otherwise keep breadcrumbs through this index.
   final ValueChanged<int> onNavigatePath;
   final ValueChanged<DriveFileEntry> onOpenFolder;
   final ValueChanged<DriveFileEntry> onOpenFolderInNewTab;
@@ -888,8 +842,6 @@ class _TabBrowserBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    // Safe with IndexedStack: inactive tabs stay mounted, so Riverpod listeners
-    // are not torn down mid-frame when switching tabs.
     final children = tab.isUnindexed
         ? ref.watch(workspaceUnindexedFilesProvider)
         : ref.watch(workspaceFolderChildrenProvider(tab.parentId));
@@ -911,7 +863,6 @@ class _TabBrowserBody extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Fixed-height path / title row — same for indexed & unindexed.
                 SizedBox(
                   height: 36,
                   child: Row(
@@ -921,7 +872,7 @@ class _TabBrowserBody extends ConsumerWidget {
                             ? Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
-                                  'Unindexed assets',
+                                  'unindexedAssets'.tr(),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: text.titleSmall?.copyWith(
@@ -939,13 +890,9 @@ class _TabBrowserBody extends ConsumerWidget {
                                           ? null
                                           : () => onNavigatePath(-1),
                                       icon: const Icon(Symbols.home, size: 18),
-                                      label: const Text('Root'),
+                                      label: Text('root'.tr()),
                                     ),
-                                    for (
-                                      var i = 0;
-                                      i < tab.path.length;
-                                      i++
-                                    ) ...[
+                                    for (var i = 0; i < tab.path.length; i++) ...[
                                       Icon(
                                         Symbols.chevron_right,
                                         size: 16,
@@ -966,8 +913,8 @@ class _TabBrowserBody extends ConsumerWidget {
                       const SizedBox(width: 8),
                       IconButton(
                         tooltip: tab.showFilters
-                            ? 'Hide filters'
-                            : 'Show filters',
+                            ? 'hideFilters'.tr()
+                            : 'showFilters'.tr(),
                         onPressed: () {
                           tab.showFilters = !tab.showFilters;
                           onChanged();
@@ -977,8 +924,8 @@ class _TabBrowserBody extends ConsumerWidget {
                         style: IconButton.styleFrom(
                           foregroundColor:
                               tab.showFilters || tab.activeFilterCount > 0
-                              ? scheme.primary
-                              : scheme.onSurfaceVariant,
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
                         ),
                         icon: Badge(
                           isLabelVisible:
@@ -996,12 +943,12 @@ class _TabBrowserBody extends ConsumerWidget {
                           ButtonSegment(
                             value: WorkspaceFileViewMode.list,
                             icon: Icon(Symbols.list, size: 18),
-                            tooltip: 'List view',
+                            tooltip: 'listView',
                           ),
                           ButtonSegment(
                             value: WorkspaceFileViewMode.grid,
                             icon: Icon(Symbols.grid_view, size: 18),
-                            tooltip: 'Grid view',
+                            tooltip: 'gridView',
                           ),
                         ],
                         selected: {tab.viewMode},
@@ -1017,7 +964,6 @@ class _TabBrowserBody extends ConsumerWidget {
                     ],
                   ),
                 ),
-                // Island-style collapsible filter panel (search + chips).
                 AnimatedCrossFade(
                   duration: const Duration(milliseconds: 220),
                   sizeCurve: Curves.easeInOutCubic,
@@ -1034,14 +980,12 @@ class _TabBrowserBody extends ConsumerWidget {
                     children: [
                       const SizedBox(height: 8),
                       TextField(
-                        // Remount when folder depth changes so we never fight
-                        // a live TextEditingController mid-rebuild.
                         key: ValueKey('search-${tab.id}-${tab.path.length}'),
                         controller: tab.searchController,
                         decoration: InputDecoration(
                           hintText: tab.isUnindexed
-                              ? 'Filter assets'
-                              : 'Filter in this folder',
+                              ? 'filterAssets'.tr()
+                              : 'filterInThisFolder'.tr(),
                           prefixIcon: const Icon(Symbols.search),
                           isDense: true,
                           border: OutlineInputBorder(
@@ -1076,16 +1020,16 @@ class _TabBrowserBody extends ConsumerWidget {
                             _FilterMenuButton<WorkspaceFileKindFilter>(
                               icon: Symbols.category,
                               label: switch (tab.kindFilter) {
-                                WorkspaceFileKindFilter.all => 'All',
-                                WorkspaceFileKindFilter.folders => 'Folders',
-                                WorkspaceFileKindFilter.files => 'Files',
+                                WorkspaceFileKindFilter.all => 'all'.tr(),
+                                WorkspaceFileKindFilter.folders => 'folders'.tr(),
+                                WorkspaceFileKindFilter.files => 'files'.tr(),
                               },
                               active:
                                   tab.kindFilter != WorkspaceFileKindFilter.all,
-                              items: const [
-                                (WorkspaceFileKindFilter.all, 'All'),
-                                (WorkspaceFileKindFilter.folders, 'Folders'),
-                                (WorkspaceFileKindFilter.files, 'Files'),
+                              items: [
+                                (WorkspaceFileKindFilter.all, 'all'.tr()),
+                                (WorkspaceFileKindFilter.folders, 'folders'.tr()),
+                                (WorkspaceFileKindFilter.files, 'files'.tr()),
                               ],
                               onSelected: (v) {
                                 tab.kindFilter = v;
@@ -1095,19 +1039,19 @@ class _TabBrowserBody extends ConsumerWidget {
                           _FilterMenuButton<WorkspaceMediaFilter>(
                             icon: Symbols.perm_media,
                             label: switch (tab.mediaFilter) {
-                              WorkspaceMediaFilter.all => 'Type',
-                              WorkspaceMediaFilter.image => 'Images',
-                              WorkspaceMediaFilter.video => 'Videos',
-                              WorkspaceMediaFilter.audio => 'Audio',
-                              WorkspaceMediaFilter.document => 'Documents',
+                              WorkspaceMediaFilter.all => 'type'.tr(),
+                              WorkspaceMediaFilter.image => 'images'.tr(),
+                              WorkspaceMediaFilter.video => 'videos'.tr(),
+                              WorkspaceMediaFilter.audio => 'audio'.tr(),
+                              WorkspaceMediaFilter.document => 'documents'.tr(),
                             },
                             active: tab.mediaFilter != WorkspaceMediaFilter.all,
-                            items: const [
-                              (WorkspaceMediaFilter.all, 'All types'),
-                              (WorkspaceMediaFilter.image, 'Images'),
-                              (WorkspaceMediaFilter.video, 'Videos'),
-                              (WorkspaceMediaFilter.audio, 'Audio'),
-                              (WorkspaceMediaFilter.document, 'Documents'),
+                            items: [
+                              (WorkspaceMediaFilter.all, 'allTypes'.tr()),
+                              (WorkspaceMediaFilter.image, 'images'.tr()),
+                              (WorkspaceMediaFilter.video, 'videos'.tr()),
+                              (WorkspaceMediaFilter.audio, 'audio'.tr()),
+                              (WorkspaceMediaFilter.document, 'documents'.tr()),
                             ],
                             onSelected: (v) {
                               tab.mediaFilter = v;
@@ -1117,17 +1061,17 @@ class _TabBrowserBody extends ConsumerWidget {
                           _FilterMenuButton<WorkspaceFileSort>(
                             icon: Symbols.sort,
                             label: switch (tab.sort) {
-                              WorkspaceFileSort.name => 'Name',
-                              WorkspaceFileSort.size => 'Size',
-                              WorkspaceFileSort.date => 'Date',
+                              WorkspaceFileSort.name => 'name'.tr(),
+                              WorkspaceFileSort.size => 'size'.tr(),
+                              WorkspaceFileSort.date => 'date'.tr(),
                             },
                             active:
                                 tab.sort != WorkspaceFileSort.name ||
                                 tab.sortDesc,
-                            items: const [
-                              (WorkspaceFileSort.name, 'Name'),
-                              (WorkspaceFileSort.size, 'Size'),
-                              (WorkspaceFileSort.date, 'Date'),
+                            items: [
+                              (WorkspaceFileSort.name, 'name'.tr()),
+                              (WorkspaceFileSort.size, 'size'.tr()),
+                              (WorkspaceFileSort.date, 'date'.tr()),
                             ],
                             onSelected: (v) {
                               if (tab.sort == v) {
@@ -1146,7 +1090,7 @@ class _TabBrowserBody extends ConsumerWidget {
                                   : Symbols.arrow_upward,
                               size: 16,
                             ),
-                            label: Text(tab.sortDesc ? 'Desc' : 'Asc'),
+                            label: Text(tab.sortDesc ? 'desc'.tr() : 'asc'.tr()),
                             onPressed: () {
                               tab.sortDesc = !tab.sortDesc;
                               onChanged();
@@ -1168,8 +1112,6 @@ class _TabBrowserBody extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         Expanded(
-          // Offstage inactive tabs still build (for state) but skip paint cost
-          // when many tabs are open. IndexedStack already hides non-active.
           child: children.when(
             loading: () => const PageLoading(),
             error: (error, _) => PageError(
@@ -1180,10 +1122,10 @@ class _TabBrowserBody extends ConsumerWidget {
               final sorted = applyFilters(items);
 
               if (workspace == null) {
-                return const EmptyState(
+                return EmptyState(
                   icon: Symbols.folder_off,
-                  title: 'No workspace selected',
-                  message: 'Choose a workspace to browse its files.',
+                  title: 'noWorkspaceSelected'.tr(),
+                  message: 'chooseWorkspaceToBrowse'.tr(),
                 );
               }
 
@@ -1193,20 +1135,18 @@ class _TabBrowserBody extends ConsumerWidget {
                       ? Symbols.inventory_2
                       : Symbols.folder_open,
                   title: tab.isUnindexed
-                      ? 'No unindexed assets yet'
+                      ? 'noUnindexedAssetsYet'.tr()
                       : tab.path.isEmpty
-                      ? 'No workspace files yet'
-                      : 'This folder is empty',
+                          ? 'noWorkspaceFilesYet'.tr()
+                          : 'folderIsEmpty'.tr(),
                   message: tab.isUnindexed
-                      ? 'Upload logos, board icons, or backgrounds here. '
-                            'They stay out of the folder tree.'
-                      : 'Upload files or create a folder. Storage uses the '
-                            'workspace plan quota, not your personal Drive.',
+                      ? 'uploadLogosAndBackgrounds'.tr()
+                      : 'uploadFilesOrCreateFolder'.tr(),
                   action: FilledButton.icon(
                     onPressed: onUpload,
                     icon: const Icon(Symbols.upload),
                     label: Text(
-                      tab.isUnindexed ? 'Upload asset' : 'Upload files',
+                      tab.isUnindexed ? 'uploadAsset'.tr() : 'uploadFiles'.tr(),
                     ),
                   ),
                 );
@@ -1243,11 +1183,11 @@ class _TabBrowserBody extends ConsumerWidget {
                         padding: const EdgeInsets.only(bottom: 8),
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 200,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 0.88,
-                            ),
+                          maxCrossAxisExtent: 200,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.88,
+                        ),
                         itemCount: sorted.length,
                         itemBuilder: (context, index) {
                           final entry = sorted[index];
@@ -1279,9 +1219,6 @@ class _TabBrowserBody extends ConsumerWidget {
   }
 }
 
-// ── Shared widgets ──────────────────────────────────────────────────────────
-
-/// Compact bottom storage strip — full-bleed, mirrors Island status bar.
 class _DriveStorageStatusBar extends StatelessWidget {
   const _DriveStorageStatusBar({
     required this.usageAsync,
@@ -1325,7 +1262,7 @@ class _DriveStorageStatusBar extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Storage unavailable',
+                    'storageUnavailable'.tr(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: text.bodySmall,
@@ -1334,7 +1271,7 @@ class _DriveStorageStatusBar extends StatelessWidget {
                 if (onRetry != null)
                   IconButton(
                     onPressed: onRetry,
-                    tooltip: 'Retry',
+                    tooltip: 'retry'.tr(),
                     icon: const Icon(Symbols.refresh, size: 20),
                   ),
               ],
@@ -1346,7 +1283,7 @@ class _DriveStorageStatusBar extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Select a workspace to see storage',
+                      'selectWorkspaceToSeeStorage'.tr(),
                       style: text.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -1407,7 +1344,7 @@ class _DriveStorageStatusBar extends StatelessWidget {
                       ],
                       IconButton(
                         onPressed: onTapDetails,
-                        tooltip: 'Plan & quotas',
+                        tooltip: 'planAndQuotas'.tr(),
                         icon: const Icon(Symbols.bar_chart),
                       ),
                     ],
@@ -1465,11 +1402,11 @@ class _FilterMenuButton<T> extends StatelessWidget {
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: active
-                      ? scheme.onSecondaryContainer
-                      : scheme.onSurface,
-                  fontSize: 12,
-                ),
+                      color: active
+                          ? scheme.onSecondaryContainer
+                          : scheme.onSurface,
+                      fontSize: 12,
+                    ),
               ),
               const SizedBox(width: 4),
               Icon(
@@ -1510,10 +1447,10 @@ class _FileListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final subtitle = entry.isFolder
-        ? 'Folder'
+        ? 'folder'.tr()
         : [
             formatByteSize(entry.size),
-            if (unindexed) 'Asset',
+            if (unindexed) 'asset'.tr(),
             if (entry.mimeType.isNotEmpty) entry.mimeType,
           ].join(' · ');
 
@@ -1523,12 +1460,12 @@ class _FileListTile extends StatelessWidget {
         fallbackIcon: entry.isFolder
             ? Symbols.folder
             : unindexed
-            ? Symbols.inventory_2
-            : Symbols.description,
+                ? Symbols.inventory_2
+                : Symbols.description,
         size: 44,
       ),
       title: Text(
-        entry.name.isEmpty ? 'Untitled' : entry.name,
+        entry.name.isEmpty ? 'untitled'.tr() : entry.name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1556,16 +1493,16 @@ class _FileListTile extends StatelessWidget {
         itemBuilder: (context) => [
           PopupMenuItem(
             value: 'open',
-            child: Text(entry.isFolder && !unindexed ? 'Open' : 'View'),
+            child: Text(entry.isFolder && !unindexed ? 'open'.tr() : 'view'.tr()),
           ),
           if (onOpenInNewTab != null)
             const PopupMenuItem(
               value: 'newTab',
               child: Text('Open in new tab'),
             ),
-          const PopupMenuItem(value: 'inspect', child: Text('Details')),
-          const PopupMenuItem(value: 'rename', child: Text('Rename')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          PopupMenuItem(value: 'inspect', child: Text('details'.tr())),
+          PopupMenuItem(value: 'rename', child: Text('rename'.tr())),
+          PopupMenuItem(value: 'delete', child: Text('delete'.tr())),
         ],
       ),
       onTap: onOpen,
@@ -1633,8 +1570,8 @@ class _FileGridTile extends StatelessWidget {
                         entry.isFolder
                             ? Symbols.folder
                             : unindexed
-                            ? Symbols.inventory_2
-                            : Symbols.description,
+                                ? Symbols.inventory_2
+                                : Symbols.description,
                         size: 40,
                         color: scheme.primary,
                       ),
@@ -1668,26 +1605,24 @@ class _FileGridTile extends StatelessWidget {
                         itemBuilder: (context) => [
                           PopupMenuItem(
                             value: 'open',
-                            child: Text(
-                              entry.isFolder && !unindexed ? 'Open' : 'View',
-                            ),
+                            child: Text(entry.isFolder && !unindexed ? 'open'.tr() : 'view'.tr()),
                           ),
                           if (onOpenInNewTab != null)
                             const PopupMenuItem(
                               value: 'newTab',
                               child: Text('Open in new tab'),
                             ),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'inspect',
-                            child: Text('Details'),
+                            child: Text('details'.tr()),
                           ),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'rename',
-                            child: Text('Rename'),
+                            child: Text('rename'.tr()),
                           ),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'delete',
-                            child: Text('Delete'),
+                            child: Text('delete'.tr()),
                           ),
                         ],
                         icon: const Icon(Symbols.more_vert, size: 18),
@@ -1703,14 +1638,14 @@ class _FileGridTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    entry.name.isEmpty ? 'Untitled' : entry.name,
+                    entry.name.isEmpty ? 'untitled'.tr() : entry.name,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: text.labelLarge,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    entry.isFolder ? 'Folder' : formatByteSize(entry.size),
+                    entry.isFolder ? 'folder'.tr() : formatByteSize(entry.size),
                     style: text.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -1748,7 +1683,7 @@ class _FileDetailSheet extends StatelessWidget {
     final url = cloudFileDisplayUrl(entry.file);
 
     return SheetScaffold(
-      titleText: entry.name.isEmpty ? 'File details' : entry.name,
+      titleText: entry.name.isEmpty ? 'fileDetails'.tr() : entry.name,
       heightFactor: 0.65,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
@@ -1780,30 +1715,30 @@ class _FileDetailSheet extends StatelessWidget {
                   entry.isFolder
                       ? Symbols.folder
                       : unindexed
-                      ? Symbols.inventory_2
-                      : Symbols.description,
+                          ? Symbols.inventory_2
+                          : Symbols.description,
                   size: 48,
                   color: scheme.primary,
                 ),
               ),
             ),
           const SizedBox(height: 16),
-          _DetailRow(label: 'ID', value: entry.id, copyable: true),
+          _DetailRow(label: 'id'.tr(), value: entry.id, copyable: true),
           _DetailRow(
-            label: 'Type',
+            label: 'type'.tr(),
             value: entry.isFolder
-                ? 'Folder'
+                ? 'folder'.tr()
                 : unindexed
-                ? '${entry.mimeType} · unindexed'
-                : entry.mimeType,
+                    ? '${entry.mimeType} · unindexed'
+                    : entry.mimeType,
           ),
           if (!entry.isFolder)
-            _DetailRow(label: 'Size', value: formatByteSize(entry.size)),
+            _DetailRow(label: 'size'.tr(), value: formatByteSize(entry.size)),
           if (entry.workspaceId != null)
-            _DetailRow(label: 'Workspace', value: entry.workspaceId!),
+            _DetailRow(label: 'workspace'.tr(), value: entry.workspaceId!),
           _DetailRow(
-            label: 'Indexed',
-            value: entry.file.indexed ? 'Yes' : 'No',
+            label: 'indexed'.tr(),
+            value: entry.file.indexed ? 'yes'.tr() : 'no'.tr(),
           ),
           const SizedBox(height: 16),
           Wrap(
@@ -1814,36 +1749,34 @@ class _FileDetailSheet extends StatelessWidget {
                 FilledButton.tonalIcon(
                   onPressed: onOpenInNewTab,
                   icon: const Icon(Symbols.tab, size: 18),
-                  label: const Text('Open in new tab'),
+                  label: Text('openInNewTab'.tr()),
                 ),
               if (!entry.isFolder)
                 FilledButton.tonalIcon(
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: url));
-                    showSnackBar('Link copied.');
+                    showSnackBar('linkCopied'.tr());
                   },
                   icon: const Icon(Symbols.link, size: 18),
-                  label: const Text('Copy link'),
+                  label: Text('copyLink'.tr()),
                 ),
               OutlinedButton.icon(
                 onPressed: onRename,
                 icon: const Icon(Symbols.edit, size: 18),
-                label: const Text('Rename'),
+                label: Text('rename'.tr()),
               ),
               OutlinedButton.icon(
                 onPressed: onDelete,
                 icon: Icon(Symbols.delete, size: 18, color: scheme.error),
-                label: Text('Delete', style: TextStyle(color: scheme.error)),
+                label: Text('delete'.tr(), style: TextStyle(color: scheme.error)),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             unindexed
-                ? 'Unindexed workspace assets are ideal for logos and '
-                      'backgrounds. They still bill to the workspace plan.'
-                : 'Workspace-owned files retain the uploader account for audit '
-                      'while storage is billed to the workspace plan.',
+                ? 'unindexedAssetsDescription'.tr()
+                : 'workspaceFilesDescription'.tr(),
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
@@ -1882,11 +1815,11 @@ class _DetailRow extends StatelessWidget {
           Expanded(child: SelectableText(value, style: text.bodyMedium)),
           if (copyable)
             IconButton(
-              tooltip: 'Copy',
+              tooltip: 'copy'.tr(),
               icon: const Icon(Symbols.content_copy, size: 18),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: value));
-                showSnackBar('Copied.');
+                showSnackBar('copied'.tr());
               },
             ),
         ],
@@ -1894,4 +1827,3 @@ class _DetailRow extends StatelessWidget {
     );
   }
 }
-

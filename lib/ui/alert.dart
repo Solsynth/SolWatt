@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -68,16 +69,16 @@ void showLoadingModal(BuildContext context) {
         color: Colors.black54,
         child: Center(
           child: AlertDialog(
-            content: const Row(
+            content: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 28,
                   height: 28,
                   child: CircularProgressIndicator(strokeWidth: 2.5),
                 ),
-                SizedBox(width: 16),
-                Text('Loading…'),
+                const SizedBox(width: 16),
+                Text('loading'.tr()),
               ],
             ),
             contentPadding: const EdgeInsets.symmetric(
@@ -273,7 +274,7 @@ void showErrorAlert(dynamic err, {IconData? icon}) {
               ),
               const SizedBox(height: 16),
               Text(
-                'Something went wrong',
+                'somethingWentWrong'.tr(),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 8),

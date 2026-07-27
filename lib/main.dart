@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -28,6 +29,8 @@ const gateRouteName = 'GateRoute';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+  EasyLocalization.logger.enableBuildModes = [];
   await initializeAppLogging();
 
   if (DesktopWindowFrame.isPlatformDesktop) {
@@ -45,7 +48,20 @@ Future<void> main() async {
     });
   }
 
-  runApp(ProviderScope(child: SolWattApp()));
+  runApp(
+    ProviderScope(
+      child: EasyLocalization(
+        supportedLocales: const [
+          Locale('en', 'US'),
+          Locale('zh', 'CN'),
+        ],
+        path: 'assets/i18n',
+        fallbackLocale: const Locale('en', 'US'),
+        useFallbackTranslations: true,
+        child: SolWattApp(),
+      ),
+    ),
+  );
 }
 
 class SolWattApp extends StatelessWidget {
@@ -64,15 +80,18 @@ class SolWattApp extends StatelessWidget {
       theme: createSolWattTheme(Brightness.light),
       darkTheme: createSolWattTheme(Brightness.dark),
       themeMode: ThemeMode.system,
+      supportedLocales: context.supportedLocales,
+      localizationsDelegates: context.localizationDelegates,
+      locale: context.locale,
       builder: (context, child) => Overlay(
         key: globalOverlay,
         initialEntries: [
           OverlayEntry(
             builder: (_) => DesktopWindowFrame(
               isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-              title: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: Text('SolWatt'),
+              title: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('appName'.tr()),
               ),
               child: child ?? const SizedBox.shrink(),
             ),
@@ -88,19 +107,19 @@ class SolWattApp extends StatelessWidget {
 class AppRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
-    AutoRoute(page: GateRoute.page, initial: true),
-    AutoRoute(
-      page: AppShellRoute.page,
-      children: [
-        AutoRoute(page: HomeRoute.page, initial: true),
-        AutoRoute(page: BoardsRoute.page),
-        AutoRoute(page: FilesRoute.page),
-        AutoRoute(page: TaskBoardRoute.page),
-        AutoRoute(page: ProfileRoute.page),
-        AutoRoute(page: SettingsRoute.page),
-      ],
-    ),
-  ];
+        AutoRoute(page: GateRoute.page, initial: true),
+        AutoRoute(
+          page: AppShellRoute.page,
+          children: [
+            AutoRoute(page: HomeRoute.page, initial: true),
+            AutoRoute(page: BoardsRoute.page),
+            AutoRoute(page: FilesRoute.page),
+            AutoRoute(page: TaskBoardRoute.page),
+            AutoRoute(page: ProfileRoute.page),
+            AutoRoute(page: SettingsRoute.page),
+          ],
+        ),
+      ];
 }
 
 @RoutePage()
@@ -110,8 +129,6 @@ class AppShellPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(appAccessProvider);
-    // Keep the Solar Network websocket gateway connected while signed in,
-    // and route notification + Ideask task packets into providers.
     ref.watch(realtimeBridgeProvider);
     final wsState = ref.watch(websocketStateProvider);
 
@@ -139,13 +156,13 @@ class AppShellPage extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             child: EmptyState(
               icon: Symbols.error,
-              title: 'Could not open SolWatt',
+              title: 'couldNotOpenSolWatt'.tr(),
               message: error.toString(),
               action: FilledButton(
                 onPressed: () => context.router.replaceAll([
                   const PageRouteInfo(gateRouteName),
                 ]),
-                child: const Text('Back to sign in'),
+                child: Text('backToSignIn'.tr()),
               ),
             ),
           ),
@@ -232,7 +249,6 @@ class _NavigationShell extends ConsumerWidget {
                     )
                   : ColoredBox(color: scheme.surface, child: child),
             ),
-            // Island-style background task strip (uploads, etc.).
             const TaskOverlayHost(),
           ],
         ),
@@ -243,21 +259,30 @@ class _NavigationShell extends ConsumerWidget {
               selectedIndex: selectedIndex,
               onDestinationSelected: onSelected,
               destinations: [
-                for (final destination in _destinations)
-                  NavigationDestination(
-                    icon: Icon(destination.icon),
-                    selectedIcon: Icon(destination.icon, fill: 1),
-                    label: destination.label,
-                  ),
-                const NavigationDestination(
-                  icon: Icon(Symbols.person),
-                  selectedIcon: Icon(Symbols.person, fill: 1),
-                  label: 'Profile',
+                NavigationDestination(
+                  icon: const Icon(Symbols.home),
+                  selectedIcon: const Icon(Symbols.home, fill: 1),
+                  label: 'home'.tr(),
                 ),
-                const NavigationDestination(
-                  icon: Icon(Symbols.settings),
-                  selectedIcon: Icon(Symbols.settings, fill: 1),
-                  label: 'Settings',
+                NavigationDestination(
+                  icon: const Icon(Symbols.view_kanban),
+                  selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
+                  label: 'boards'.tr(),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Symbols.folder),
+                  selectedIcon: const Icon(Symbols.folder, fill: 1),
+                  label: 'files'.tr(),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Symbols.person),
+                  selectedIcon: const Icon(Symbols.person, fill: 1),
+                  label: 'profile'.tr(),
+                ),
+                NavigationDestination(
+                  icon: const Icon(Symbols.settings),
+                  selectedIcon: const Icon(Symbols.settings, fill: 1),
+                  label: 'settings'.tr(),
                 ),
               ],
             ),
@@ -265,13 +290,6 @@ class _NavigationShell extends ConsumerWidget {
   }
 }
 
-const _destinations = [
-  _Destination('Home', Symbols.home),
-  _Destination('Boards', Symbols.view_kanban),
-  _Destination('Files', Symbols.folder),
-];
-
-/// Tab indices for [AutoTabsRouter] shell routes.
 const _profileTabIndex = 3;
 const _settingsTabIndex = 4;
 
@@ -298,9 +316,7 @@ class _DesktopNavigation extends ConsumerWidget {
       width: 88,
       child: NavigationRail(
         backgroundColor: Colors.transparent,
-        selectedIndex: selectedIndex < _destinations.length
-            ? selectedIndex
-            : null,
+        selectedIndex: selectedIndex < 3 ? selectedIndex : null,
         onDestinationSelected: onSelected,
         labelType: NavigationRailLabelType.all,
         groupAlignment: -1,
@@ -308,8 +324,8 @@ class _DesktopNavigation extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: 16, top: 4),
           child: Tooltip(
             message: workspaceName == null
-                ? 'Workspaces'
-                : 'Workspace: $workspaceName',
+                ? 'workspaces'.tr()
+                : '${'workspace'.tr()}: $workspaceName',
             child: Material(
               color: selectedIndex == _profileTabIndex
                   ? scheme.secondaryContainer
@@ -337,7 +353,7 @@ class _DesktopNavigation extends ConsumerWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          workspaceName ?? 'Workspace',
+                          workspaceName ?? 'workspace'.tr(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
@@ -369,7 +385,7 @@ class _DesktopNavigation extends ConsumerWidget {
               const NotificationBellButton(),
               const SizedBox(height: 4),
               _RailIconButton(
-                tooltip: 'Profile',
+                tooltip: 'profile'.tr(),
                 selected: selectedIndex == _profileTabIndex,
                 onPressed: () => onSelected(_profileTabIndex),
                 child: _RailProfileAvatar(
@@ -379,7 +395,7 @@ class _DesktopNavigation extends ConsumerWidget {
               ),
               const SizedBox(height: 4),
               _RailIconButton(
-                tooltip: 'Settings',
+                tooltip: 'settings'.tr(),
                 selected: selectedIndex == _settingsTabIndex,
                 onPressed: () => onSelected(_settingsTabIndex),
                 child: Icon(
@@ -394,12 +410,21 @@ class _DesktopNavigation extends ConsumerWidget {
           ),
         ),
         destinations: [
-          for (final destination in _destinations)
-            NavigationRailDestination(
-              icon: Icon(destination.icon),
-              selectedIcon: Icon(destination.icon, fill: 1),
-              label: Text(destination.label),
-            ),
+          NavigationRailDestination(
+            icon: const Icon(Symbols.home),
+            selectedIcon: const Icon(Symbols.home, fill: 1),
+            label: Text('home'.tr()),
+          ),
+          NavigationRailDestination(
+            icon: const Icon(Symbols.view_kanban),
+            selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
+            label: Text('boards'.tr()),
+          ),
+          NavigationRailDestination(
+            icon: const Icon(Symbols.folder),
+            selectedIcon: const Icon(Symbols.folder, fill: 1),
+            label: Text('files'.tr()),
+          ),
         ],
       ),
     );
@@ -416,25 +441,25 @@ class _WebsocketStatusDot extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final (color, label) = switch (state) {
       WebSocketConnectionState.connected => (
-        const Color(0xFF34C759),
-        'Live · connected',
-      ),
+          const Color(0xFF34C759),
+          'Live · connected',
+        ),
       WebSocketConnectionState.connecting => (
-        scheme.tertiary,
-        'Live · connecting…',
-      ),
+          scheme.tertiary,
+          'Live · connecting…',
+        ),
       WebSocketConnectionState.serverDown => (
-        scheme.error,
-        'Live · server unavailable (tap to retry)',
-      ),
+          scheme.error,
+          'Live · server unavailable (tap to retry)',
+        ),
       WebSocketConnectionState.error => (
-        scheme.error,
-        'Live · error (tap to retry)',
-      ),
+          scheme.error,
+          'Live · error (tap to retry)',
+        ),
       WebSocketConnectionState.disconnected => (
-        scheme.outline,
-        'Live · offline (tap to reconnect)',
-      ),
+          scheme.outline,
+          'Live · offline (tap to reconnect)',
+        ),
     };
 
     return Tooltip(
@@ -551,17 +576,17 @@ class HomePage extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
 
     return PageScaffold(
-      title: workspace?.name ?? 'Home',
+      title: workspace?.name ?? 'home'.tr(),
       subtitle: workspace?.description?.isNotEmpty == true
           ? workspace!.description!
-          : 'Active workspace',
+          : 'activeWorkspace'.tr(),
       actions: [
         const NotificationBellButton(),
         FilledButton.tonalIcon(
           onPressed: () =>
               AutoTabsRouter.of(context).setActiveIndex(_profileTabIndex),
           icon: const Icon(Symbols.swap_horiz, size: 18),
-          label: const Text('Switch'),
+          label: Text('switch'.tr()),
         ),
       ],
       child: ListView(
@@ -584,11 +609,11 @@ class HomePage extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Boards', style: text.titleMedium),
+                            Text('boards'.tr(), style: text.titleMedium),
                             const SizedBox(height: 2),
                             boards.when(
                               loading: () => Text(
-                                'Loading…',
+                                'loading'.tr(),
                                 style: text.bodyMedium?.copyWith(
                                   color: scheme.onSurfaceVariant,
                                 ),
@@ -601,8 +626,8 @@ class HomePage extends ConsumerWidget {
                               ),
                               data: (items) => Text(
                                 items.isEmpty
-                                    ? 'No boards yet'
-                                    : '${items.length} board${items.length == 1 ? '' : 's'}',
+                                    ? 'noBoardsYet'.tr()
+                                    : '${items.length} ${'boards'.tr()}',
                                 style: text.bodyMedium?.copyWith(
                                   color: scheme.onSurfaceVariant,
                                 ),
@@ -622,20 +647,20 @@ class HomePage extends ConsumerWidget {
                         onPressed: () =>
                             AutoTabsRouter.of(context).setActiveIndex(1),
                         icon: const Icon(Symbols.view_kanban, size: 18),
-                        label: const Text('Open boards'),
+                        label: Text('openBoards'.tr()),
                       ),
                       FilledButton.tonalIcon(
                         onPressed: () =>
                             AutoTabsRouter.of(context).setActiveIndex(2),
                         icon: const Icon(Symbols.folder, size: 18),
-                        label: const Text('Workspace files'),
+                        label: Text('workspaceFiles'.tr()),
                       ),
                       OutlinedButton.icon(
                         onPressed: () => AutoTabsRouter.of(
                           context,
                         ).setActiveIndex(_profileTabIndex),
                         icon: const Icon(Symbols.workspaces, size: 18),
-                        label: const Text('Manage workspaces'),
+                        label: Text('manageWorkspaces'.tr()),
                       ),
                     ],
                   ),
@@ -646,10 +671,10 @@ class HomePage extends ConsumerWidget {
           if (boards case AsyncData(:final value) when value.isNotEmpty) ...[
             const SizedBox(height: 20),
             SectionHeader(
-              title: 'Recent boards',
+              title: 'recentBoards'.tr(),
               trailing: TextButton(
                 onPressed: () => AutoTabsRouter.of(context).setActiveIndex(1),
-                child: const Text('View all'),
+                child: Text('viewAll'.tr()),
               ),
             ),
             for (final board in value.take(4))
@@ -699,8 +724,8 @@ class SettingsPage extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return PageScaffold(
-      title: 'Settings',
-      subtitle: 'Account and connection',
+      title: 'settings'.tr(),
+      subtitle: 'accountAndConnection'.tr(),
       child: ListView(
         children: [
           Card(
@@ -715,12 +740,12 @@ class SettingsPage extends ConsumerWidget {
                   ),
                   title: Text(
                     session.value == null
-                        ? 'Not signed in'
-                        : 'Connected to Solar Network',
+                        ? 'notSignedIn'.tr()
+                        : 'connectedToSolarNetwork'.tr(),
                   ),
                   subtitle: Text(
                     user == null
-                        ? 'OAuth authorization uses the Solar Network identity service.'
+                        ? 'oauthDescription'.tr()
                         : '@${user.name}',
                   ),
                 ),
@@ -732,10 +757,8 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const IconBadge(icon: Symbols.logout),
-                  title: const Text('Sign out'),
-                  subtitle: const Text(
-                    'Clear this session and return to the gate',
-                  ),
+                  title: Text('signOutAction'.tr()),
+                  subtitle: Text('signOutDescription'.tr()),
                   onTap: () async {
                     await ref.read(authenticatorProvider).clear();
                     await clearSelectedWorkspace(
@@ -768,10 +791,10 @@ class ProfilePage extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
 
     return PageScaffold(
-      title: 'Profile',
-      subtitle: 'Account and workspaces',
+      title: 'profile'.tr(),
+      subtitle: 'accountAndWorkspaces'.tr(),
       action: IconButton.filledTonal(
-        tooltip: 'Refresh',
+        tooltip: 'refresh'.tr(),
         onPressed: () {
           ref.invalidate(solWattProfileProvider);
           ref.invalidate(userInfoProvider);
@@ -785,8 +808,8 @@ class ProfilePage extends ConsumerWidget {
         children: [
           Card(
             child: profile.when(
-              loading: () => const ListTile(
-                leading: SizedBox.square(
+              loading: () => ListTile(
+                leading: const SizedBox.square(
                   dimension: 48,
                   child: Center(
                     child: SizedBox.square(
@@ -795,11 +818,11 @@ class ProfilePage extends ConsumerWidget {
                     ),
                   ),
                 ),
-                title: Text('Loading profile…'),
+                title: Text('loadingProfile'.tr()),
               ),
-              error: (_, _) => const ListTile(
-                leading: IconBadge(icon: Symbols.person, size: 48),
-                title: Text('Solar Network account'),
+              error: (_, _) => ListTile(
+                leading: const IconBadge(icon: Symbols.person, size: 48),
+                title: Text('solarNetworkAccount'.tr()),
               ),
               data: (user) {
                 if (user == null) return const SizedBox.shrink();
@@ -828,7 +851,7 @@ class ProfilePage extends ConsumerWidget {
                     solWatt == null
                         ? '@${user.name}'
                         : '@${user.name} · ${solWatt.perkTierName} '
-                              '(perk ${solWatt.perkLevel})',
+                            '(perk ${solWatt.perkLevel})',
                   ),
                 );
               },
@@ -838,11 +861,11 @@ class ProfilePage extends ConsumerWidget {
           const _BundledProProfileCard(),
           const SizedBox(height: 24),
           SectionHeader(
-            title: 'Workspaces',
+            title: 'yourWorkspaces'.tr(),
             trailing: FilledButton.tonalIcon(
               onPressed: () => createWorkspaceAction(context, ref),
               icon: const Icon(Symbols.add, size: 18),
-              label: const Text('New'),
+              label: Text('new'.tr()),
             ),
           ),
           Expanded(
@@ -864,7 +887,7 @@ class ProfilePage extends ConsumerWidget {
                 context.router.replaceAll([const PageRouteInfo(gateRouteName)]);
               },
               icon: const Icon(Symbols.logout, size: 18),
-              label: const Text('Leave workspace'),
+              label: Text('leaveWorkspace'.tr()),
             ),
           ),
         ],
@@ -873,7 +896,6 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
-/// Profile card for account-level bundled Pro seats (perk level 3+).
 class _BundledProProfileCard extends ConsumerWidget {
   const _BundledProProfileCard();
 
@@ -901,10 +923,10 @@ class _BundledProProfileCard extends ConsumerWidget {
       error: (error, _) => Card(
         child: ListTile(
           leading: Icon(Symbols.error, color: scheme.error),
-          title: const Text('Bundled Pro'),
+          title: Text('bundledPro'.tr()),
           subtitle: Text(wattApiErrorMessage(error)),
           trailing: IconButton(
-            tooltip: 'Retry',
+            tooltip: 'retry'.tr(),
             onPressed: () => ref.invalidate(bundledProOverviewProvider),
             icon: const Icon(Symbols.refresh),
           ),
@@ -915,15 +937,16 @@ class _BundledProProfileCard extends ConsumerWidget {
         final assigned = data.assignedWorkspace;
         final eligible = data.eligible;
         final caption = !eligible
-            ? 'Requires Stellar Supernova '
-                  '(perk $bundledProRequiredPerkLevel+). '
-                  'You are on ${profile?.perkTierName ?? 'Twinkle'} '
-                  '(perk ${data.perkLevel}).'
+            ? 'requiresStellarSupernova'.tr(namedArgs: {
+                'perkLevel': bundledProRequiredPerkLevel.toString(),
+                'perkTierName': profile?.perkTierName ?? 'Twinkle',
+                'level': data.perkLevel.toString(),
+              })
             : assigned != null
-            ? 'Assigned to ${assigned.name}'
-            : data.isAssigned
-            ? 'Assigned to a workspace you may not list here'
-            : 'Not assigned — open Plan & quotas on a workspace you own.';
+                ? 'assignedToWorkspace'.tr(namedArgs: {'name': assigned.name})
+                : data.isAssigned
+                    ? 'assignedElsewhere'.tr()
+                    : 'notAssigned'.tr();
 
         return Card(
           child: Padding(
@@ -944,7 +967,7 @@ class _BundledProProfileCard extends ConsumerWidget {
                     child: TextButton(
                       onPressed: () =>
                           showWorkspaceQuota(context, ref, assigned),
-                      child: const Text('Manage'),
+                      child: Text('manage'.tr()),
                     ),
                   ),
                 ],
@@ -966,10 +989,4 @@ String _initials(String name) {
       .join()
       .toUpperCase();
   return parts.isEmpty ? '?' : parts;
-}
-
-class _Destination {
-  const _Destination(this.label, this.icon);
-  final String label;
-  final IconData icon;
 }

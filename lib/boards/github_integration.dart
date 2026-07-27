@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -10,10 +11,6 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 
-/// Opens the GitHub App integration sheet for a board.
-///
-/// Flow (see WattEngine `docs/GITHUB_APP_TASK_SYNC.md`):
-/// install app → poll installation → pick repositories → link / manage.
 Future<void> showGitHubIntegrationSheet(
   BuildContext context,
   WidgetRef ref, {
@@ -130,7 +127,6 @@ class _GitHubIntegrationSheetState
       await _loadRepos(id);
     } catch (error) {
       if (!mounted) return;
-      // Keep polling on transient errors; surface message without aborting.
       setState(() => _error = wattApiErrorMessage(error));
     }
   }
@@ -146,8 +142,7 @@ class _GitHubIntegrationSheetState
         _step = _GitHubStep.pickRepo;
         _busy = false;
         _error = repos.isEmpty
-            ? 'No repositories were granted to the app. '
-                  'Install again and select at least one repository.'
+            ? 'noRepositoriesGranted'.tr()
             : null;
       });
     } catch (error) {
@@ -183,7 +178,7 @@ class _GitHubIntegrationSheetState
         _busy = false;
         _step = _GitHubStep.status;
       });
-      showSnackBar('Linked ${repo.fullName}. Issues are importing as tasks.');
+      showSnackBar('linkedRepo'.tr(namedArgs: {'name': repo.fullName}));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -206,7 +201,7 @@ class _GitHubIntegrationSheetState
       ref.invalidate(tasksProvider(widget.broadId));
       if (!mounted) return;
       setState(() => _busy = false);
-      showSnackBar('GitHub sync queued. It will continue in the background.');
+      showSnackBar('githubSyncQueued'.tr());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -218,13 +213,11 @@ class _GitHubIntegrationSheetState
 
   Future<void> _unlink(GitHubIntegration integration) async {
     final confirmed = await showConfirmAlert(
-      'Tasks stay on the board. GitHub issues, comments, and the app '
-          'installation are not deleted. Sync will stop for '
-          '${integration.fullName}.',
-      'Unlink GitHub?',
+      'unlinkGitHubConfirm'.tr(namedArgs: {'name': integration.fullName}),
+      'unlinkGitHub'.tr(),
       icon: Symbols.link_off,
       isDanger: true,
-      confirmLabel: 'Unlink',
+      confirmLabel: 'unlinkGitHub'.tr(),
     );
     if (!confirmed || !mounted) return;
     setState(() {
@@ -238,7 +231,7 @@ class _GitHubIntegrationSheetState
       ref.invalidate(gitHubIntegrationProvider(widget.broadId));
       if (!mounted) return;
       setState(() => _busy = false);
-      showSnackBar('GitHub unlinked.');
+      showSnackBar('githubUnlinked'.tr());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -255,7 +248,7 @@ class _GitHubIntegrationSheetState
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
-      showSnackBar('Could not open GitHub.');
+      showSnackBar('couldNotOpenGitHub'.tr());
     }
   }
 
@@ -266,7 +259,7 @@ class _GitHubIntegrationSheetState
     final integration = ref.watch(gitHubIntegrationProvider(widget.broadId));
 
     return SheetScaffold(
-      titleText: 'GitHub',
+      titleText: 'github'.tr(),
       heightFactor: 0.78,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
@@ -274,9 +267,7 @@ class _GitHubIntegrationSheetState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Link repositories to “${widget.broadName}”. Issues become '
-              'tasks; title, body, labels, open/closed state, and comments '
-              'sync both ways.',
+              'githubDescription'.tr(namedArgs: {'name': widget.broadName}),
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
@@ -362,26 +353,24 @@ class _GitHubIntegrationSheetState
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => EmptyState(
         icon: Symbols.error,
-        title: 'Could not load GitHub status',
+        title: 'couldNotLoadGitHubStatus'.tr(),
         message: wattApiErrorMessage(error),
         action: FilledButton(
           onPressed: () =>
               ref.invalidate(gitHubIntegrationProvider(widget.broadId)),
-          child: const Text('Try again'),
+          child: Text('tryAgain'.tr()),
         ),
       ),
       data: (linked) {
         if (linked.isEmpty) {
           return EmptyState(
             icon: Symbols.hub,
-            title: 'Not connected',
-            message:
-                'Install the WattEngine GitHub App, then choose repositories '
-                'to sync with this board.',
+            title: 'notConnected'.tr(),
+            message: 'notConnectedDescription'.tr(),
             action: FilledButton.icon(
               onPressed: _busy ? null : _startConnect,
               icon: const Icon(Symbols.link),
-              label: const Text('Connect GitHub'),
+              label: Text('connectGitHub'.tr()),
             ),
           );
         }
@@ -424,33 +413,30 @@ class _InstallWaiting extends StatelessWidget {
         Icon(Symbols.open_in_browser, size: 40, color: scheme.primary),
         const SizedBox(height: 12),
         Text(
-          'Complete installation in GitHub',
+          'completeInstallationInGitHub'.tr(),
           textAlign: TextAlign.center,
           style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         Text(
           polling
-              ? 'Waiting for GitHub to finish… return here after you approve '
-                    'the app and grant repository access. Organization policy '
-                    'may require owner approval.'
-              : 'Open the install page, grant repository access, then return '
-                    'to SolWatt.',
+              ? 'waitingForGitHub'.tr()
+              : 'openInstallPage'.tr(),
           textAlign: TextAlign.center,
           style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
         ),
         const Spacer(),
         if (onCheckNow != null)
-          OutlinedButton(onPressed: onCheckNow, child: const Text('Check now')),
+          OutlinedButton(onPressed: onCheckNow, child: Text('checkNow'.tr())),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: onRetryOpen,
-          child: const Text('Open install page again'),
+          child: Text('openInstallPageAgain'.tr()),
         ),
         const SizedBox(height: 8),
         TextButton(
           onPressed: busy ? null : onCancel,
-          child: const Text('Cancel'),
+          child: Text('cancel'.tr()),
         ),
       ],
     );
@@ -479,17 +465,16 @@ class _RepoPicker extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Choose a repository to link. You can add more repositories afterward.',
+          'chooseRepositoryToLink'.tr(),
           style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 12),
         Expanded(
           child: repos.isEmpty
-              ? const EmptyState(
+              ? EmptyState(
                   icon: Symbols.folder_off,
-                  title: 'No repositories',
-                  message:
-                      'Grant the app access to at least one repository, then try again.',
+                  title: 'noRepositories'.tr(),
+                  message: 'noRepositoriesDescription'.tr(),
                 )
               : ListView.separated(
                   itemCount: repos.length,
@@ -514,7 +499,7 @@ class _RepoPicker extends StatelessWidget {
                   },
                 ),
         ),
-        TextButton(onPressed: onBack, child: const Text('Back')),
+        TextButton(onPressed: onBack, child: Text('back'.tr())),
       ],
     );
   }
@@ -553,19 +538,21 @@ class _LinkedStatus extends StatelessWidget {
             ),
             subtitle: Text(
               integration.lastSyncedAt == null
-                  ? 'Import queued or not synced yet'
-                  : 'Last synced ${integration.lastSyncedAt!.toLocal().toString().split('.').first}',
+                  ? 'linkedImportQueued'.tr()
+                  : 'lastSynced'.tr(namedArgs: {
+                      'date': integration.lastSyncedAt!.toLocal().toString().split('.').first,
+                    }),
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  tooltip: 'Open on GitHub',
+                  tooltip: 'openOnGitHub'.tr(),
                   icon: const Icon(Symbols.open_in_new),
                   onPressed: () => onOpen(integration),
                 ),
                 IconButton(
-                  tooltip: 'Unlink repository',
+                  tooltip: 'unlinkRepository'.tr(),
                   icon: const Icon(Symbols.link_off),
                   onPressed: onUnlink == null
                       ? null
@@ -582,22 +569,20 @@ class _LinkedStatus extends StatelessWidget {
         ],
         const SizedBox(height: 16),
         Text(
-          'Supported fields: title ↔ name, body ↔ content, labels ↔ tags, '
-          'open/closed ↔ incomplete/completed, issue comments ↔ task comments. '
-          'Groups, priority, due dates, assignees, and attachments stay in SolWatt only.',
+          'supportedFields'.tr(),
           style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 20),
         FilledButton.tonalIcon(
           onPressed: onSync,
           icon: const Icon(Symbols.sync),
-          label: const Text('Sync now'),
+          label: Text('syncNow'.tr()),
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: onConnectAnother,
           icon: const Icon(Symbols.add_link),
-          label: const Text('Add repository'),
+          label: Text('addRepository'.tr()),
         ),
         if (busy) ...[
           const SizedBox(height: 16),

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -12,7 +13,6 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 const kNotificationsAttentionModalId = 'notifications';
 
-/// Unread notification count for the SolWatt Ring tenant.
 final notificationUnreadCountProvider = FutureProvider.autoDispose<int>((
   ref,
 ) async {
@@ -28,19 +28,17 @@ final notificationUnreadCountProvider = FutureProvider.autoDispose<int>((
   }
 });
 
-/// Paginated notification inbox for the SolWatt Ring tenant.
 final notificationListProvider =
     FutureProvider.autoDispose<List<SnNotification>>((ref) async {
-      final session = await ref.watch(authSessionProvider.future);
-      if (session == null) return const [];
-      final page = await ref
-          .watch(solarNetworkClientProvider)
-          .notifications
-          .getNotifications(offset: 0, take: 40, app: kNotificationTenantAppId);
-      return page.items;
-    });
+  final session = await ref.watch(authSessionProvider.future);
+  if (session == null) return const [];
+  final page = await ref
+      .watch(solarNetworkClientProvider)
+      .notifications
+      .getNotifications(offset: 0, take: 40, app: kNotificationTenantAppId);
+  return page.items;
+});
 
-/// Marks every SolWatt-tenant notification as read and refreshes providers.
 Future<void> markAllNotificationsRead(WidgetRef ref) async {
   final client = ref.read(solarNetworkClientProvider);
   await client.notifications.markAllAsRead(app: kNotificationTenantAppId);
@@ -48,25 +46,17 @@ Future<void> markAllNotificationsRead(WidgetRef ref) async {
   ref.invalidate(notificationListProvider);
 }
 
-/// Marks a single notification as read (best-effort) and refreshes counts.
 Future<void> markNotificationRead(WidgetRef ref, String notificationId) async {
   try {
     await ref
         .read(solarNetworkClientProvider)
         .notifications
         .markAsRead(notificationId);
-  } catch (_) {
-    // Viewing the list may already have marked it server-side.
-  }
+  } catch (_) {}
   ref.invalidate(notificationUnreadCountProvider);
   ref.invalidate(notificationListProvider);
 }
 
-/// Opens the SolWatt notifications attention modal (Island-style).
-///
-/// Uses [showAttentionModal] + [AttentionModalScaffold] from
-/// `island_ui_foundation` — blur barrier, card on desktop, full sheet on
-/// narrow layouts.
 Future<void> showNotificationsAttentionModal() {
   return showAttentionModal(
     id: kNotificationsAttentionModalId,
@@ -76,7 +66,6 @@ Future<void> showNotificationsAttentionModal() {
   );
 }
 
-/// Island-style notification inbox presented inside an attention modal.
 class NotificationModal extends HookConsumerWidget {
   const NotificationModal({super.key, required this.onDismiss});
 
@@ -116,19 +105,18 @@ class NotificationModal extends HookConsumerWidget {
       if (uri.startsWith('http://') || uri.startsWith('https://')) {
         await launchUrlString(uri);
       }
-      // In-app deep links can be wired when SolWatt has matching routes.
       if (context.mounted) {
         dismissAttentionModal(kNotificationsAttentionModalId);
       }
     }
 
     return AttentionModalScaffold(
-      titleText: 'Notifications',
+      titleText: 'notifications'.tr(),
       onDismiss: onDismiss,
       maxWidth: 560,
       actions: [
         IconButton(
-          tooltip: 'Mark all as read',
+          tooltip: 'markAllAsRead'.tr(),
           onPressed: isMarkingAll.value ? null : markAllRead,
           icon: isMarkingAll.value
               ? SizedBox(
@@ -142,7 +130,7 @@ class NotificationModal extends HookConsumerWidget {
               : const Icon(Symbols.done_all),
         ),
         IconButton(
-          tooltip: 'Refresh',
+          tooltip: 'refresh'.tr(),
           onPressed: () {
             ref.invalidate(notificationListProvider);
             ref.invalidate(notificationUnreadCountProvider);
@@ -219,10 +207,10 @@ class _NotificationsEmpty extends StatelessWidget {
               color: scheme.onSurfaceVariant,
             ),
             const SizedBox(height: 16),
-            Text('No notifications yet', style: text.titleMedium),
+            Text('noNotificationsYet'.tr(), style: text.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'SolWatt alerts for this account will show up here.',
+              'notificationsEmptyDescription'.tr(),
               textAlign: TextAlign.center,
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
@@ -251,7 +239,7 @@ class _NotificationsError extends StatelessWidget {
           children: [
             Icon(Symbols.error, size: 48, color: scheme.error),
             const SizedBox(height: 16),
-            Text('Could not load notifications', style: text.titleMedium),
+            Text('couldNotLoadNotifications'.tr(), style: text.titleMedium),
             const SizedBox(height: 8),
             Text(
               error.toString(),
@@ -259,7 +247,7 @@ class _NotificationsError extends StatelessWidget {
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 20),
-            FilledButton.tonal(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton.tonal(onPressed: onRetry, child: Text('retry'.tr())),
           ],
         ),
       ),
@@ -267,7 +255,6 @@ class _NotificationsError extends StatelessWidget {
   }
 }
 
-/// Single notification row for the attention modal list.
 class NotificationTile extends StatelessWidget {
   const NotificationTile({
     super.key,
@@ -279,15 +266,15 @@ class NotificationTile extends StatelessWidget {
   final VoidCallback onTap;
 
   IconData get _icon => switch (notification.topic) {
-    final t when t.contains('task') => Symbols.task_alt,
-    final t when t.contains('board') || t.contains('broad') =>
-      Symbols.view_kanban,
-    final t when t.contains('workspace') => Symbols.workspaces,
-    final t when t.contains('invite') => Symbols.group_add,
-    final t when t.contains('plan') || t.contains('billing') =>
-      Symbols.payments,
-    _ => Symbols.notifications,
-  };
+        final t when t.contains('task') => Symbols.task_alt,
+        final t when t.contains('board') || t.contains('broad') =>
+          Symbols.view_kanban,
+        final t when t.contains('workspace') => Symbols.workspaces,
+        final t when t.contains('invite') => Symbols.group_add,
+        final t when t.contains('plan') || t.contains('billing') =>
+          Symbols.payments,
+        _ => Symbols.notifications,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -357,7 +344,6 @@ class NotificationTile extends StatelessWidget {
   }
 }
 
-/// Compact bell button with optional unread badge for the app shell.
 class NotificationBellButton extends ConsumerWidget {
   const NotificationBellButton({super.key});
 
@@ -368,7 +354,9 @@ class NotificationBellButton extends ConsumerWidget {
     final badge = math.min(count, 99);
 
     return Tooltip(
-      message: badge > 0 ? 'Notifications ($badge unread)' : 'Notifications',
+      message: badge > 0
+          ? 'notificationsCount'.tr(namedArgs: {'count': badge.toString()})
+          : 'notifications'.tr(),
       child: Material(
         color: Colors.transparent,
         shape: const CircleBorder(),
@@ -422,10 +410,10 @@ class NotificationBellButton extends ConsumerWidget {
 String _formatRelative(DateTime value) {
   final now = DateTime.now();
   final diff = now.difference(value);
-  if (diff.inSeconds < 45) return 'Just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-  if (diff.inHours < 24) return '${diff.inHours}h ago';
-  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  if (diff.inSeconds < 45) return 'justNow'.tr();
+  if (diff.inMinutes < 60) return 'minutesAgo'.tr(args: [diff.inMinutes.toString()]);
+  if (diff.inHours < 24) return 'hoursAgo'.tr(args: [diff.inHours.toString()]);
+  if (diff.inDays < 7) return 'daysAgo'.tr(args: [diff.inDays.toString()]);
   final y = value.year.toString().padLeft(4, '0');
   final m = value.month.toString().padLeft(2, '0');
   final d = value.day.toString().padLeft(2, '0');

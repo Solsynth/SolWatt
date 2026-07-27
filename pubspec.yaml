@@ -66,6 +66,7 @@ dependencies:
   url_launcher: ^6.3.2
   qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.3
+  easy_localization: ^3.0.8
 
 dev_dependencies:
   flutter_test:
@@ -91,6 +92,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/i18n/en-US.json
+    - assets/i18n/zh-CN.json
 
   fonts:
     - family: Nunito

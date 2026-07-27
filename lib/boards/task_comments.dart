@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -9,7 +10,6 @@ import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 
-/// Comments section for an existing task (local + GitHub-mirrored).
 class TaskCommentsSection extends ConsumerStatefulWidget {
   const TaskCommentsSection({super.key, required this.taskId});
 
@@ -33,7 +33,7 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
   Future<void> _send() async {
     final content = _composer.text.trim();
     if (content.isEmpty) {
-      showSnackBar('Comment cannot be empty.');
+      showSnackBar('commentCannotBeEmpty'.tr());
       return;
     }
     setState(() => _sending = true);
@@ -53,9 +53,9 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
   Future<void> _edit(TaskComment comment) async {
     final next = await showNameInputSheet(
       context,
-      title: 'Edit comment',
-      label: 'Comment',
-      confirmLabel: 'Save',
+      title: 'editComment'.tr(),
+      label: 'comment'.tr(),
+      confirmLabel: 'save'.tr(),
       initialValue: comment.content,
       icon: Symbols.edit,
     );
@@ -67,7 +67,7 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
           .read(wattEngineClientProvider)
           .updateTaskComment(comment.id, next.trim());
       ref.invalidate(taskCommentsProvider(widget.taskId));
-      showSnackBar('Comment updated.');
+      showSnackBar('commentUpdated'.tr());
     } catch (error) {
       showSnackBar(wattApiErrorMessage(error));
     }
@@ -75,18 +75,17 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
 
   Future<void> _delete(TaskComment comment) async {
     final confirmed = await showConfirmAlert(
-      'This comment will be removed. If it was synced to GitHub, the issue '
-          'comment is deleted too.',
-      'Delete comment?',
+      'deleteCommentConfirm'.tr(),
+      'deleteCommentTitle'.tr(),
       icon: Symbols.delete,
       isDanger: true,
-      confirmLabel: 'Delete',
+      confirmLabel: 'delete'.tr(),
     );
     if (!confirmed) return;
     try {
       await ref.read(wattEngineClientProvider).deleteTaskComment(comment.id);
       ref.invalidate(taskCommentsProvider(widget.taskId));
-      showSnackBar('Comment deleted.');
+      showSnackBar('commentDeleted'.tr());
     } catch (error) {
       showSnackBar(wattApiErrorMessage(error));
     }
@@ -104,10 +103,10 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
       children: [
         Row(
           children: [
-            Text('Comments', style: text.titleSmall),
+            Text('comments'.tr(), style: text.titleSmall),
             const Spacer(),
             IconButton(
-              tooltip: 'Refresh comments',
+              tooltip: 'refreshComments'.tr(),
               visualDensity: VisualDensity.compact,
               icon: const Icon(Symbols.refresh, size: 18),
               onPressed: () =>
@@ -116,8 +115,7 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
           ],
         ),
         Text(
-          'GitHub issue comments appear here and stay read-only. You can edit '
-          'or delete only comments you wrote in SolWatt.',
+          'commentsDescription'.tr(),
           style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
         const SizedBox(height: 12),
@@ -138,7 +136,7 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  'No comments yet.',
+                  'noCommentsYet'.tr(),
                   style: text.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -169,11 +167,11 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
           minLines: 2,
           maxLines: 5,
           decoration: InputDecoration(
-            labelText: 'Add a comment',
+            labelText: 'addAComment'.tr(),
             alignLabelWithHint: true,
             prefixIcon: inputPrefixIcon(Symbols.chat_bubble, maxLines: 3),
             suffixIcon: IconButton(
-              tooltip: 'Send',
+              tooltip: 'send'.tr(),
               onPressed: _sending ? null : _send,
               icon: _sending
                   ? const SizedBox(
@@ -247,7 +245,7 @@ class _CommentTile extends StatelessWidget {
                       ),
                       if (comment.isFromGitHub)
                         StatusChip(
-                          label: 'GitHub',
+                          label: 'githubComment'.tr(),
                           icon: Symbols.hub,
                           tone: StatusChipTone.neutral,
                         ),
@@ -273,9 +271,9 @@ class _CommentTile extends StatelessWidget {
                 },
                 itemBuilder: (_) => [
                   if (onEdit != null)
-                    const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(value: 'edit', child: Text('edit'.tr())),
                   if (onDelete != null)
-                    const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    PopupMenuItem(value: 'delete', child: Text('delete'.tr())),
                 ],
               ),
           ],

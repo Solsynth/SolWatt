@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -8,10 +9,8 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
-/// Matches the generated [AppShellRoute] name without importing main.dart.
 const _appShellRouteName = 'AppShellRoute';
 
-/// Entry screen: sign in, then select or create a workspace before the shell.
 @RoutePage()
 class GatePage extends ConsumerStatefulWidget {
   const GatePage({super.key});
@@ -172,13 +171,13 @@ class _SignInPanel extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         Text(
-          'SolWatt',
+          'appName'.tr(),
           textAlign: TextAlign.center,
           style: text.headlineMedium?.copyWith(letterSpacing: -0.5),
         ),
         const SizedBox(height: 8),
         Text(
-          'Sign in with Solar Network to continue.',
+          'signInSubtitle'.tr(),
           textAlign: TextAlign.center,
           style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
         ),
@@ -220,7 +219,7 @@ class _SignInPanel extends StatelessWidget {
                 )
               : const Icon(Symbols.login),
           label: Text(
-            signingIn ? 'Signing in…' : 'Continue with Solar Network',
+            signingIn ? 'signingIn'.tr() : 'continueWithSolarNetwork'.tr(),
           ),
         ),
       ],
@@ -250,12 +249,12 @@ class _WorkspacePanel extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Choose a workspace',
+                    'chooseAWorkspace'.tr(),
                     style: text.headlineSmall?.copyWith(letterSpacing: -0.25),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'An active workspace is required to use SolWatt.',
+                    'activeWorkspaceRequired'.tr(),
                     style: text.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -269,7 +268,7 @@ class _WorkspacePanel extends ConsumerWidget {
                 await clearSelectedWorkspace(ref.read(secureStorageProvider));
                 invalidateSessionScope(ref);
               },
-              child: const Text('Sign out'),
+              child: Text('signOut'.tr()),
             ),
           ],
         ),
@@ -303,11 +302,11 @@ class _WorkspacePanel extends ConsumerWidget {
           },
         ),
         SectionHeader(
-          title: 'Your workspaces',
+          title: 'yourWorkspaces'.tr(),
           trailing: FilledButton.tonalIcon(
             onPressed: () => createWorkspaceAction(context, ref),
             icon: const Icon(Symbols.add, size: 18),
-            label: const Text('New'),
+            label: Text('new'.tr()),
           ),
         ),
         Expanded(
