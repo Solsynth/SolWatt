@@ -42,6 +42,12 @@ const kNotificationTenantAppId = kProductTenantId;
 /// from Solian and other clients on the shared gateway.
 const kWebsocketNamespace = kProductTenantId;
 
+/// ElecPostal API base path on the Solar Network gateway.
+///
+/// Local ElecPostal docs use `/api`, but production exposes the service at
+/// `/postal` through the gateway.
+const kElecPostalBase = '/postal';
+
 class OAuthSession {
   const OAuthSession({
     required this.accessToken,
@@ -996,6 +1002,156 @@ class WattEngineClient {
 
   Future<void> unlinkGitHubIntegration(String integrationId) =>
       _request<void>('DELETE', '/ideask/github/integrations/$integrationId');
+
+  // --- ElecPostal (Mail) -------------------------------------------------------
+
+  Future<List<MailMailbox>> listMailboxes({String? workspaceId}) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/mailboxes',
+      queryParameters: workspaceId == null
+          ? null
+          : {'workspace_id': workspaceId},
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailMailbox.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<MailMailbox> createMailbox({
+    required String address,
+    String? workspaceId,
+    String? name,
+    bool isDefault = false,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/mailboxes',
+      data: {
+        'address': address,
+        'is_default': isDefault,
+        if (workspaceId != null && workspaceId.isNotEmpty)
+          'workspace_id': workspaceId,
+        'name': nonEmptyString(name),
+      },
+    );
+    return MailMailbox.fromJson(response.data!);
+  }
+
+  Future<PaginatedResult<MailEmail>> listEmails({
+    int offset = 0,
+    int take = 20,
+  }) async => _parseEmailPage(
+    await _get<List<dynamic>>(
+      '$kElecPostalBase/emails',
+      queryParameters: {'offset': offset, 'take': take},
+    ),
+  );
+
+  Future<PaginatedResult<MailEmail>> listMailboxEmails(
+    String mailboxId, {
+    int offset = 0,
+    int take = 20,
+  }) async => _parseEmailPage(
+    await _get<List<dynamic>>(
+      '$kElecPostalBase/mailboxes/$mailboxId/emails',
+      queryParameters: {'offset': offset, 'take': take},
+    ),
+  );
+
+  Future<MailEmail> getEmail(String emailId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/emails/$emailId',
+    );
+    return MailEmail.fromJson(response.data ?? const {});
+  }
+
+  Future<MailEmail> sendEmail({
+    required String mailboxId,
+    required List<MailRecipient> to,
+    List<MailRecipient> cc = const [],
+    List<MailRecipient> bcc = const [],
+    required String subject,
+    required String body,
+    List<String> attachmentIds = const [],
+    bool isDraft = false,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/emails',
+      data: {
+        'mailbox_id': mailboxId,
+        'to': to.map((r) => r.toJson()).toList(),
+        'cc': cc.map((r) => r.toJson()).toList(),
+        'bcc': bcc.map((r) => r.toJson()).toList(),
+        'subject': subject,
+        'body': body,
+        'attachment_ids': attachmentIds,
+        'is_draft': isDraft,
+      },
+    );
+    return MailEmail.fromJson(response.data!);
+  }
+
+  Future<void> deleteEmail(String emailId) =>
+      _request<void>('DELETE', '$kElecPostalBase/emails/$emailId');
+
+  Future<MailEmail> resendEmail(String emailId) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/emails/$emailId/resend',
+    );
+    return MailEmail.fromJson(response.data ?? const {});
+  }
+
+  Future<void> markEmailRead(String emailId) =>
+      _request<void>('POST', '$kElecPostalBase/emails/$emailId/read');
+
+  Future<void> markEmailUnread(String emailId) =>
+      _request<void>('POST', '$kElecPostalBase/emails/$emailId/unread');
+
+  Future<List<MailCredential>> listMailCredentials() async {
+    final response = await _get<List<dynamic>>('$kElecPostalBase/credentials');
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailCredential.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<MailCredentialCreated> createMailCredential({
+    required String label,
+    List<String> protocols = const ['smtp', 'imap'],
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/credentials',
+      data: {'label': label, 'protocols': protocols},
+    );
+    return MailCredentialCreated.fromJson(response.data!);
+  }
+
+  Future<void> revokeMailCredential(String credentialId) =>
+      _request<void>('DELETE', '$kElecPostalBase/credentials/$credentialId');
+
+  Future<String> getMailHost() async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/mail/host',
+    );
+    return (response.data?['host'] as String?)?.trim() ?? '';
+  }
+
+  PaginatedResult<MailEmail> _parseEmailPage(Response<List<dynamic>> response) {
+    final totalHeader =
+        response.headers.value('x-total') ??
+        response.headers.value('X-Total') ??
+        '0';
+    final totalCount = int.tryParse(totalHeader) ?? 0;
+    final items = (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailEmail.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+    return PaginatedResult(items: items, totalCount: totalCount);
+  }
 
   /// Uploads a file to **workspace** Drive (≤ ~20 MB).
   ///
@@ -2053,7 +2209,9 @@ class WorkTask {
           const [],
       priority: (json['priority'] as num?)?.toInt() ?? 0,
       serialNumber: (json['serial_number'] as num?)?.toInt(),
-      taskKey: nonEmptyString(json['task_key']?.toString()),
+      taskKey: nonEmptyString(
+        (json['task_key'] ?? json['taskKey'])?.toString(),
+      ),
       deadlineAt: parseInstant(json['deadline_at']),
       completedAt: parseInstant(json['completed_at']),
       completeReason: (json['complete_reason'] as num?)?.toInt(),
@@ -2083,14 +2241,31 @@ class GitHubIssueLink {
     required this.htmlUrl,
     this.gitHubIssueId,
     this.isPullRequest = false,
+    this.repositoryFullName,
   });
 
   final int issueNumber;
   final String htmlUrl;
   final int? gitHubIssueId;
   final bool isPullRequest;
+  final String? repositoryFullName;
 
-  String get label => isPullRequest ? 'PR #$issueNumber' : '#$issueNumber';
+  String? get resolvedRepositoryFullName {
+    if (repositoryFullName?.isNotEmpty == true) return repositoryFullName;
+    final uri = Uri.tryParse(htmlUrl);
+    if (uri == null ||
+        uri.host != 'github.com' ||
+        uri.pathSegments.length < 2) {
+      return null;
+    }
+    return '${uri.pathSegments[0]}/${uri.pathSegments[1]}';
+  }
+
+  String get reference => resolvedRepositoryFullName != null
+      ? '$resolvedRepositoryFullName#$issueNumber'
+      : '#$issueNumber';
+  String get kindLabel => isPullRequest ? 'PR' : 'Issue';
+  String get label => '$reference $kindLabel';
 
   factory GitHubIssueLink.fromJson(Map<String, dynamic> json) =>
       GitHubIssueLink(
@@ -2098,6 +2273,10 @@ class GitHubIssueLink {
         htmlUrl: json['html_url']?.toString() ?? '',
         gitHubIssueId: (json['git_hub_issue_id'] as num?)?.toInt(),
         isPullRequest: json['is_pull_request'] == true,
+        repositoryFullName: nonEmptyString(
+          (json['repository_full_name'] ?? json['repositoryFullName'])
+              ?.toString(),
+        ),
       );
 }
 
@@ -2171,6 +2350,216 @@ class GitHubRepository {
 }
 
 /// Task comment (local or mirrored from GitHub).
+// --- ElecPostal mail models --------------------------------------------------
+
+class MailMailbox {
+  const MailMailbox({
+    required this.id,
+    required this.accountId,
+    required this.address,
+    this.workspaceId,
+    this.name,
+    this.isDefault = false,
+    this.isVerified = false,
+  });
+
+  final String id;
+  final String accountId;
+  final String? workspaceId;
+  final String address;
+  final String? name;
+  final bool isDefault;
+  final bool isVerified;
+
+  String get displayName => name?.trim().isNotEmpty == true ? name! : address;
+
+  /// Returns the full email address for display. When [mailHost] is provided
+  /// and the stored address is local-only, the host is appended.
+  String fullAddress(String? mailHost) {
+    final local = address.trim().toLowerCase();
+    final host = mailHost?.trim().toLowerCase() ?? '';
+    if (local.isEmpty || host.isEmpty || local.contains('@')) return local;
+    return '$local@$host';
+  }
+
+  factory MailMailbox.fromJson(Map<String, dynamic> json) => MailMailbox(
+    id: json['id']?.toString() ?? '',
+    accountId: json['account_id']?.toString() ?? '',
+    workspaceId: json['workspace_id']?.toString(),
+    address: json['address']?.toString() ?? '',
+    name: nonEmptyString(json['name']?.toString()),
+    isDefault: json['is_default'] == true,
+    isVerified: json['is_verified'] == true,
+  );
+}
+
+class MailRecipient {
+  const MailRecipient({required this.address, this.name, this.kind = 'to'});
+
+  final String address;
+  final String? name;
+  final String kind;
+
+  String get displayName => name?.trim().isNotEmpty == true ? name! : address;
+
+  /// Returns the full email address for display. When [mailHost] is provided
+  /// and the stored address is local-only, the host is appended.
+  String fullAddress(String? mailHost) {
+    final local = address.trim().toLowerCase();
+    final host = mailHost?.trim().toLowerCase() ?? '';
+    if (local.isEmpty || host.isEmpty || local.contains('@')) return local;
+    return '$local@$host';
+  }
+
+  Map<String, dynamic> toJson() => {
+    'address': address,
+    if (name != null && name!.isNotEmpty) 'name': name,
+    'kind': kind,
+  };
+
+  factory MailRecipient.fromJson(Map<String, dynamic> json) => MailRecipient(
+    address: json['address']?.toString() ?? '',
+    name: nonEmptyString(json['name']?.toString()),
+    kind: json['kind']?.toString() ?? 'to',
+  );
+}
+
+class MailEmail {
+  const MailEmail({
+    required this.id,
+    required this.mailboxId,
+    required this.subject,
+    required this.body,
+    required this.isDraft,
+    this.from,
+    this.to = const [],
+    this.cc = const [],
+    this.bcc = const [],
+    this.attachments = const [],
+    this.isRead = false,
+    this.createdAt,
+    this.mailbox,
+    this.deliveryStatus,
+    this.deliveryAttempts = 0,
+    this.lastDeliveryAttemptAt,
+    this.deliveryError,
+    this.providerMessageId,
+  });
+
+  final String id;
+  final String mailboxId;
+  final MailMailbox? mailbox;
+  final String subject;
+  final String body;
+  final bool isDraft;
+  final MailRecipient? from;
+  final List<MailRecipient> to;
+  final List<MailRecipient> cc;
+  final List<MailRecipient> bcc;
+  final List<SnCloudFileReference> attachments;
+  final bool isRead;
+  final DateTime? createdAt;
+  final String? deliveryStatus;
+  final int deliveryAttempts;
+  final DateTime? lastDeliveryAttemptAt;
+  final String? deliveryError;
+  final String? providerMessageId;
+
+  bool get hasDeliveryStatus => deliveryStatus != null && deliveryStatus!.isNotEmpty;
+
+  String get displaySubject => subject.trim().isNotEmpty ? subject : '(no subject)';
+
+  String get previewText => body.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  factory MailEmail.fromJson(Map<String, dynamic> json) {
+    final mailboxRaw = json['mailbox'];
+    final fromRaw = json['from'];
+    return MailEmail(
+      id: json['id']?.toString() ?? '',
+      mailboxId: json['mailbox_id']?.toString() ?? '',
+      mailbox: mailboxRaw is Map
+          ? MailMailbox.fromJson(Map<String, dynamic>.from(mailboxRaw))
+          : null,
+      subject: json['subject']?.toString() ?? '',
+      body: json['body']?.toString() ?? '',
+      isDraft: json['is_draft'] == true,
+      from: fromRaw is Map
+          ? MailRecipient.fromJson(Map<String, dynamic>.from(fromRaw))
+          : null,
+      to: _parseRecipients(json['to']),
+      cc: _parseRecipients(json['cc']),
+      bcc: _parseRecipients(json['bcc']),
+      attachments: parseCloudFileReferenceList(json['attachments']),
+      isRead: json['is_read'] == true,
+      createdAt: parseInstant(json['created_at']),
+      deliveryStatus: nonEmptyString(json['delivery_status']?.toString()),
+      deliveryAttempts: (json['delivery_attempts'] as num?)?.toInt() ?? 0,
+      lastDeliveryAttemptAt: parseInstant(json['last_delivery_attempt_at']),
+      deliveryError: nonEmptyString(json['delivery_error']?.toString()),
+      providerMessageId: nonEmptyString(json['provider_message_id']?.toString()),
+    );
+  }
+}
+
+List<MailRecipient> _parseRecipients(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) => MailRecipient.fromJson(Map<String, dynamic>.from(item)))
+      .toList(growable: false);
+}
+
+class MailCredential {
+  const MailCredential({
+    required this.id,
+    required this.accountId,
+    required this.label,
+    required this.protocols,
+    this.createdAt,
+  });
+
+  final String id;
+  final String accountId;
+  final String label;
+  final List<String> protocols;
+  final DateTime? createdAt;
+
+  factory MailCredential.fromJson(Map<String, dynamic> json) => MailCredential(
+    id: json['id']?.toString() ?? '',
+    accountId: json['account_id']?.toString() ?? '',
+    label: json['label']?.toString() ?? 'Credential',
+    protocols:
+        (json['protocols'] as List?)
+            ?.map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList() ??
+        const [],
+    createdAt: parseInstant(json['created_at']),
+  );
+}
+
+class MailCredentialCreated {
+  const MailCredentialCreated({required this.credential, required this.secret});
+
+  final MailCredential credential;
+  final String secret;
+
+  factory MailCredentialCreated.fromJson(Map<String, dynamic> json) {
+    final credentialRaw = json['credential'];
+    return MailCredentialCreated(
+      credential: credentialRaw is Map
+          ? MailCredential.fromJson(Map<String, dynamic>.from(credentialRaw))
+          : MailCredential(
+              id: '',
+              accountId: '',
+              label: json['label']?.toString() ?? 'Credential',
+              protocols: const [],
+            ),
+      secret: json['secret']?.toString() ?? '',
+    );
+  }
+}
+
 class TaskComment {
   const TaskComment({
     required this.id,
@@ -2674,6 +3063,44 @@ final workspaceDriveUsageProvider = FutureProvider<WorkspaceDriveUsage?>((
       .watch(wattEngineClientProvider)
       .getWorkspaceDriveUsage(workspace.id);
 });
+
+/// All ElecPostal mailboxes for the signed-in account.
+final mailboxesProvider = FutureProvider<List<MailMailbox>>((ref) async {
+  final session = await ref.watch(authSessionProvider.future);
+  if (session == null) return const [];
+  final workspace = await ref.watch(selectedWorkspaceProvider.future);
+  return ref
+      .watch(wattEngineClientProvider)
+      .listMailboxes(workspaceId: workspace?.id);
+});
+
+/// Emails for the selected mailbox (or all account emails when null).
+final emailsProvider =
+    FutureProvider.family<PaginatedResult<MailEmail>, String?>((
+      ref,
+      mailboxId,
+    ) async {
+      final client = ref.watch(wattEngineClientProvider);
+      if (mailboxId == null || mailboxId.isEmpty) {
+        return client.listEmails();
+      }
+      return client.listMailboxEmails(mailboxId);
+    });
+
+/// Detailed email by id.
+final emailProvider = FutureProvider.family<MailEmail, String>(
+  (ref, emailId) async => ref.watch(wattEngineClientProvider).getEmail(emailId),
+);
+
+/// App-password credentials for mail protocols (SMTP/IMAP/POP3).
+final mailCredentialsProvider = FutureProvider<List<MailCredential>>(
+  (ref) async => ref.watch(wattEngineClientProvider).listMailCredentials(),
+);
+
+/// Configured canonical mail domain from ElecPostal (e.g. "example.com").
+final mailHostProvider = FutureProvider<String>(
+  (ref) async => ref.watch(wattEngineClientProvider).getMailHost(),
+);
 
 /// Authenticated Solar Network SDK client (Ring, Drive helpers, etc.).
 ///

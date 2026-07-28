@@ -633,8 +633,8 @@ class _TaskGroupColumn extends StatelessWidget {
                               hovering
                                   ? 'dropTaskHere'.tr()
                                   : isUngrouped
-                                      ? 'noUngroupedTasks'.tr()
-                                      : 'noTasksInGroup'.tr(),
+                                  ? 'noUngroupedTasks'.tr()
+                                  : 'noTasksInGroup'.tr(),
                               textAlign: TextAlign.center,
                               style: text.bodySmall?.copyWith(
                                 color: scheme.onSurfaceVariant,
@@ -900,9 +900,9 @@ class _TaskTile extends StatelessWidget {
                       icon: Symbols.event,
                       tone:
                           task.deadlineAt!.isBefore(DateTime.now()) &&
-                                  !task.isCompleted
-                              ? StatusChipTone.error
-                              : StatusChipTone.neutral,
+                              !task.isCompleted
+                          ? StatusChipTone.error
+                          : StatusChipTone.neutral,
                     ),
                   for (final tag in task.tags.take(compact ? 2 : 4))
                     StatusChip(
@@ -912,7 +912,8 @@ class _TaskTile extends StatelessWidget {
                     ),
                   if (task.attachments.isNotEmpty)
                     StatusChip(
-                      label: '${task.attachments.length} file${task.attachments.length == 1 ? '' : 's'}',
+                      label:
+                          '${task.attachments.length} file${task.attachments.length == 1 ? '' : 's'}',
                       icon: Symbols.attach_file,
                       tone: StatusChipTone.neutral,
                     ),
@@ -920,14 +921,18 @@ class _TaskTile extends StatelessWidget {
                     StatusChip(
                       label: task.assignees.length == 1
                           ? task.assignees.first.label
-                          : 'assignees'.tr(args: [task.assignees.length.toString()]),
+                          : 'assignees'.tr(
+                              args: [task.assignees.length.toString()],
+                            ),
                       icon: Symbols.group,
                       tone: StatusChipTone.primary,
                     ),
                   if (task.gitHubIssue != null)
                     StatusChip(
                       label: task.gitHubIssue!.label,
-                      icon: Symbols.hub,
+                      icon: task.gitHubIssue!.isPullRequest
+                          ? Symbols.call_split
+                          : Symbols.hub,
                       tone: StatusChipTone.secondary,
                     ),
                 ],
@@ -967,7 +972,9 @@ class _TaskDetailSidebar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
             child: Row(
               children: [
-                Expanded(child: Text('taskDetails'.tr(), style: text.titleMedium)),
+                Expanded(
+                  child: Text('taskDetails'.tr(), style: text.titleMedium),
+                ),
                 IconButton(
                   tooltip: 'editTask'.tr(),
                   onPressed: onEdit,
@@ -1051,7 +1058,8 @@ class _TaskDetailSidebar extends StatelessWidget {
                         StatusChip(
                           label: _formatDeadline(task.deadlineAt!),
                           icon: Symbols.event,
-                          tone: task.deadlineAt!.isBefore(DateTime.now()) &&
+                          tone:
+                              task.deadlineAt!.isBefore(DateTime.now()) &&
                                   !task.isCompleted
                               ? StatusChipTone.error
                               : StatusChipTone.neutral,
@@ -1116,8 +1124,13 @@ class _TaskDetailSidebar extends StatelessWidget {
                     const SizedBox(height: 24),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: Icon(Symbols.hub, color: scheme.primary),
-                      title: Text('GitHub ${task.gitHubIssue!.label}'),
+                      leading: Icon(
+                        task.gitHubIssue!.isPullRequest
+                            ? Symbols.call_split
+                            : Symbols.hub,
+                        color: scheme.primary,
+                      ),
+                      title: Text(task.gitHubIssue!.label),
                       subtitle: Text(
                         task.gitHubIssue!.htmlUrl,
                         maxLines: 1,
@@ -1162,11 +1175,11 @@ class _TaskDetailSidebar extends StatelessWidget {
 }
 
 String? _completeReasonLabel(int? reason) => switch (reason) {
-      0 => 'completed'.tr(),
-      1 => 'skipped'.tr(),
-      2 => 'duplicated'.tr(),
-      _ => null,
-    };
+  0 => 'completed'.tr(),
+  1 => 'skipped'.tr(),
+  2 => 'duplicated'.tr(),
+  _ => null,
+};
 
 String _formatDeadline(DateTime deadline) {
   final local = deadline.toLocal();
@@ -1398,7 +1411,9 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
                           TextButton.icon(
                             onPressed: _pickIcon,
                             icon: const Icon(Symbols.upload, size: 18),
-                            label: Text(_icon == null ? 'upload'.tr() : 'change'.tr()),
+                            label: Text(
+                              _icon == null ? 'upload'.tr() : 'change'.tr(),
+                            ),
                           ),
                           if (_icon != null)
                             TextButton(
@@ -1494,7 +1509,9 @@ class _BoardEditorSheetState extends ConsumerState<_BoardEditorSheet> {
             const SizedBox(height: 28),
             FilledButton(
               onPressed: _submit,
-              child: Text(board == null ? 'createBoard'.tr() : 'saveChanges'.tr()),
+              child: Text(
+                board == null ? 'createBoard'.tr() : 'saveChanges'.tr(),
+              ),
             ),
           ],
         ),
@@ -1612,9 +1629,9 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
           children: [
             Text(
               'organizeBoardTasks'.tr(),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             Row(
@@ -2211,8 +2228,13 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               const SizedBox(height: 20),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: Icon(Symbols.hub, color: scheme.primary),
-                title: Text('GitHub ${task!.gitHubIssue!.label}'),
+                leading: Icon(
+                  task!.gitHubIssue!.isPullRequest
+                      ? Symbols.call_split
+                      : Symbols.hub,
+                  color: scheme.primary,
+                ),
+                title: Text(task.gitHubIssue!.label),
                 subtitle: Text(
                   task.gitHubIssue!.htmlUrl,
                   maxLines: 1,

@@ -12,6 +12,7 @@ import 'boards/boards_screen.dart';
 import 'files/files_screen.dart';
 import 'flywheel/flywheel_page.dart';
 import 'gate/gate_page.dart';
+import 'mail/mail_screen.dart';
 import 'network.dart';
 import 'notifications/notifications.dart';
 import 'realtime/realtime.dart';
@@ -113,6 +114,7 @@ class AppRouter extends RootStackRouter {
         AutoRoute(page: BoardsRoute.page),
         AutoRoute(page: FilesRoute.page),
         AutoRoute(page: FlywheelRoute.page),
+        AutoRoute(page: MailRoute.page),
         AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
         AutoRoute(page: SettingsRoute.page),
@@ -180,6 +182,7 @@ class AppShellPage extends ConsumerWidget {
             BoardsRoute(),
             FilesRoute(),
             FlywheelRoute(),
+            MailRoute(),
             ProfileRoute(),
             SettingsRoute(),
           ],
@@ -280,6 +283,11 @@ class _NavigationShell extends ConsumerWidget {
                   label: 'Flywheel',
                 ),
                 NavigationDestination(
+                  icon: const Icon(Symbols.mail),
+                  selectedIcon: const Icon(Symbols.mail, fill: 1),
+                  label: 'mail'.tr(),
+                ),
+                NavigationDestination(
                   icon: const Icon(Symbols.person),
                   selectedIcon: const Icon(Symbols.person, fill: 1),
                   label: 'profile'.tr(),
@@ -295,8 +303,8 @@ class _NavigationShell extends ConsumerWidget {
   }
 }
 
-const _profileTabIndex = 4;
-const _settingsTabIndex = 5;
+const _profileTabIndex = 5;
+const _settingsTabIndex = 6;
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
@@ -321,7 +329,7 @@ class _DesktopNavigation extends ConsumerWidget {
       width: 88,
       child: NavigationRail(
         backgroundColor: Colors.transparent,
-        selectedIndex: selectedIndex < 4 ? selectedIndex : null,
+        selectedIndex: selectedIndex < _profileTabIndex ? selectedIndex : null,
         onDestinationSelected: onSelected,
         labelType: NavigationRailLabelType.all,
         groupAlignment: -1,
@@ -434,6 +442,11 @@ class _DesktopNavigation extends ConsumerWidget {
             icon: Icon(Symbols.sync),
             selectedIcon: Icon(Symbols.sync, fill: 1),
             label: Text('Flywheel'),
+          ),
+          NavigationRailDestination(
+            icon: const Icon(Symbols.mail),
+            selectedIcon: const Icon(Symbols.mail, fill: 1),
+            label: Text('mail'.tr()),
           ),
         ],
       ),

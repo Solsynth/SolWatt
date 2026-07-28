@@ -107,6 +107,22 @@ class HomeRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [MailPage]
+class MailRoute extends PageRouteInfo<void> {
+  const MailRoute({List<PageRouteInfo>? children})
+    : super(MailRoute.name, initialChildren: children);
+
+  static const String name = 'MailRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const MailPage();
+    },
+  );
+}
+
+/// generated route for
 /// [ProfilePage]
 class ProfileRoute extends PageRouteInfo<void> {
   const ProfileRoute({List<PageRouteInfo>? children})
