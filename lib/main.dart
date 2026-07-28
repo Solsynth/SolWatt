@@ -10,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 import 'app_logging.dart';
 import 'boards/boards_screen.dart';
 import 'files/files_screen.dart';
+import 'flywheel/flywheel_page.dart';
 import 'gate/gate_page.dart';
 import 'network.dart';
 import 'notifications/notifications.dart';
@@ -51,10 +52,7 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       child: EasyLocalization(
-        supportedLocales: const [
-          Locale('en', 'US'),
-          Locale('zh', 'CN'),
-        ],
+        supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
         path: 'assets/i18n',
         fallbackLocale: const Locale('en', 'US'),
         useFallbackTranslations: true,
@@ -107,19 +105,20 @@ class SolWattApp extends StatelessWidget {
 class AppRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
-        AutoRoute(page: GateRoute.page, initial: true),
-        AutoRoute(
-          page: AppShellRoute.page,
-          children: [
-            AutoRoute(page: HomeRoute.page, initial: true),
-            AutoRoute(page: BoardsRoute.page),
-            AutoRoute(page: FilesRoute.page),
-            AutoRoute(page: TaskBoardRoute.page),
-            AutoRoute(page: ProfileRoute.page),
-            AutoRoute(page: SettingsRoute.page),
-          ],
-        ),
-      ];
+    AutoRoute(page: GateRoute.page, initial: true),
+    AutoRoute(
+      page: AppShellRoute.page,
+      children: [
+        AutoRoute(page: HomeRoute.page, initial: true),
+        AutoRoute(page: BoardsRoute.page),
+        AutoRoute(page: FilesRoute.page),
+        AutoRoute(page: FlywheelRoute.page),
+        AutoRoute(page: TaskBoardRoute.page),
+        AutoRoute(page: ProfileRoute.page),
+        AutoRoute(page: SettingsRoute.page),
+      ],
+    ),
+  ];
 }
 
 @RoutePage()
@@ -180,6 +179,7 @@ class AppShellPage extends ConsumerWidget {
             HomeRoute(),
             BoardsRoute(),
             FilesRoute(),
+            FlywheelRoute(),
             ProfileRoute(),
             SettingsRoute(),
           ],
@@ -274,6 +274,11 @@ class _NavigationShell extends ConsumerWidget {
                   selectedIcon: const Icon(Symbols.folder, fill: 1),
                   label: 'files'.tr(),
                 ),
+                const NavigationDestination(
+                  icon: Icon(Symbols.sync),
+                  selectedIcon: Icon(Symbols.sync, fill: 1),
+                  label: 'Flywheel',
+                ),
                 NavigationDestination(
                   icon: const Icon(Symbols.person),
                   selectedIcon: const Icon(Symbols.person, fill: 1),
@@ -290,8 +295,8 @@ class _NavigationShell extends ConsumerWidget {
   }
 }
 
-const _profileTabIndex = 3;
-const _settingsTabIndex = 4;
+const _profileTabIndex = 4;
+const _settingsTabIndex = 5;
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
@@ -316,7 +321,7 @@ class _DesktopNavigation extends ConsumerWidget {
       width: 88,
       child: NavigationRail(
         backgroundColor: Colors.transparent,
-        selectedIndex: selectedIndex < 3 ? selectedIndex : null,
+        selectedIndex: selectedIndex < 4 ? selectedIndex : null,
         onDestinationSelected: onSelected,
         labelType: NavigationRailLabelType.all,
         groupAlignment: -1,
@@ -425,6 +430,11 @@ class _DesktopNavigation extends ConsumerWidget {
             selectedIcon: const Icon(Symbols.folder, fill: 1),
             label: Text('files'.tr()),
           ),
+          const NavigationRailDestination(
+            icon: Icon(Symbols.sync),
+            selectedIcon: Icon(Symbols.sync, fill: 1),
+            label: Text('Flywheel'),
+          ),
         ],
       ),
     );
@@ -441,25 +451,25 @@ class _WebsocketStatusDot extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final (color, label) = switch (state) {
       WebSocketConnectionState.connected => (
-          const Color(0xFF34C759),
-          'Live · connected',
-        ),
+        const Color(0xFF34C759),
+        'Live · connected',
+      ),
       WebSocketConnectionState.connecting => (
-          scheme.tertiary,
-          'Live · connecting…',
-        ),
+        scheme.tertiary,
+        'Live · connecting…',
+      ),
       WebSocketConnectionState.serverDown => (
-          scheme.error,
-          'Live · server unavailable (tap to retry)',
-        ),
+        scheme.error,
+        'Live · server unavailable (tap to retry)',
+      ),
       WebSocketConnectionState.error => (
-          scheme.error,
-          'Live · error (tap to retry)',
-        ),
+        scheme.error,
+        'Live · error (tap to retry)',
+      ),
       WebSocketConnectionState.disconnected => (
-          scheme.outline,
-          'Live · offline (tap to reconnect)',
-        ),
+        scheme.outline,
+        'Live · offline (tap to reconnect)',
+      ),
     };
 
     return Tooltip(
@@ -744,9 +754,7 @@ class SettingsPage extends ConsumerWidget {
                         : 'connectedToSolarNetwork'.tr(),
                   ),
                   subtitle: Text(
-                    user == null
-                        ? 'oauthDescription'.tr()
-                        : '@${user.name}',
+                    user == null ? 'oauthDescription'.tr() : '@${user.name}',
                   ),
                 ),
                 Divider(
@@ -851,7 +859,7 @@ class ProfilePage extends ConsumerWidget {
                     solWatt == null
                         ? '@${user.name}'
                         : '@${user.name} · ${solWatt.perkTierName} '
-                            '(perk ${solWatt.perkLevel})',
+                              '(perk ${solWatt.perkLevel})',
                   ),
                 );
               },
@@ -937,16 +945,18 @@ class _BundledProProfileCard extends ConsumerWidget {
         final assigned = data.assignedWorkspace;
         final eligible = data.eligible;
         final caption = !eligible
-            ? 'requiresStellarSupernova'.tr(namedArgs: {
-                'perkLevel': bundledProRequiredPerkLevel.toString(),
-                'perkTierName': profile?.perkTierName ?? 'Twinkle',
-                'level': data.perkLevel.toString(),
-              })
+            ? 'requiresStellarSupernova'.tr(
+                namedArgs: {
+                  'perkLevel': bundledProRequiredPerkLevel.toString(),
+                  'perkTierName': profile?.perkTierName ?? 'Twinkle',
+                  'level': data.perkLevel.toString(),
+                },
+              )
             : assigned != null
-                ? 'assignedToWorkspace'.tr(namedArgs: {'name': assigned.name})
-                : data.isAssigned
-                    ? 'assignedElsewhere'.tr()
-                    : 'notAssigned'.tr();
+            ? 'assignedToWorkspace'.tr(namedArgs: {'name': assigned.name})
+            : data.isAssigned
+            ? 'assignedElsewhere'.tr()
+            : 'notAssigned'.tr();
 
         return Card(
           child: Padding(

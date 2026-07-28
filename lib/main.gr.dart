@@ -59,6 +59,22 @@ class FilesRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [FlywheelPage]
+class FlywheelRoute extends PageRouteInfo<void> {
+  const FlywheelRoute({List<PageRouteInfo>? children})
+    : super(FlywheelRoute.name, initialChildren: children);
+
+  static const String name = 'FlywheelRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const FlywheelPage();
+    },
+  );
+}
+
+/// generated route for
 /// [GatePage]
 class GateRoute extends PageRouteInfo<void> {
   const GateRoute({List<PageRouteInfo>? children})

@@ -290,6 +290,96 @@ class OAuthException implements Exception {
   String toString() => message;
 }
 
+class FlywheelOwnerApp {
+  const FlywheelOwnerApp({
+    required this.appId,
+    required this.retainedRevisionCount,
+    required this.blobCount,
+    required this.retainedRevisionCountTotal,
+    required this.retainedBytes,
+    required this.lastUpdatedAt,
+  });
+
+  final String appId;
+  final int retainedRevisionCount;
+  final int blobCount;
+  final int retainedRevisionCountTotal;
+  final int retainedBytes;
+  final DateTime lastUpdatedAt;
+
+  factory FlywheelOwnerApp.fromJson(Map<String, dynamic> json) =>
+      FlywheelOwnerApp(
+        appId: json['app_id'] as String? ?? '',
+        retainedRevisionCount:
+            (json['retained_revision_count'] as num?)?.toInt() ?? 0,
+        blobCount: (json['blob_count'] as num?)?.toInt() ?? 0,
+        retainedRevisionCountTotal:
+            (json['retained_revision_count_total'] as num?)?.toInt() ?? 0,
+        retainedBytes: (json['retained_bytes'] as num?)?.toInt() ?? 0,
+        lastUpdatedAt:
+            DateTime.tryParse(json['last_updated_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+}
+
+class FlywheelOwnerBlob {
+  const FlywheelOwnerBlob({
+    required this.blobId,
+    required this.currentRevision,
+    required this.retainedRevisionCount,
+    required this.retainedBytes,
+    required this.updatedAt,
+  });
+
+  final String blobId;
+  final int currentRevision;
+  final int retainedRevisionCount;
+  final int retainedBytes;
+  final DateTime updatedAt;
+
+  factory FlywheelOwnerBlob.fromJson(Map<String, dynamic> json) =>
+      FlywheelOwnerBlob(
+        blobId: json['blob_id'] as String? ?? '',
+        currentRevision: (json['current_revision'] as num?)?.toInt() ?? 0,
+        retainedRevisionCount:
+            (json['retained_revision_count'] as num?)?.toInt() ?? 0,
+        retainedBytes: (json['retained_bytes'] as num?)?.toInt() ?? 0,
+        updatedAt:
+            DateTime.tryParse(json['updated_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+}
+
+class FlywheelAuditEntry {
+  const FlywheelAuditEntry({
+    required this.appId,
+    required this.blobId,
+    required this.revision,
+    required this.action,
+    required this.actorAccountId,
+    required this.createdAt,
+  });
+
+  final String appId;
+  final String? blobId;
+  final int? revision;
+  final String action;
+  final String actorAccountId;
+  final DateTime createdAt;
+
+  factory FlywheelAuditEntry.fromJson(Map<String, dynamic> json) =>
+      FlywheelAuditEntry(
+        appId: json['app_id'] as String? ?? '',
+        blobId: json['blob_id'] as String?,
+        revision: (json['revision'] as num?)?.toInt(),
+        action: json['action'] as String? ?? '',
+        actorAccountId: json['actor_account_id'] as String? ?? '',
+        createdAt:
+            DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+}
+
 extension SnAccountUi on SnAccount {
   String get solWattDisplayName => nick.isNotEmpty ? nick : '@$name';
   String? get solWattAvatarUrl {
@@ -529,6 +619,59 @@ class WattEngineClient {
     );
     return WorkspacePlanStatus.fromJson(response.data ?? const {});
   }
+
+  Future<List<FlywheelOwnerApp>> listFlywheelApps(String workspaceId) async {
+    final response = await _get<List<dynamic>>(
+      '/flywheel/workspaces/$workspaceId/apps',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => FlywheelOwnerApp.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<List<FlywheelOwnerBlob>> listFlywheelBlobs(
+    String workspaceId,
+    String appId,
+  ) async {
+    final response = await _get<List<dynamic>>(
+      '/flywheel/workspaces/$workspaceId/apps/$appId/management/blobs',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => FlywheelOwnerBlob.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<List<FlywheelAuditEntry>> listFlywheelAudit(
+    String workspaceId,
+    String appId,
+  ) async {
+    final response = await _get<List<dynamic>>(
+      '/flywheel/workspaces/$workspaceId/apps/$appId/management/audit',
+      queryParameters: const {'take': 100},
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              FlywheelAuditEntry.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<void> deleteFlywheelBlob(
+    String workspaceId,
+    String appId,
+    String blobId,
+  ) => _request<void>(
+    'DELETE',
+    '/flywheel/workspaces/$workspaceId/apps/$appId/management/blobs/$blobId',
+  );
 
   /// Assigns (or reassigns) the caller's perk-bundled Pro plan to this workspace.
   /// Requires Owner and perk level 3+. Subject to a 7-day reassign cooldown.
@@ -1939,19 +2082,22 @@ class GitHubIssueLink {
     required this.issueNumber,
     required this.htmlUrl,
     this.gitHubIssueId,
+    this.isPullRequest = false,
   });
 
   final int issueNumber;
   final String htmlUrl;
   final int? gitHubIssueId;
+  final bool isPullRequest;
 
-  String get label => '#$issueNumber';
+  String get label => isPullRequest ? 'PR #$issueNumber' : '#$issueNumber';
 
   factory GitHubIssueLink.fromJson(Map<String, dynamic> json) =>
       GitHubIssueLink(
         issueNumber: (json['issue_number'] as num?)?.toInt() ?? 0,
         htmlUrl: json['html_url']?.toString() ?? '',
         gitHubIssueId: (json['git_hub_issue_id'] as num?)?.toInt(),
+        isPullRequest: json['is_pull_request'] == true,
       );
 }
 
