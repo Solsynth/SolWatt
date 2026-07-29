@@ -455,5 +455,8 @@
   "revokeCredentialConfirm": "吊销 \"{label}\"？使用它的邮件客户端将无法再登录。",
   "credentialRevoked": "凭据已吊销。",
   "revoke": "吊销",
-  "labelRequired": "标签为必填项。"
+  "labelRequired": "标签为必填项。",
+  "htmlContent": "HTML 内容",
+  "close": "关闭",
+  "mailboxRequired": "邮箱为必填项。"
 }

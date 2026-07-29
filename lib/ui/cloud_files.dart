@@ -56,19 +56,11 @@ class CloudFileAvatar extends StatelessWidget {
             width: double.infinity,
             height: double.infinity,
             errorBuilder: (_, _, _) => Center(
-              child: Icon(
-                fallbackIcon,
-                size: size * 0.45,
-                color: iconColor,
-              ),
+              child: Icon(fallbackIcon, size: size * 0.45, color: iconColor),
             ),
           )
         : Center(
-            child: Icon(
-              fallbackIcon,
-              size: size * 0.45,
-              color: iconColor,
-            ),
+            child: Icon(fallbackIcon, size: size * 0.45, color: iconColor),
           );
 
     return Container(
@@ -87,10 +79,7 @@ class CloudFileAvatar extends StatelessWidget {
       padding: EdgeInsets.all(borderWidth),
       child: ClipRRect(
         borderRadius: innerRadius,
-        child: ColoredBox(
-          color: fillColor,
-          child: content,
-        ),
+        child: ColoredBox(color: fillColor, child: content),
       ),
     );
   }
@@ -114,9 +103,17 @@ BorderRadius _deflateBorderRadius(BorderRadius radius, double delta) {
 
 /// Compact chip showing an attached cloud file with optional remove action.
 class CloudFileChip extends StatelessWidget {
-  const CloudFileChip({super.key, required this.file, this.onRemove});
+  const CloudFileChip({
+    super.key,
+    required this.file,
+    this.displayUrl,
+    this.onPressed,
+    this.onRemove,
+  });
 
   final IDisplayableCloudFile file;
+  final String? displayUrl;
+  final VoidCallback? onPressed;
   final VoidCallback? onRemove;
 
   @override
@@ -128,7 +125,7 @@ class CloudFileChip extends StatelessWidget {
           ? ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Image.network(
-                cloudFileDisplayUrl(file),
+                displayUrl ?? cloudFileDisplayUrl(file),
                 width: 24,
                 height: 24,
                 fit: BoxFit.cover,
@@ -141,6 +138,7 @@ class CloudFileChip extends StatelessWidget {
         file.name.isEmpty ? file.id : file.name,
         overflow: TextOverflow.ellipsis,
       ),
+      onPressed: onPressed,
       onDeleted: onRemove,
       deleteIconColor: scheme.onSurfaceVariant,
     );

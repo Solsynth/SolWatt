@@ -2,13 +2,17 @@ import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
+import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 @RoutePage()
 class MailPage extends ConsumerStatefulWidget {
@@ -20,6 +24,7 @@ class MailPage extends ConsumerStatefulWidget {
 
 class _MailPageState extends ConsumerState<MailPage> {
   String? _selectedMailboxId;
+  MailEmail? _selectedEmail;
   final _take = 20;
   int _offset = 0;
   final List<MailEmail> _emails = [];
@@ -30,10 +35,12 @@ class _MailPageState extends ConsumerState<MailPage> {
   Widget build(BuildContext context) {
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider);
+    final wide = isWideScreen(context);
 
     return PageScaffold(
       title: 'mail'.tr(),
       subtitle: 'elecPostalMail'.tr(),
+      maxContentWidth: wide ? 1400 : 960,
       actions: [
         IconButton.filledTonal(
           tooltip: 'mailCredentials'.tr(),
@@ -74,6 +81,7 @@ class _MailPageState extends ConsumerState<MailPage> {
                   onSelected: (id) {
                     setState(() {
                       _selectedMailboxId = id;
+                      _selectedEmail = null;
                       _offset = 0;
                       _emails.clear();
                       _total = 0;
@@ -87,19 +95,45 @@ class _MailPageState extends ConsumerState<MailPage> {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: Card(
-              margin: EdgeInsets.zero,
-              child: _EmailList(
-                mailboxId: _selectedMailboxId,
-                mailHost: mailHost.value,
-                onOpen: (email) => _openEmail(context, email),
-                onRefresh: () => _refreshEmails(ref),
-                onLoadMore: () => _loadMoreEmails(ref),
-              ),
-            ),
+            child: wide
+                ? _DesktopLayout(
+                    emails: _buildEmailList(mailHost.value),
+                    detail: _buildDetail(mailHost.value),
+                  )
+                : _buildEmailList(mailHost.value),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildEmailList(String? mailHost) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: _EmailList(
+        mailboxId: _selectedMailboxId,
+        mailHost: mailHost,
+        selectedEmail: _selectedEmail,
+        onOpen: (email) => _openEmail(context, email),
+        onRefresh: () => _refreshEmails(ref),
+        onLoadMore: () => _loadMoreEmails(ref),
+      ),
+    );
+  }
+
+  Widget? _buildDetail(String? mailHost) {
+    final email = _selectedEmail;
+    if (email == null) return null;
+    return _EmailDetailPanel(
+      key: ValueKey(email.id),
+      email: email,
+      mailHost: mailHost,
+      workspaceId: _workspaceIdForEmail(email),
+      onReply: () => _compose(context, replyingTo: email),
+      onResend: email.isDraft ? null : () => _resendEmail(email),
+      onToggleRead: () => _toggleReadDesktop(email),
+      onDelete: () => _deleteEmailDesktop(email),
+      onClose: () => setState(() => _selectedEmail = null),
     );
   }
 
@@ -116,11 +150,13 @@ class _MailPageState extends ConsumerState<MailPage> {
     if (_isLoadingMore || _emails.length >= _total) return;
     setState(() => _isLoadingMore = true);
     try {
-      final page = await ref.read(wattEngineClientProvider).listMailboxEmails(
-        _selectedMailboxId ?? '',
-        offset: _offset + _take,
-        take: _take,
-      );
+      final page = await ref
+          .read(wattEngineClientProvider)
+          .listMailboxEmails(
+            _selectedMailboxId ?? '',
+            offset: _offset + _take,
+            take: _take,
+          );
       if (!mounted) return;
       setState(() {
         _offset += _take;
@@ -136,8 +172,13 @@ class _MailPageState extends ConsumerState<MailPage> {
   }
 
   void _openEmail(BuildContext context, MailEmail email) {
+    final wide = isWideScreen(context);
     if (!email.isRead && email.id.isNotEmpty) {
       _markRead(email.id);
+    }
+    if (wide) {
+      setState(() => _selectedEmail = email);
+      return;
     }
     showModalBottomSheet<void>(
       context: context,
@@ -145,12 +186,25 @@ class _MailPageState extends ConsumerState<MailPage> {
       builder: (_) => _EmailDetailSheet(
         email: email,
         mailHost: ref.read(mailHostProvider).value,
+        workspaceId: _workspaceIdForEmail(email),
         onReply: () => _compose(context, replyingTo: email),
         onResend: email.isDraft ? null : () => _resendEmail(email),
         onToggleRead: () => _toggleRead(email),
         onDelete: () => _deleteEmail(email),
       ),
     );
+  }
+
+  String? _workspaceIdForEmail(MailEmail email) {
+    final mailboxWorkspaceId = ref
+        .read(mailboxesProvider)
+        .value
+        ?.where((mailbox) => mailbox.id == email.mailboxId)
+        .firstOrNull
+        ?.workspaceId;
+    return email.mailbox?.workspaceId ??
+        mailboxWorkspaceId ??
+        ref.read(selectedWorkspaceProvider).value?.id;
   }
 
   Future<void> _markRead(String emailId) async {
@@ -176,6 +230,19 @@ class _MailPageState extends ConsumerState<MailPage> {
     }
   }
 
+  Future<void> _toggleReadDesktop(MailEmail email) async {
+    try {
+      if (email.isRead) {
+        await ref.read(wattEngineClientProvider).markEmailUnread(email.id);
+      } else {
+        await ref.read(wattEngineClientProvider).markEmailRead(email.id);
+      }
+      ref.invalidate(emailsProvider);
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
   Future<void> _deleteEmail(MailEmail email) async {
     final confirmed = await showConfirmAlert(
       'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
@@ -189,6 +256,25 @@ class _MailPageState extends ConsumerState<MailPage> {
       await ref.read(wattEngineClientProvider).deleteEmail(email.id);
       ref.invalidate(emailsProvider);
       if (mounted) Navigator.of(context).pop();
+      showSnackBar('emailDeleted'.tr());
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _deleteEmailDesktop(MailEmail email) async {
+    final confirmed = await showConfirmAlert(
+      'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
+      'deleteEmail'.tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'delete'.tr(),
+    );
+    if (!confirmed) return;
+    try {
+      await ref.read(wattEngineClientProvider).deleteEmail(email.id);
+      ref.invalidate(emailsProvider);
+      setState(() => _selectedEmail = null);
       showSnackBar('emailDeleted'.tr());
     } catch (error) {
       showSnackBar(error.toString());
@@ -233,17 +319,22 @@ class _MailPageState extends ConsumerState<MailPage> {
     );
     if (draft == null) return;
     try {
-      await ref.read(wattEngineClientProvider).sendEmail(
-        mailboxId: draft.mailboxId,
-        to: draft.to,
-        cc: draft.cc,
-        bcc: draft.bcc,
-        subject: draft.subject,
-        body: draft.body,
-        isDraft: draft.isDraft,
-      );
+      await ref
+          .read(wattEngineClientProvider)
+          .sendEmail(
+            mailboxId: draft.mailboxId,
+            to: draft.to,
+            cc: draft.cc,
+            bcc: draft.bcc,
+            subject: draft.subject,
+            body: draft.body,
+            isDraft: draft.isDraft,
+            contentType: draft.contentType,
+          );
       ref.invalidate(emailsProvider);
-      if (mounted) showSnackBar(draft.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
+      if (mounted) {
+        showSnackBar(draft.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
+      }
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -263,12 +354,14 @@ class _MailPageState extends ConsumerState<MailPage> {
     );
     if (draft == null) return;
     try {
-      await ref.read(wattEngineClientProvider).createMailbox(
-        address: draft.address,
-        name: draft.name,
-        workspaceId: workspace.id,
-        isDefault: draft.isDefault,
-      );
+      await ref
+          .read(wattEngineClientProvider)
+          .createMailbox(
+            address: draft.address,
+            name: draft.name,
+            workspaceId: workspace.id,
+            isDefault: draft.isDefault,
+          );
       ref.invalidate(mailboxesProvider);
       if (mounted) showSnackBar('mailboxCreated'.tr());
     } catch (error) {
@@ -285,6 +378,28 @@ class _MailPageState extends ConsumerState<MailPage> {
   }
 }
 
+class _DesktopLayout extends StatelessWidget {
+  const _DesktopLayout({required this.emails, required this.detail});
+
+  final Widget emails;
+  final Widget? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    if (detail == null) {
+      return emails;
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(width: 420, child: emails),
+        const VerticalDivider(width: 1),
+        Expanded(child: detail!),
+      ],
+    );
+  }
+}
+
 class _MailboxError extends StatelessWidget {
   const _MailboxError({required this.message, this.onRetry});
 
@@ -295,7 +410,11 @@ class _MailboxError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(Symbols.error, color: Theme.of(context).colorScheme.error, size: 20),
+        Icon(
+          Symbols.error,
+          color: Theme.of(context).colorScheme.error,
+          size: 20,
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
@@ -337,9 +456,9 @@ class _MailboxInvalidBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onErrorContainer,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onErrorContainer),
             ),
           ),
         ],
@@ -388,11 +507,9 @@ class _MailboxSelector extends StatelessWidget {
       );
     }
 
-    final selected = mailboxes.where((m) => m.id == selectedId).firstOrNull ??
-        mailboxes.firstWhere(
-          (m) => m.isDefault,
-          orElse: () => mailboxes.first,
-        );
+    final selected =
+        mailboxes.where((m) => m.id == selectedId).firstOrNull ??
+        mailboxes.firstWhere((m) => m.isDefault, orElse: () => mailboxes.first);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -428,16 +545,14 @@ class _MailboxSelector extends StatelessWidget {
           decoration: InputDecoration(
             labelText: 'mailbox'.tr(),
             prefixIcon: const Icon(Symbols.mail),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           items: [
-              for (final mailbox in mailboxes)
-                  DropdownMenuItem(
-                    value: mailbox.id,
-                    child: Text(mailbox.fullAddress(mailHost)),
-                  ),
+            for (final mailbox in mailboxes)
+              DropdownMenuItem(
+                value: mailbox.id,
+                child: Text(mailbox.fullAddress(mailHost)),
+              ),
           ],
           onChanged: (value) => onSelected(value),
         );
@@ -450,6 +565,7 @@ class _EmailList extends ConsumerWidget {
   const _EmailList({
     required this.mailboxId,
     required this.mailHost,
+    required this.selectedEmail,
     required this.onOpen,
     required this.onRefresh,
     required this.onLoadMore,
@@ -457,6 +573,7 @@ class _EmailList extends ConsumerWidget {
 
   final String? mailboxId;
   final String? mailHost;
+  final MailEmail? selectedEmail;
   final ValueChanged<MailEmail> onOpen;
   final VoidCallback onRefresh;
   final VoidCallback onLoadMore;
@@ -467,10 +584,8 @@ class _EmailList extends ConsumerWidget {
 
     return emails.when(
       loading: () => const PageLoading(),
-      error: (error, _) => PageError(
-        message: error.toString(),
-        onRetry: onRefresh,
-      ),
+      error: (error, _) =>
+          PageError(message: error.toString(), onRetry: onRefresh),
       data: (page) {
         final items = page.items;
         if (items.isEmpty) {
@@ -491,15 +606,18 @@ class _EmailList extends ConsumerWidget {
                 onLoadMore();
                 return const Padding(
                   padding: EdgeInsets.all(16),
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 );
               }
               final email = items[index];
-                          return _EmailTile(
-                            email: email,
-                            mailHost: mailHost,
-                            onTap: () => onOpen(email),
-                          );
+              return _EmailTile(
+                email: email,
+                mailHost: mailHost,
+                selected: email.id == selectedEmail?.id,
+                onTap: () => onOpen(email),
+              );
             },
           ),
         );
@@ -513,11 +631,13 @@ class _EmailTile extends StatelessWidget {
     required this.email,
     required this.mailHost,
     required this.onTap,
+    this.selected = false,
   });
 
   final MailEmail email;
   final String? mailHost;
   final VoidCallback onTap;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -529,6 +649,8 @@ class _EmailTile extends StatelessWidget {
     final date = email.createdAt;
 
     return ListTile(
+      selected: selected,
+      selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
       leading: CircleAvatar(
         radius: 18,
         backgroundColor: email.isRead
@@ -593,7 +715,9 @@ class _EmailTile extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     final now = DateTime.now();
-    if (date.year == now.year && date.month == now.month && date.day == now.day) {
+    if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day) {
       return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     }
     return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
@@ -609,12 +733,427 @@ class _DeliveryStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final (tone, labelKey, icon) = switch (status.toLowerCase()) {
       'sent' => (StatusChipTone.secondary, 'deliveryStatusSent', Symbols.check),
-      'pending' => (StatusChipTone.primary, 'deliveryStatusPending', Symbols.schedule),
+      'pending' => (
+        StatusChipTone.primary,
+        'deliveryStatusPending',
+        Symbols.schedule,
+      ),
       'failed' => (StatusChipTone.error, 'deliveryStatusFailed', Symbols.error),
-      'not_configured' => (StatusChipTone.neutral, 'deliveryStatusNotConfigured', Symbols.block),
+      'not_configured' => (
+        StatusChipTone.neutral,
+        'deliveryStatusNotConfigured',
+        Symbols.block,
+      ),
       _ => (StatusChipTone.neutral, 'deliveryStatusUnknown', Symbols.help),
     };
     return StatusChip(label: labelKey.tr(), icon: icon, tone: tone);
+  }
+}
+
+class _EmailDetailPanel extends StatelessWidget {
+  const _EmailDetailPanel({
+    super.key,
+    required this.email,
+    required this.mailHost,
+    required this.workspaceId,
+    required this.onReply,
+    required this.onResend,
+    required this.onToggleRead,
+    required this.onDelete,
+    required this.onClose,
+  });
+
+  final MailEmail email;
+  final String? mailHost;
+  final String? workspaceId;
+  final VoidCallback onReply;
+  final VoidCallback? onResend;
+  final VoidCallback onToggleRead;
+  final VoidCallback onDelete;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    email.displaySubject,
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+                  onPressed: onToggleRead,
+                  icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+                ),
+                IconButton(
+                  tooltip: 'delete'.tr(),
+                  onPressed: onDelete,
+                  icon: Icon(Symbols.delete, color: scheme.error),
+                ),
+                IconButton(
+                  tooltip: 'close'.tr(),
+                  onPressed: onClose,
+                  icon: const Icon(Symbols.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+              child: _EmailDetailContent(
+                email: email,
+                mailHost: mailHost,
+                workspaceId: workspaceId,
+                onReply: onReply,
+                onResend: onResend,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmailDetailContent extends StatelessWidget {
+  const _EmailDetailContent({
+    required this.email,
+    required this.mailHost,
+    required this.workspaceId,
+    required this.onReply,
+    required this.onResend,
+  });
+
+  final MailEmail email;
+  final String? mailHost;
+  final String? workspaceId;
+  final VoidCallback onReply;
+  final VoidCallback? onResend;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final attachmentWorkspaceId = email.mailbox?.workspaceId ?? workspaceId;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _RecipientRow(
+          label: 'from'.tr(),
+          recipient: email.from,
+          mailHost: mailHost,
+        ),
+        const Divider(),
+        _RecipientRow(
+          label: 'to'.tr(),
+          recipients: email.to,
+          mailHost: mailHost,
+        ),
+        if (email.cc.isNotEmpty)
+          _RecipientRow(
+            label: 'cc'.tr(),
+            recipients: email.cc,
+            mailHost: mailHost,
+          ),
+        if (email.bcc.isNotEmpty)
+          _RecipientRow(
+            label: 'bcc'.tr(),
+            recipients: email.bcc,
+            mailHost: mailHost,
+          ),
+        const Divider(),
+        if (email.createdAt != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              email.createdAt!.toLocal().toString(),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        if (email.isHtml)
+          _HtmlBodyViewer(html: email.body)
+        else
+          _PlainTextEmailBody(
+            body: email.body,
+            attachments: email.attachments,
+            workspaceId: attachmentWorkspaceId,
+            style: text.bodyLarge,
+          ),
+        if (email.attachments.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Text('attachments'.tr(), style: text.titleSmall),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final attachment in email.attachments)
+                CloudFileChip(
+                  file: attachment,
+                  displayUrl: _cloudFileUri(
+                    attachment,
+                    attachmentWorkspaceId,
+                  ).toString(),
+                  onPressed: () => _openAttachment(
+                    context,
+                    attachment,
+                    attachmentWorkspaceId,
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (email.hasDeliveryStatus && !email.isDraft) ...[
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _DeliveryStatusChip(status: email.deliveryStatus!),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'deliveryAttempts'.tr(
+                    args: [email.deliveryAttempts.toString()],
+                  ),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (email.lastDeliveryAttemptAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'lastDeliveryAttempt'.tr(
+                  namedArgs: {
+                    'date': email.lastDeliveryAttemptAt!.toLocal().toString(),
+                  },
+                ),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          if (email.deliveryError?.isNotEmpty == true)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SelectableText(
+                email.deliveryError!,
+                style: text.bodySmall?.copyWith(color: scheme.error),
+              ),
+            ),
+          if (email.deliveryStatus?.toLowerCase() == 'failed' &&
+              onResend != null) ...[
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: onResend,
+              icon: const Icon(Symbols.refresh, size: 18),
+              label: Text('resend'.tr()),
+            ),
+          ],
+        ],
+        const SizedBox(height: 24),
+        FilledButton.tonalIcon(
+          onPressed: onReply,
+          icon: const Icon(Symbols.reply, size: 18),
+          label: Text('reply'.tr()),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openAttachment(
+    BuildContext context,
+    IDisplayableCloudFile attachment,
+    String? workspaceId,
+  ) async {
+    final uri = _cloudFileUri(attachment, workspaceId);
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      showSnackBar('Unable to open ${attachment.name}.');
+    }
+  }
+}
+
+/// Resolves a Drive URL with the workspace context required for workspace files.
+Uri _cloudFileUri(IDisplayableCloudFile file, String? workspaceId) {
+  final workspace = workspaceId?.trim();
+  final baseUri = Uri.parse(cloudFileDisplayUrl(file));
+  if (workspace == null || workspace.isEmpty) return baseUri;
+  return baseUri.replace(
+    queryParameters: {...baseUri.queryParameters, 'workspace_id': workspace},
+  );
+}
+
+class _PlainTextEmailBody extends StatelessWidget {
+  const _PlainTextEmailBody({
+    required this.body,
+    required this.attachments,
+    required this.workspaceId,
+    this.style,
+  });
+
+  final String body;
+  final List<SnCloudFileReference> attachments;
+  final String? workspaceId;
+  final TextStyle? style;
+
+  static final _imageMarker = RegExp(
+    r'\[image:\s*([^\]\r\n]+)\]',
+    caseSensitive: false,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    if (body.isEmpty) return SelectableText('(no body)', style: style);
+
+    final children = <Widget>[];
+    var cursor = 0;
+    for (final match in _imageMarker.allMatches(body)) {
+      if (match.start > cursor) {
+        children.add(
+          SelectableText(body.substring(cursor, match.start), style: style),
+        );
+      }
+      final filename = match.group(1)!.trim().toLowerCase();
+      SnCloudFileReference? attachment;
+      for (final file in attachments) {
+        if (file.mimeType.startsWith('image/') &&
+            file.name.trim().toLowerCase() == filename) {
+          attachment = file;
+          break;
+        }
+      }
+      children.add(
+        attachment == null
+            ? SelectableText(match.group(0)!, style: style)
+            : _InlineEmailImage(file: attachment, workspaceId: workspaceId),
+      );
+      cursor = match.end;
+    }
+    if (cursor < body.length) {
+      children.add(SelectableText(body.substring(cursor), style: style));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    );
+  }
+}
+
+class _InlineEmailImage extends StatelessWidget {
+  const _InlineEmailImage({required this.file, required this.workspaceId});
+
+  final SnCloudFileReference file;
+  final String? workspaceId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          _cloudFileUri(file, workspaceId).toString(),
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => CloudFileChip(
+            file: file,
+            displayUrl: _cloudFileUri(file, workspaceId).toString(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HtmlBodyViewer extends StatefulWidget {
+  const _HtmlBodyViewer({required this.html});
+
+  final String html;
+
+  @override
+  State<_HtmlBodyViewer> createState() => _HtmlBodyViewerState();
+}
+
+String _colorHex(Color color) {
+  final argb = color.toARGB32();
+  return argb.toRadixString(16).padLeft(8, '0').substring(2);
+}
+
+class _HtmlBodyViewerState extends State<_HtmlBodyViewer> {
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bgColor = scheme.surface;
+    final textColor = scheme.onSurface;
+
+    final styledHtml =
+        '''
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #${_colorHex(textColor)};
+            background: #${_colorHex(bgColor)};
+            margin: 0;
+            padding: 0;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+          }
+          img { max-width: 100%; height: auto; }
+          a { color: #${_colorHex(scheme.primary)}; }
+          pre, code { white-space: pre-wrap; word-wrap: break-word; }
+          table { max-width: 100%; border-collapse: collapse; }
+          blockquote { margin: 0; padding-left: 1em; border-left: 3px solid #${_colorHex(scheme.outlineVariant)}; }
+        </style>
+      </head>
+      <body>${widget.html}</body>
+      </html>
+    ''';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: 600,
+        child: InAppWebView(
+          initialSettings: InAppWebViewSettings(
+            transparentBackground: true,
+            supportZoom: false,
+            useWideViewPort: true,
+            javaScriptEnabled: false,
+            cacheEnabled: false,
+          ),
+          initialData: InAppWebViewInitialData(
+            data: styledHtml,
+            mimeType: 'text/html',
+            encoding: 'utf-8',
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -622,6 +1161,7 @@ class _EmailDetailSheet extends StatelessWidget {
   const _EmailDetailSheet({
     required this.email,
     required this.mailHost,
+    required this.workspaceId,
     required this.onReply,
     required this.onResend,
     required this.onToggleRead,
@@ -630,6 +1170,7 @@ class _EmailDetailSheet extends StatelessWidget {
 
   final MailEmail email;
   final String? mailHost;
+  final String? workspaceId;
   final VoidCallback onReply;
   final VoidCallback? onResend;
   final VoidCallback onToggleRead;
@@ -638,7 +1179,6 @@ class _EmailDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
 
     return SheetScaffold(
       titleText: email.displaySubject,
@@ -660,9 +1200,7 @@ class _EmailDetailSheet extends StatelessWidget {
                 IconButton(
                   tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
                   onPressed: onToggleRead,
-                  icon: Icon(
-                    email.isRead ? Symbols.mail : Symbols.drafts,
-                  ),
+                  icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
                 ),
                 IconButton(
                   tooltip: 'delete'.tr(),
@@ -672,91 +1210,12 @@ class _EmailDetailSheet extends StatelessWidget {
               ],
             ),
             const Divider(),
-            _RecipientRow(label: 'to'.tr(), recipients: email.to, mailHost: mailHost),
-            if (email.cc.isNotEmpty)
-              _RecipientRow(label: 'cc'.tr(), recipients: email.cc, mailHost: mailHost),
-            if (email.bcc.isNotEmpty)
-              _RecipientRow(label: 'bcc'.tr(), recipients: email.bcc, mailHost: mailHost),
-            const Divider(),
-            if (email.createdAt != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  email.createdAt!.toLocal().toString(),
-                  style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                ),
-              ),
-            SelectableText(
-              email.body.isNotEmpty ? email.body : '(no body)',
-              style: text.bodyLarge,
-            ),
-            if (email.attachments.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'attachments'.tr(),
-                style: text.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final attachment in email.attachments)
-                    Chip(
-                      avatar: const Icon(Symbols.attach_file, size: 18),
-                      label: Text(attachment.name),
-                    ),
-                ],
-              ),
-            ],
-            if (email.hasDeliveryStatus && !email.isDraft) ...[
-              const SizedBox(height: 24),
-              const Divider(),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _DeliveryStatusChip(status: email.deliveryStatus!),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'deliveryAttempts'.tr(args: [email.deliveryAttempts.toString()]),
-                      style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                  ),
-                ],
-              ),
-              if (email.lastDeliveryAttemptAt != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    'lastDeliveryAttempt'.tr(namedArgs: {
-                      'date': email.lastDeliveryAttemptAt!.toLocal().toString(),
-                    }),
-                    style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ),
-              if (email.deliveryError?.isNotEmpty == true)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: SelectableText(
-                    email.deliveryError!,
-                    style: text.bodySmall?.copyWith(color: scheme.error),
-                  ),
-                ),
-              if (email.deliveryStatus?.toLowerCase() == 'failed' && onResend != null) ...[
-                const SizedBox(height: 12),
-                FilledButton.tonalIcon(
-                  onPressed: onResend,
-                  icon: const Icon(Symbols.refresh, size: 18),
-                  label: Text('resend'.tr()),
-                ),
-              ],
-            ],
-            const SizedBox(height: 24),
-            FilledButton.tonalIcon(
-              onPressed: onReply,
-              icon: const Icon(Symbols.reply, size: 18),
-              label: Text('reply'.tr()),
+            _EmailDetailContent(
+              email: email,
+              mailHost: mailHost,
+              workspaceId: workspaceId,
+              onReply: onReply,
+              onResend: onResend,
             ),
           ],
         ),
@@ -822,6 +1281,7 @@ class _MailDraft {
     required this.subject,
     required this.body,
     this.isDraft = false,
+    this.contentType = 'text/plain',
   });
 
   final String mailboxId;
@@ -831,6 +1291,7 @@ class _MailDraft {
   final String subject;
   final String body;
   final bool isDraft;
+  final String contentType;
 }
 
 class _ComposeSheet extends StatefulWidget {
@@ -856,6 +1317,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
   final _ccController = TextEditingController();
   final _subjectController = TextEditingController();
   final _bodyController = TextEditingController();
+  var _isHtml = false;
 
   MailMailbox? get _selectedMailbox =>
       widget.mailboxes.where((m) => m.id == _mailboxId).firstOrNull;
@@ -872,6 +1334,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
       }
       _subjectController.text = 'Re: ${replyingTo.displaySubject}';
       _bodyController.text = '\n\n---\n${replyingTo.body}';
+      _isHtml = replyingTo.isHtml;
     }
   }
 
@@ -909,6 +1372,7 @@ class _ComposeSheetState extends State<_ComposeSheet> {
         subject: _subjectController.text,
         body: _bodyController.text,
         isDraft: draft,
+        contentType: _isHtml ? 'text/html' : 'text/plain',
       ),
     );
   }
@@ -943,11 +1407,10 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                 if (value != null) setState(() => _mailboxId = value);
               },
             ),
-            if (_selectedMailbox?.fullAddress(widget.mailHost).contains('@') != true) ...[
+            if (_selectedMailbox?.fullAddress(widget.mailHost).contains('@') !=
+                true) ...[
               const SizedBox(height: 12),
-              _MailboxInvalidBanner(
-                message: 'mailboxAddressInvalidSend'.tr(),
-              ),
+              _MailboxInvalidBanner(message: 'mailboxAddressInvalidSend'.tr()),
             ],
             const SizedBox(height: 12),
             TextField(
@@ -985,16 +1448,30 @@ class _ComposeSheetState extends State<_ComposeSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _bodyController,
-              decoration: InputDecoration(
-                labelText: 'body'.tr(),
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _bodyController,
+                    decoration: InputDecoration(
+                      labelText: 'body'.tr(),
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    maxLines: 8,
+                  ),
                 ),
-              ),
-              maxLines: 8,
+              ],
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              value: _isHtml,
+              onChanged: (v) => setState(() => _isHtml = v),
+              title: Text('htmlContent'.tr()),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
             ),
             const SizedBox(height: 16),
             Row(
@@ -1038,7 +1515,8 @@ class _CreateMailboxSheet extends ConsumerStatefulWidget {
   const _CreateMailboxSheet();
 
   @override
-  ConsumerState<_CreateMailboxSheet> createState() => _CreateMailboxSheetState();
+  ConsumerState<_CreateMailboxSheet> createState() =>
+      _CreateMailboxSheetState();
 }
 
 class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
@@ -1094,7 +1572,9 @@ class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
                 labelText: 'mailboxAddress'.tr(),
                 hintText: 'alice',
                 helperText: mailHost?.isNotEmpty == true
-                    ? 'mailboxAddressHelperWithHost'.tr(namedArgs: {'host': mailHost!})
+                    ? 'mailboxAddressHelperWithHost'.tr(
+                        namedArgs: {'host': mailHost!},
+                      )
                     : 'mailboxAddressHelperNoHost'.tr(),
                 prefixIcon: const Icon(Symbols.alternate_email),
                 border: OutlineInputBorder(
@@ -1109,7 +1589,9 @@ class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'mailboxAddressPreview'.tr(namedArgs: {'address': fullAddress}),
+                  'mailboxAddressPreview'.tr(
+                    namedArgs: {'address': fullAddress},
+                  ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -1159,6 +1641,7 @@ class _CredentialsSheet extends ConsumerStatefulWidget {
 class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
   final _labelController = TextEditingController();
   final Set<String> _protocols = {'smtp', 'imap'};
+  String? _selectedMailboxId;
 
   @override
   void dispose() {
@@ -1172,11 +1655,18 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
       showSnackBar('labelRequired'.tr());
       return;
     }
+    if (_selectedMailboxId == null || _selectedMailboxId!.isEmpty) {
+      showSnackBar('mailboxRequired'.tr());
+      return;
+    }
     try {
-      final created = await ref.read(wattEngineClientProvider).createMailCredential(
-        label: label,
-        protocols: _protocols.toList(),
-      );
+      final created = await ref
+          .read(wattEngineClientProvider)
+          .createMailCredential(
+            mailboxId: _selectedMailboxId!,
+            label: label,
+            protocols: _protocols.toList(),
+          );
       ref.invalidate(mailCredentialsProvider);
       if (mounted) {
         setState(() => _labelController.clear());
@@ -1197,7 +1687,9 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
     );
     if (!confirmed) return;
     try {
-      await ref.read(wattEngineClientProvider).revokeMailCredential(credential.id);
+      await ref
+          .read(wattEngineClientProvider)
+          .revokeMailCredential(credential.id);
       ref.invalidate(mailCredentialsProvider);
       if (mounted) showSnackBar('credentialRevoked'.tr());
     } catch (error) {
@@ -1247,7 +1739,13 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
   @override
   Widget build(BuildContext context) {
     final credentials = ref.watch(mailCredentialsProvider);
+    final mailboxesAsync = ref.watch(mailboxesProvider);
+    final mailHost = ref.watch(mailHostProvider).value;
     final scheme = Theme.of(context).colorScheme;
+    final mailboxList = mailboxesAsync.maybeWhen(
+      data: (data) => data,
+      orElse: () => const <MailMailbox>[],
+    );
 
     return SheetScaffold(
       titleText: 'mailCredentials'.tr(),
@@ -1257,6 +1755,45 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            mailboxesAsync.when(
+              loading: () => const SizedBox(
+                height: 56,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+              error: (error, _) =>
+                  Text(error.toString(), style: TextStyle(color: scheme.error)),
+              data: (items) {
+                if (items.isEmpty) {
+                  return Text(
+                    'createMailboxFirst'.tr(),
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  );
+                }
+                _selectedMailboxId ??= items
+                    .firstWhere((m) => m.isDefault, orElse: () => items.first)
+                    .id;
+                return DropdownButtonFormField<String>(
+                  initialValue: _selectedMailboxId,
+                  decoration: InputDecoration(
+                    labelText: 'mailbox'.tr(),
+                    prefixIcon: const Icon(Symbols.mail),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  items: [
+                    for (final mailbox in items)
+                      DropdownMenuItem(
+                        value: mailbox.id,
+                        child: Text(mailbox.fullAddress(mailHost)),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _selectedMailboxId = value),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _labelController,
               decoration: InputDecoration(
@@ -1291,7 +1828,9 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _protocols.isNotEmpty ? _create : null,
+              onPressed: _protocols.isNotEmpty && _selectedMailboxId != null
+                  ? _create
+                  : null,
               icon: const Icon(Symbols.add, size: 18),
               label: Text('createCredential'.tr()),
             ),
@@ -1316,11 +1855,14 @@ class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final credential = items[index];
+                      final mailbox = mailboxList
+                          .where((m) => m.id == credential.mailboxId)
+                          .firstOrNull;
                       return ListTile(
                         leading: const Icon(Symbols.key),
                         title: Text(credential.label),
                         subtitle: Text(
-                          credential.protocols.map((p) => p.toUpperCase()).join(', '),
+                          '${mailbox?.fullAddress(mailHost) ?? credential.mailboxId} • ${credential.protocols.map((p) => p.toUpperCase()).join(', ')}',
                         ),
                         trailing: IconButton(
                           tooltip: 'revoke'.tr(),

@@ -1075,6 +1075,7 @@ class WattEngineClient {
     required String body,
     List<String> attachmentIds = const [],
     bool isDraft = false,
+    String contentType = 'text/plain',
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
@@ -1088,6 +1089,7 @@ class WattEngineClient {
         'body': body,
         'attachment_ids': attachmentIds,
         'is_draft': isDraft,
+        'content_type': contentType,
       },
     );
     return MailEmail.fromJson(response.data!);
@@ -1119,13 +1121,14 @@ class WattEngineClient {
   }
 
   Future<MailCredentialCreated> createMailCredential({
+    required String mailboxId,
     required String label,
     List<String> protocols = const ['smtp', 'imap'],
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
       '$kElecPostalBase/credentials',
-      data: {'label': label, 'protocols': protocols},
+      data: {'mailbox_id': mailboxId, 'label': label, 'protocols': protocols},
     );
     return MailCredentialCreated.fromJson(response.data!);
   }
@@ -2431,6 +2434,7 @@ class MailEmail {
     required this.subject,
     required this.body,
     required this.isDraft,
+    this.contentType,
     this.from,
     this.to = const [],
     this.cc = const [],
@@ -2452,6 +2456,7 @@ class MailEmail {
   final String subject;
   final String body;
   final bool isDraft;
+  final String? contentType;
   final MailRecipient? from;
   final List<MailRecipient> to;
   final List<MailRecipient> cc;
@@ -2467,13 +2472,38 @@ class MailEmail {
 
   bool get hasDeliveryStatus => deliveryStatus != null && deliveryStatus!.isNotEmpty;
 
+  bool get isHtml => contentType?.toLowerCase() == 'text/html';
+
   String get displaySubject => subject.trim().isNotEmpty ? subject : '(no subject)';
 
-  String get previewText => body.replaceAll(RegExp(r'\s+'), ' ').trim();
+  String get previewText {
+    final stripped = isHtml
+        ? body.replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll(RegExp(r'&[^;]+;'), ' ')
+        : body;
+    return stripped.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
 
   factory MailEmail.fromJson(Map<String, dynamic> json) {
     final mailboxRaw = json['mailbox'];
+    final fromAddress = nonEmptyString(json['from_address']?.toString());
+    final fromName = nonEmptyString(json['from_name']?.toString());
     final fromRaw = json['from'];
+    final recipientsRaw = json['recipients'];
+
+    MailRecipient? from;
+    if (fromRaw is Map) {
+      from = MailRecipient.fromJson(Map<String, dynamic>.from(fromRaw));
+    } else if (fromAddress != null) {
+      from = MailRecipient(address: fromAddress, name: fromName, kind: 'from');
+    }
+
+    final allRecipients = recipientsRaw is List
+        ? recipientsRaw
+            .whereType<Map>()
+            .map((item) => MailRecipient.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : <MailRecipient>[];
+
     return MailEmail(
       id: json['id']?.toString() ?? '',
       mailboxId: json['mailbox_id']?.toString() ?? '',
@@ -2483,12 +2513,11 @@ class MailEmail {
       subject: json['subject']?.toString() ?? '',
       body: json['body']?.toString() ?? '',
       isDraft: json['is_draft'] == true,
-      from: fromRaw is Map
-          ? MailRecipient.fromJson(Map<String, dynamic>.from(fromRaw))
-          : null,
-      to: _parseRecipients(json['to']),
-      cc: _parseRecipients(json['cc']),
-      bcc: _parseRecipients(json['bcc']),
+      contentType: nonEmptyString(json['content_type']?.toString()),
+      from: from,
+      to: allRecipients.where((r) => r.kind == 'to').toList(),
+      cc: allRecipients.where((r) => r.kind == 'cc').toList(),
+      bcc: allRecipients.where((r) => r.kind == 'bcc').toList(),
       attachments: parseCloudFileReferenceList(json['attachments']),
       isRead: json['is_read'] == true,
       createdAt: parseInstant(json['created_at']),
@@ -2501,18 +2530,11 @@ class MailEmail {
   }
 }
 
-List<MailRecipient> _parseRecipients(dynamic value) {
-  if (value is! List) return const [];
-  return value
-      .whereType<Map>()
-      .map((item) => MailRecipient.fromJson(Map<String, dynamic>.from(item)))
-      .toList(growable: false);
-}
-
 class MailCredential {
   const MailCredential({
     required this.id,
     required this.accountId,
+    required this.mailboxId,
     required this.label,
     required this.protocols,
     this.createdAt,
@@ -2520,6 +2542,7 @@ class MailCredential {
 
   final String id;
   final String accountId;
+  final String mailboxId;
   final String label;
   final List<String> protocols;
   final DateTime? createdAt;
@@ -2527,6 +2550,7 @@ class MailCredential {
   factory MailCredential.fromJson(Map<String, dynamic> json) => MailCredential(
     id: json['id']?.toString() ?? '',
     accountId: json['account_id']?.toString() ?? '',
+    mailboxId: json['mailbox_id']?.toString() ?? '',
     label: json['label']?.toString() ?? 'Credential',
     protocols:
         (json['protocols'] as List?)
@@ -2552,6 +2576,7 @@ class MailCredentialCreated {
           : MailCredential(
               id: '',
               accountId: '',
+              mailboxId: '',
               label: json['label']?.toString() ?? 'Credential',
               protocols: const [],
             ),

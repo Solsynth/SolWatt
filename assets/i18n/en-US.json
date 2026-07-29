@@ -455,5 +455,8 @@
   "revokeCredentialConfirm": "Revoke \"{label}\"? This will stop any mail client using it from signing in.",
   "credentialRevoked": "Credential revoked.",
   "revoke": "Revoke",
-  "labelRequired": "Label is required."
+  "labelRequired": "Label is required.",
+  "htmlContent": "HTML content",
+  "close": "Close",
+  "mailboxRequired": "Mailbox is required."
 }
