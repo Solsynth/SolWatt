@@ -172,7 +172,7 @@ class _GitHubIntegrationSheetState
             repository: repo.name,
           );
       ref.invalidate(gitHubIntegrationProvider(widget.broadId));
-      ref.invalidate(tasksProvider(widget.broadId));
+      ref.invalidate(tasksProvider);
       if (!mounted) return;
       setState(() {
         _busy = false;
@@ -198,7 +198,7 @@ class _GitHubIntegrationSheetState
           .read(wattEngineClientProvider)
           .syncGitHubIntegration(widget.broadId);
       ref.invalidate(gitHubIntegrationProvider(widget.broadId));
-      ref.invalidate(tasksProvider(widget.broadId));
+      ref.invalidate(tasksProvider);
       if (!mounted) return;
       setState(() => _busy = false);
       showSnackBar('githubSyncQueued'.tr());

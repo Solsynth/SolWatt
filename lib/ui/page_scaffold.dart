@@ -44,6 +44,7 @@ class PageScaffold extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const SizedBox(height: 24),
                         Text(
                           title,
                           style: text.headlineSmall?.copyWith(

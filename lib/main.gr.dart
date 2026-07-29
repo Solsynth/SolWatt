@@ -91,6 +91,122 @@ class GateRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [MailComposePage]
+class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
+  MailComposeRoute({Key? key, String? replyToId, List<PageRouteInfo>? children})
+    : super(
+        MailComposeRoute.name,
+        args: MailComposeRouteArgs(key: key, replyToId: replyToId),
+        rawQueryParams: {'replyTo': replyToId},
+        initialChildren: children,
+      );
+
+  static const String name = 'MailComposeRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final queryParams = data.queryParams;
+      final args = data.argsAs<MailComposeRouteArgs>(
+        orElse: () =>
+            MailComposeRouteArgs(replyToId: queryParams.optString('replyTo')),
+      );
+      return MailComposePage(key: args.key, replyToId: args.replyToId);
+    },
+  );
+}
+
+class MailComposeRouteArgs {
+  const MailComposeRouteArgs({this.key, this.replyToId});
+
+  final Key? key;
+
+  final String? replyToId;
+
+  @override
+  String toString() {
+    return 'MailComposeRouteArgs{key: $key, replyToId: $replyToId}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! MailComposeRouteArgs) return false;
+    return key == other.key && replyToId == other.replyToId;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ replyToId.hashCode;
+}
+
+/// generated route for
+/// [MailDetailPage]
+class MailDetailRoute extends PageRouteInfo<MailDetailRouteArgs> {
+  MailDetailRoute({
+    Key? key,
+    required String emailId,
+    List<PageRouteInfo>? children,
+  }) : super(
+         MailDetailRoute.name,
+         args: MailDetailRouteArgs(key: key, emailId: emailId),
+         rawPathParams: {'id': emailId},
+         initialChildren: children,
+       );
+
+  static const String name = 'MailDetailRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<MailDetailRouteArgs>(
+        orElse: () => MailDetailRouteArgs(emailId: pathParams.getString('id')),
+      );
+      return MailDetailPage(key: args.key, emailId: args.emailId);
+    },
+  );
+}
+
+class MailDetailRouteArgs {
+  const MailDetailRouteArgs({this.key, required this.emailId});
+
+  final Key? key;
+
+  final String emailId;
+
+  @override
+  String toString() {
+    return 'MailDetailRouteArgs{key: $key, emailId: $emailId}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! MailDetailRouteArgs) return false;
+    return key == other.key && emailId == other.emailId;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ emailId.hashCode;
+}
+
+/// generated route for
+/// [MailListPage]
+class MailListRoute extends PageRouteInfo<void> {
+  const MailListRoute({List<PageRouteInfo>? children})
+    : super(MailListRoute.name, initialChildren: children);
+
+  static const String name = 'MailListRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const MailListPage();
+    },
+  );
+}
+
+/// generated route for
 /// [MailPage]
 class MailRoute extends PageRouteInfo<void> {
   const MailRoute({List<PageRouteInfo>? children})

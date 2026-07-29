@@ -259,14 +259,35 @@ class TaskBoardPage extends ConsumerStatefulWidget {
 class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
   final Map<String, String?> _groupOverrides = {};
   final ValueNotifier<bool> _showTaskSidebar = ValueNotifier(false);
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
   WorkTask? _selectedTask;
+  TaskListFilters _filters = const TaskListFilters();
 
   String get _broadId => widget.broadId;
+  TaskListRequest get _taskRequest =>
+      TaskListRequest(broadId: _broadId, filters: _filters);
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     _showTaskSidebar.dispose();
     super.dispose();
+  }
+
+  void _setFilters(TaskListFilters filters) {
+    setState(() => _filters = filters);
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _setFilters(
+        _filters.copyWith(search: value, clearSearch: value.trim().isEmpty),
+      );
+    });
   }
 
   Future<void> _openTask(WorkTask task) async {
@@ -323,21 +344,21 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
               ungroup: targetGroupId == null ? true : null,
             ),
           );
-      ref.invalidate(tasksProvider(_broadId));
-      await ref.read(tasksProvider(_broadId).future);
+      ref.invalidate(tasksProvider(_taskRequest));
+      await ref.read(tasksProvider(_taskRequest).future);
       if (!mounted) return;
       setState(() => _groupOverrides.remove(task.id));
     } catch (error) {
       if (!mounted) return;
       setState(() => _groupOverrides.remove(task.id));
       showSnackBar(error.toString());
-      ref.invalidate(tasksProvider(_broadId));
+      ref.invalidate(tasksProvider(_taskRequest));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final tasks = ref.watch(tasksProvider(_broadId));
+    final tasks = ref.watch(tasksProvider(_taskRequest));
     final groups = ref.watch(taskGroupsProvider(_broadId));
     final scheme = Theme.of(context).colorScheme;
 
@@ -361,6 +382,15 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
             tooltip: 'manageGroups'.tr(),
             onPressed: () => _manageGroups(context, ref, _broadId),
           ),
+          IconButton(
+            icon: Badge(
+              isLabelVisible: !_filters.isEmpty,
+              child: const Icon(Symbols.filter_list),
+            ),
+            tooltip: 'taskFilters'.tr(),
+            onPressed: () =>
+                _showTaskFilters(context, groups.asData?.value ?? const []),
+          ),
           IconButton.filledTonal(
             icon: const Icon(Symbols.add_task),
             tooltip: 'newTask'.tr(),
@@ -383,98 +413,374 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                 onToggleComplete: () =>
                     _toggleTaskComplete(context, ref, _broadId, _selectedTask!),
               ),
-        mainContent: tasks.when(
-          loading: () => const PageLoading(),
-          error: (error, _) => PageError(
-            message: error.toString(),
-            onRetry: () {
-              ref.invalidate(tasksProvider(_broadId));
-              ref.invalidate(taskGroupsProvider(_broadId));
-            },
-          ),
-          data: (taskItems) {
-            return groups.when(
-              loading: () => const PageLoading(),
-              error: (error, _) => PageError(
-                message: error.toString(),
-                onRetry: () => ref.invalidate(taskGroupsProvider(_broadId)),
+        mainContent: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: TextField(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                decoration: InputDecoration(
+                  hintText: 'searchTasks'.tr(),
+                  prefixIcon: const Icon(Symbols.search),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'clearSearch'.tr(),
+                          icon: const Icon(Symbols.close),
+                          onPressed: () {
+                            _searchController.clear();
+                            _onSearchChanged('');
+                          },
+                        ),
+                ),
               ),
-              data: (groupItems) {
-                final effective = _effectiveTasks(taskItems);
-                if (effective.isEmpty && groupItems.isEmpty) {
-                  return EmptyState(
-                    icon: Symbols.task_alt,
-                    title: 'noTasksYet'.tr(),
-                    message: 'addTaskOrCreateGroups'.tr(),
-                    action: FilledButton.icon(
-                      onPressed: () => _taskForm(context, ref, _broadId),
-                      icon: const Icon(Symbols.add_task),
-                      label: Text('newTask'.tr()),
+            ),
+            if (!_filters.isEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    _searchController.clear();
+                    _setFilters(const TaskListFilters());
+                  },
+                  icon: const Icon(Symbols.filter_alt_off, size: 18),
+                  label: Text('clearFilters'.tr()),
+                ),
+              ),
+            Expanded(
+              child: tasks.when(
+                loading: () => const PageLoading(),
+                error: (error, _) => PageError(
+                  message: error.toString(),
+                  onRetry: () {
+                    ref.invalidate(tasksProvider(_taskRequest));
+                    ref.invalidate(taskGroupsProvider(_broadId));
+                  },
+                ),
+                data: (taskItems) {
+                  return groups.when(
+                    loading: () => const PageLoading(),
+                    error: (error, _) => PageError(
+                      message: error.toString(),
+                      onRetry: () =>
+                          ref.invalidate(taskGroupsProvider(_broadId)),
                     ),
-                  );
-                }
+                    data: (groupItems) {
+                      final effective = _effectiveTasks(taskItems);
+                      if (effective.isEmpty && groupItems.isEmpty) {
+                        return EmptyState(
+                          icon: Symbols.task_alt,
+                          title: 'noTasksYet'.tr(),
+                          message: 'addTaskOrCreateGroups'.tr(),
+                          action: FilledButton.icon(
+                            onPressed: () => _taskForm(context, ref, _broadId),
+                            icon: const Icon(Symbols.add_task),
+                            label: Text('newTask'.tr()),
+                          ),
+                        );
+                      }
 
-                final columns = _buildColumns(groupItems, effective);
-                if (groupItems.isEmpty) {
-                  final ungrouped = columns.single;
-                  return Center(
-                    child: SizedBox(
-                      width: 720,
-                      height: double.infinity,
-                      child: ListView.separated(
+                      final columns = _buildColumns(groupItems, effective);
+                      if (groupItems.isEmpty) {
+                        final ungrouped = columns.single;
+                        return Center(
+                          child: SizedBox(
+                            width: 720,
+                            height: double.infinity,
+                            child: ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                12,
+                                16,
+                                16,
+                              ),
+                              itemCount: ungrouped.tasks.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final task = ungrouped.tasks[index];
+                                return _TaskTile(
+                                  task: task,
+                                  onOpen: () => _openTask(task),
+                                  onToggleComplete: () => _toggleTaskComplete(
+                                    context,
+                                    ref,
+                                    _broadId,
+                                    task,
+                                  ),
+                                  onDelete: () =>
+                                      _deleteTask(context, ref, _broadId, task),
+                                );
+                              },
+                            ),
+                          ),
+                        );
+                      }
+
+                      return ListView.separated(
+                        scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                        itemCount: ungrouped.tasks.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemCount: columns.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
                         itemBuilder: (context, index) {
-                          final task = ungrouped.tasks[index];
-                          return _TaskTile(
-                            task: task,
-                            onOpen: () => _openTask(task),
-                            onToggleComplete: () => _toggleTaskComplete(
+                          final column = columns[index];
+                          return _TaskGroupColumn(
+                            title: column.title,
+                            groupId: column.groupId,
+                            isUngrouped: column.isUngrouped,
+                            tasks: column.tasks,
+                            onOpenTask: _openTask,
+                            onToggleComplete: (task) => _toggleTaskComplete(
                               context,
                               ref,
                               _broadId,
                               task,
                             ),
-                            onDelete: () =>
+                            onDeleteTask: (task) =>
                                 _deleteTask(context, ref, _broadId, task),
+                            onMoveTask: (task) =>
+                                _onMoveTask(task, column.groupId),
+                            onAddTask: () => _taskForm(
+                              context,
+                              ref,
+                              _broadId,
+                              initialGroupId: column.groupId,
+                            ),
                           );
                         },
-                      ),
-                    ),
+                      );
+                    },
                   );
-                }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                return ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  itemCount: columns.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final column = columns[index];
-                    return _TaskGroupColumn(
-                      title: column.title,
-                      groupId: column.groupId,
-                      isUngrouped: column.isUngrouped,
-                      tasks: column.tasks,
-                      onOpenTask: _openTask,
-                      onToggleComplete: (task) =>
-                          _toggleTaskComplete(context, ref, _broadId, task),
-                      onDeleteTask: (task) =>
-                          _deleteTask(context, ref, _broadId, task),
-                      onMoveTask: (task) => _onMoveTask(task, column.groupId),
-                      onAddTask: () => _taskForm(
-                        context,
-                        ref,
-                        _broadId,
-                        initialGroupId: column.groupId,
-                      ),
-                    );
-                  },
-                );
-              },
-            );
-          },
+  Future<void> _showTaskFilters(
+    BuildContext context,
+    List<TaskGroup> groups,
+  ) async {
+    final filters = await showModalBottomSheet<TaskListFilters>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TaskFiltersSheet(filters: _filters, groups: groups),
+    );
+    if (filters != null && mounted) _setFilters(filters);
+  }
+}
+
+class _TaskFiltersSheet extends StatefulWidget {
+  const _TaskFiltersSheet({required this.filters, required this.groups});
+
+  final TaskListFilters filters;
+  final List<TaskGroup> groups;
+
+  @override
+  State<_TaskFiltersSheet> createState() => _TaskFiltersSheetState();
+}
+
+class _TaskFiltersSheetState extends State<_TaskFiltersSheet> {
+  static const _anyGroup = '__any_group__';
+  static const _ungrouped = '__ungrouped__';
+
+  late final TextEditingController _tag;
+  late final TextEditingController _assigneeAccountId;
+  late TaskStatus? _status;
+  late int? _priority;
+  late String _group;
+  late DateTime? _deadlineFrom;
+  late DateTime? _deadlineTo;
+
+  @override
+  void initState() {
+    super.initState();
+    final filters = widget.filters;
+    _tag = TextEditingController(text: filters.tag ?? '');
+    _assigneeAccountId = TextEditingController(
+      text: filters.assigneeAccountId ?? '',
+    );
+    _status = filters.status;
+    _priority = filters.priority;
+    _group = filters.ungrouped == true
+        ? _ungrouped
+        : filters.groupId ?? _anyGroup;
+    _deadlineFrom = filters.deadlineFrom;
+    _deadlineTo = filters.deadlineTo;
+  }
+
+  @override
+  void dispose() {
+    _tag.dispose();
+    _assigneeAccountId.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate({required bool from}) async {
+    final initial = (from ? _deadlineFrom : _deadlineTo) ?? DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (date == null || !mounted) return;
+    setState(() {
+      if (from) {
+        _deadlineFrom = DateTime(date.year, date.month, date.day);
+      } else {
+        _deadlineTo = DateTime(date.year, date.month, date.day, 23, 59, 59);
+      }
+    });
+  }
+
+  void _apply() {
+    Navigator.pop(
+      context,
+      TaskListFilters(
+        search: widget.filters.search,
+        status: _status,
+        priority: _priority,
+        groupId: _group == _anyGroup || _group == _ungrouped ? null : _group,
+        ungrouped: _group == _ungrouped ? true : null,
+        assigneeAccountId: _assigneeAccountId.text.trim().isEmpty
+            ? null
+            : _assigneeAccountId.text.trim(),
+        tag: _tag.text.trim().isEmpty ? null : _tag.text.trim(),
+        deadlineFrom: _deadlineFrom,
+        deadlineTo: _deadlineTo,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SheetScaffold(
+      titleText: 'filterTasks'.tr(),
+      heightFactor: 0.78,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DropdownButtonFormField<TaskStatus?>(
+              initialValue: _status,
+              decoration: InputDecoration(labelText: 'status'.tr()),
+              items: [
+                DropdownMenuItem(value: null, child: Text('anyStatus'.tr())),
+                DropdownMenuItem(
+                  value: TaskStatus.open,
+                  child: Text('open'.tr()),
+                ),
+                DropdownMenuItem(
+                  value: TaskStatus.completed,
+                  child: Text('completed'.tr()),
+                ),
+                DropdownMenuItem(
+                  value: TaskStatus.skipped,
+                  child: Text('skipped'.tr()),
+                ),
+                DropdownMenuItem(
+                  value: TaskStatus.duplicated,
+                  child: Text('duplicated'.tr()),
+                ),
+              ],
+              onChanged: (value) => setState(() => _status = value),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              initialValue: _priority,
+              decoration: InputDecoration(labelText: 'priority'.tr()),
+              items: [
+                DropdownMenuItem(value: null, child: Text('anyPriority'.tr())),
+                DropdownMenuItem(value: 0, child: Text('normal'.tr())),
+                DropdownMenuItem(value: 1, child: Text('high'.tr())),
+                DropdownMenuItem(value: 2, child: Text('urgent'.tr())),
+              ],
+              onChanged: (value) => setState(() => _priority = value),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _group,
+              decoration: InputDecoration(labelText: 'group'.tr()),
+              items: [
+                DropdownMenuItem(
+                  value: _anyGroup,
+                  child: Text('anyGroup'.tr()),
+                ),
+                DropdownMenuItem(
+                  value: _ungrouped,
+                  child: Text('ungrouped'.tr()),
+                ),
+                for (final group in widget.groups)
+                  DropdownMenuItem(value: group.id, child: Text(group.name)),
+              ],
+              onChanged: (value) => setState(() => _group = value ?? _anyGroup),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _assigneeAccountId,
+              decoration: InputDecoration(
+                labelText: 'assigneeAccountId'.tr(),
+                prefixIcon: Icon(Symbols.person),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _tag,
+              decoration: InputDecoration(
+                labelText: 'tags'.tr(),
+                prefixIcon: Icon(Symbols.label),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('deadline'.tr(), style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickDate(from: true),
+                    icon: const Icon(Symbols.calendar_today, size: 18),
+                    label: Text(
+                      _deadlineFrom == null
+                          ? 'deadlineFrom'.tr()
+                          : _formatDeadline(_deadlineFrom!),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickDate(from: false),
+                    icon: const Icon(Symbols.calendar_today, size: 18),
+                    label: Text(
+                      _deadlineTo == null
+                          ? 'deadlineTo'.tr()
+                          : _formatDeadline(_deadlineTo!),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_deadlineFrom != null || _deadlineTo != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => setState(() {
+                    _deadlineFrom = null;
+                    _deadlineTo = null;
+                  }),
+                  child: Text('clearDates'.tr()),
+                ),
+              ),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: _apply, child: Text('applyFilters'.tr())),
+          ],
         ),
       ),
     );
@@ -734,7 +1040,7 @@ Future<void> _toggleTaskComplete(
             groupId: task.groupId,
           ),
         );
-    ref.invalidate(tasksProvider(broadId));
+    ref.invalidate(tasksProvider);
     showSnackBar(complete ? 'taskCompleted'.tr() : 'taskReopened'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -757,7 +1063,7 @@ Future<void> _deleteTask(
   if (!confirmed) return;
   try {
     await ref.read(wattEngineClientProvider).deleteTask(task.id);
-    ref.invalidate(tasksProvider(broadId));
+    ref.invalidate(tasksProvider);
     showSnackBar('taskDeleted'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -1607,7 +1913,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
     try {
       await ref.read(wattEngineClientProvider).deleteTaskGroup(group.id);
       ref.invalidate(taskGroupsProvider(widget.broadId));
-      ref.invalidate(tasksProvider(widget.broadId));
+      ref.invalidate(tasksProvider);
       showSnackBar('groupDeleted'.tr());
     } catch (error) {
       showSnackBar(error.toString());
@@ -1762,7 +2068,7 @@ Future<void> _taskForm(
         await client.setTaskAssignees(task.id, result.assigneeAccountIds);
       }
     }
-    ref.invalidate(tasksProvider(broadId));
+    ref.invalidate(tasksProvider);
     showSnackBar(task == null ? 'taskCreated'.tr() : 'taskUpdated'.tr());
   } catch (error) {
     showSnackBar(error.toString());

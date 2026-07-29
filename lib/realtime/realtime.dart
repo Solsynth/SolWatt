@@ -170,7 +170,7 @@ class RealtimeBridge {
     _taskDebounce[broadId] = Timer(const Duration(milliseconds: 250), () {
       _taskDebounce.remove(broadId);
       _log.info('Refreshing tasks for board $broadId');
-      _ref.invalidate(tasksProvider(broadId));
+      _ref.invalidate(tasksProvider);
       _ref.invalidate(taskGroupsProvider(broadId));
     });
   }

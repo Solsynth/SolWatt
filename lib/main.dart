@@ -30,6 +30,9 @@ final globalOverlay = GlobalKey<OverlayState>();
 /// Matches the generated [GateRoute] name for navigation outside typed routes.
 const gateRouteName = 'GateRoute';
 
+BorderRadius? _workspaceAvatarBorderRadius(Workspace? workspace) =>
+    workspace?.isIndividual == true ? BorderRadius.circular(999) : null;
+
 Future<void> main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
@@ -118,8 +121,15 @@ class AppRouter extends RootStackRouter {
       children: [
         AutoRoute(page: BoardsRoute.page, initial: true),
         AutoRoute(page: FilesRoute.page),
+        AutoRoute(
+          page: MailRoute.page,
+          children: [
+            AutoRoute(page: MailListRoute.page, path: '', initial: true),
+            AutoRoute(page: MailComposeRoute.page, path: 'compose'),
+            AutoRoute(page: MailDetailRoute.page, path: ':id'),
+          ],
+        ),
         AutoRoute(page: FlywheelRoute.page),
-        AutoRoute(page: MailRoute.page),
         AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
         AutoRoute(page: SettingsRoute.page),
@@ -184,8 +194,8 @@ class AppShellPage extends ConsumerWidget {
           routes: const [
             BoardsRoute(),
             FilesRoute(),
-            FlywheelRoute(),
             MailRoute(),
+            FlywheelRoute(),
             ProfileRoute(),
             SettingsRoute(),
           ],
@@ -275,48 +285,70 @@ class _NavigationShell extends ConsumerWidget {
       ),
       bottomNavigationBar: wide
           ? null
-          : NavigationBar(
-              selectedIndex: mobileSelectedIndex,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
-              onDestinationSelected: (index) {
-                if (index == 0) {
-                  _scaffoldKey.currentState?.openDrawer();
-                  return;
-                }
-                onSelected(switch (index) {
-                  1 => 0,
-                  2 => 1,
-                  3 => 3,
-                  4 => _settingsTabIndex,
-                  _ => selectedIndex,
-                });
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: const Icon(Symbols.menu),
-                  label: MaterialLocalizations.of(context).openAppDrawerTooltip,
-                ),
-                NavigationDestination(
-                  icon: const Icon(Symbols.view_kanban),
-                  selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
-                  label: 'boards'.tr(),
-                ),
-                NavigationDestination(
-                  icon: const Icon(Symbols.folder),
-                  selectedIcon: const Icon(Symbols.folder, fill: 1),
-                  label: 'files'.tr(),
-                ),
-                NavigationDestination(
-                  icon: const Icon(Symbols.mail),
-                  selectedIcon: const Icon(Symbols.mail, fill: 1),
-                  label: 'mail'.tr(),
-                ),
-                NavigationDestination(
-                  icon: const Icon(Symbols.settings),
-                  selectedIcon: const Icon(Symbols.settings, fill: 1),
-                  label: 'settings'.tr(),
-                ),
-              ],
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              child: NavigationBar(
+                height: 56,
+                selectedIndex: mobileSelectedIndex,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+                onDestinationSelected: (index) {
+                  if (index == 0) {
+                    _scaffoldKey.currentState?.openDrawer();
+                    return;
+                  }
+                  onSelected(switch (index) {
+                    1 => 0,
+                    2 => 1,
+                    3 => 3,
+                    4 => _settingsTabIndex,
+                    _ => selectedIndex,
+                  });
+                },
+                destinations: [
+                  NavigationDestination(
+                    icon: CloudFileAvatar(
+                      file: workspace?.picture,
+                      workspaceId: workspace?.id,
+                      fallbackIcon: Symbols.workspaces,
+                      size: 28,
+                      borderRadius: _workspaceAvatarBorderRadius(workspace),
+                      assumeImage: true,
+                    ),
+                    selectedIcon: CloudFileAvatar(
+                      file: workspace?.picture,
+                      workspaceId: workspace?.id,
+                      fallbackIcon: Symbols.workspaces,
+                      size: 28,
+                      selected: true,
+                      borderRadius: _workspaceAvatarBorderRadius(workspace),
+                      assumeImage: true,
+                    ),
+                    label: MaterialLocalizations.of(
+                      context,
+                    ).openAppDrawerTooltip,
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Symbols.view_kanban),
+                    selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
+                    label: 'boards'.tr(),
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Symbols.folder),
+                    selectedIcon: const Icon(Symbols.folder, fill: 1),
+                    label: 'files'.tr(),
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Symbols.mail),
+                    selectedIcon: const Icon(Symbols.mail, fill: 1),
+                    label: 'mail'.tr(),
+                  ),
+                  NavigationDestination(
+                    icon: const Icon(Symbols.settings),
+                    selectedIcon: const Icon(Symbols.settings, fill: 1),
+                    label: 'settings'.tr(),
+                  ),
+                ],
+              ),
             ),
     );
   }
@@ -367,7 +399,7 @@ class _MobileNavigationDrawer extends StatelessWidget {
                         fallbackIcon: Symbols.workspaces,
                         size: 28,
                         selected: true,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: _workspaceAvatarBorderRadius(workspace),
                         assumeImage: true,
                       ),
                       const SizedBox(width: 12),
@@ -405,15 +437,15 @@ class _MobileNavigationDrawer extends StatelessWidget {
             selectedIcon: const Icon(Symbols.folder, fill: 1),
             label: Text('files'.tr()),
           ),
-          const NavigationDrawerDestination(
-            icon: Icon(Symbols.sync),
-            selectedIcon: Icon(Symbols.sync, fill: 1),
-            label: Text('Flywheel'),
-          ),
           NavigationDrawerDestination(
             icon: const Icon(Symbols.mail),
             selectedIcon: const Icon(Symbols.mail, fill: 1),
             label: Text('mail'.tr()),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Symbols.sync),
+            selectedIcon: Icon(Symbols.sync, fill: 1),
+            label: Text('Flywheel'),
           ),
           NavigationDrawerDestination(
             icon: const Icon(Symbols.person),
@@ -499,7 +531,7 @@ class _DesktopNavigation extends ConsumerWidget {
                           fallbackIcon: Symbols.workspaces,
                           size: 22,
                           selected: selectedIndex == _profileTabIndex,
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: _workspaceAvatarBorderRadius(workspace),
                           assumeImage: true,
                         ),
                         const SizedBox(height: 6),
@@ -559,15 +591,15 @@ class _DesktopNavigation extends ConsumerWidget {
             selectedIcon: const Icon(Symbols.folder, fill: 1),
             label: Text('files'.tr()),
           ),
-          const NavigationRailDestination(
-            icon: Icon(Symbols.sync),
-            selectedIcon: Icon(Symbols.sync, fill: 1),
-            label: Text('Flywheel'),
-          ),
           NavigationRailDestination(
             icon: const Icon(Symbols.mail),
             selectedIcon: const Icon(Symbols.mail, fill: 1),
             label: Text('mail'.tr()),
+          ),
+          const NavigationRailDestination(
+            icon: Icon(Symbols.sync),
+            selectedIcon: Icon(Symbols.sync, fill: 1),
+            label: Text('Flywheel'),
           ),
         ],
       ),
@@ -772,145 +804,113 @@ class ProfilePage extends ConsumerWidget {
         onPressed: () {
           ref.invalidate(solWattProfileProvider);
           ref.invalidate(userInfoProvider);
-          ref.invalidate(bundledProOverviewProvider);
           ref.invalidate(workspacesProvider);
         },
         icon: const Icon(Symbols.refresh),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Card(
-            child: profile.when(
-              loading: () => ListTile(
-                leading: const SizedBox.square(
-                  dimension: 48,
-                  child: Center(
-                    child: SizedBox.square(
-                      dimension: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Card(
+                  child: profile.when(
+                    loading: () => ListTile(
+                      leading: const SizedBox.square(
+                        dimension: 48,
+                        child: Center(
+                          child: SizedBox.square(
+                            dimension: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      ),
+                      title: Text('loadingProfile'.tr()),
                     ),
+                    error: (_, _) => ListTile(
+                      leading: const IconBadge(icon: Symbols.person, size: 48),
+                      title: Text('solarNetworkAccount'.tr()),
+                    ),
+                    data: (user) {
+                      if (user == null) return const SizedBox.shrink();
+                      final solWatt = ref.watch(solWattProfileProvider).value;
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        leading: CircleAvatar(
+                          radius: 26,
+                          backgroundColor: scheme.primaryContainer,
+                          foregroundColor: scheme.onPrimaryContainer,
+                          foregroundImage: user.solWattAvatarUrl == null
+                              ? null
+                              : NetworkImage(user.solWattAvatarUrl!),
+                          child: Text(
+                            _initials(user.solWattDisplayName),
+                            style: text.titleMedium?.copyWith(
+                              color: scheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                        title: Text(user.solWattDisplayName),
+                        subtitle: Text(
+                          solWatt == null
+                              ? '@${user.name}'
+                              : '@${user.name} · ${solWatt.perkTierName} '
+                                    '(perk ${solWatt.perkLevel})',
+                        ),
+                      );
+                    },
                   ),
                 ),
-                title: Text('loadingProfile'.tr()),
-              ),
-              error: (_, _) => ListTile(
-                leading: const IconBadge(icon: Symbols.person, size: 48),
-                title: Text('solarNetworkAccount'.tr()),
-              ),
-              data: (user) {
-                if (user == null) return const SizedBox.shrink();
-                final solWatt = ref.watch(solWattProfileProvider).value;
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                const SizedBox(height: 24),
+                SectionHeader(
+                  title: 'yourWorkspaces'.tr(),
+                  trailing: FilledButton.tonalIcon(
+                    onPressed: () => createWorkspaceAction(context, ref),
+                    icon: const Icon(Symbols.add, size: 18),
+                    label: Text('new'.tr()),
                   ),
-                  leading: CircleAvatar(
-                    radius: 26,
-                    backgroundColor: scheme.primaryContainer,
-                    foregroundColor: scheme.onPrimaryContainer,
-                    foregroundImage: user.solWattAvatarUrl == null
-                        ? null
-                        : NetworkImage(user.solWattAvatarUrl!),
-                    child: Text(
-                      _initials(user.solWattDisplayName),
-                      style: text.titleMedium?.copyWith(
-                        color: scheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                  title: Text(user.solWattDisplayName),
-                  subtitle: Text(
-                    solWatt == null
-                        ? '@${user.name}'
-                        : '@${user.name} · ${solWatt.perkTierName} '
-                              '(perk ${solWatt.perkLevel})',
-                  ),
-                );
-              },
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          const _PersonalWorkspacePlanCard(),
-          const SizedBox(height: 24),
-          SectionHeader(
-            title: 'yourWorkspaces'.tr(),
-            trailing: FilledButton.tonalIcon(
-              onPressed: () => createWorkspaceAction(context, ref),
-              icon: const Icon(Symbols.add, size: 18),
-              label: Text('new'.tr()),
-            ),
-          ),
-          Expanded(
+          SliverToBoxAdapter(
             child: WorkspaceList(
               manageActions: true,
+              scrollable: false,
               onActivate: (workspace) async {
                 await activateWorkspaceAction(ref, workspace);
               },
             ),
           ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () async {
-                await clearSelectedWorkspace(ref.read(secureStorageProvider));
-                invalidateWorkspaceScope(ref);
-                if (!context.mounted) return;
-                context.router.replaceAll([const PageRouteInfo(gateRouteName)]);
-              },
-              icon: const Icon(Symbols.logout, size: 18),
-              label: Text('leaveWorkspace'.tr()),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    await clearSelectedWorkspace(
+                      ref.read(secureStorageProvider),
+                    );
+                    invalidateWorkspaceScope(ref);
+                    if (!context.mounted) return;
+                    context.router.replaceAll([
+                      const PageRouteInfo(gateRouteName),
+                    ]);
+                  },
+                  icon: const Icon(Symbols.logout, size: 18),
+                  label: Text('leaveWorkspace'.tr()),
+                ),
+              ),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PersonalWorkspacePlanCard extends ConsumerWidget {
-  const _PersonalWorkspacePlanCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final workspaces = ref.watch(workspacesProvider);
-    final profile = ref.watch(solWattProfileProvider).value;
-    final scheme = Theme.of(context).colorScheme;
-
-    return workspaces.when(
-      loading: () => Card(child: ListTile(title: Text('loading'.tr()))),
-      error: (error, _) => Card(
-        child: ListTile(
-          leading: Icon(Symbols.error, color: scheme.error),
-          title: Text('personalWorkspace'.tr()),
-          subtitle: Text(wattApiErrorMessage(error)),
-        ),
-      ),
-      data: (items) {
-        final personal = items.where((item) => item.isIndividual).firstOrNull;
-        final eligible = profile?.canAssignBundledPro ?? false;
-        return Card(
-          child: ListTile(
-            leading: Icon(Symbols.person, color: scheme.primary),
-            title: Text('personalWorkspace'.tr()),
-            subtitle: Text(
-              personal == null
-                  ? 'personalWorkspaceProvisioning'.tr()
-                  : eligible && personal.isBundled
-                  ? 'bundledProAutomatic'.tr(namedArgs: {'name': personal.name})
-                  : 'bundledProPersonalEligibility'.tr(),
-            ),
-            trailing: personal == null
-                ? null
-                : TextButton(
-                    onPressed: () => showWorkspaceQuota(context, ref, personal),
-                    child: Text('viewPlan'.tr()),
-                  ),
-          ),
-        );
-      },
     );
   }
 }

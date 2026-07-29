@@ -796,8 +796,14 @@ class WattEngineClient {
     }
   }
 
-  Future<List<WorkTask>> listTasks(String broadId) async {
-    final response = await _get<List<dynamic>>('/ideask/broads/$broadId/tasks');
+  Future<List<WorkTask>> listTasks(
+    String broadId, {
+    TaskListFilters filters = const TaskListFilters(),
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/broads/$broadId/tasks',
+      queryParameters: filters.toQueryParameters(),
+    );
     return (response.data ?? const [])
         .whereType<Map>()
         .map((item) => WorkTask.fromJson(Map<String, dynamic>.from(item)))
@@ -2159,6 +2165,143 @@ class TaskAssignee {
   }
 }
 
+/// Server-side filters accepted by a board's task list endpoint.
+class TaskListFilters {
+  const TaskListFilters({
+    this.search,
+    this.status,
+    this.priority,
+    this.groupId,
+    this.ungrouped,
+    this.assigneeAccountId,
+    this.tag,
+    this.deadlineFrom,
+    this.deadlineTo,
+  }) : assert(groupId == null || ungrouped != true);
+
+  final String? search;
+  final TaskStatus? status;
+  final int? priority;
+  final String? groupId;
+  final bool? ungrouped;
+  final String? assigneeAccountId;
+  final String? tag;
+  final DateTime? deadlineFrom;
+  final DateTime? deadlineTo;
+
+  bool get isEmpty =>
+      search == null &&
+      status == null &&
+      priority == null &&
+      groupId == null &&
+      ungrouped != true &&
+      assigneeAccountId == null &&
+      tag == null &&
+      deadlineFrom == null &&
+      deadlineTo == null;
+
+  Map<String, dynamic> toQueryParameters() => {
+    if (search?.trim().isNotEmpty == true) 'search': search!.trim(),
+    if (status != null) 'status': status!.apiValue,
+    if (priority != null) 'priority': priority,
+    if (groupId?.isNotEmpty == true) 'groupId': groupId,
+    if (ungrouped == true) 'ungrouped': true,
+    if (assigneeAccountId?.trim().isNotEmpty == true)
+      'assigneeAccountId': assigneeAccountId!.trim(),
+    if (tag?.trim().isNotEmpty == true) 'tag': tag!.trim(),
+    if (deadlineFrom != null)
+      'deadlineFrom': deadlineFrom!.toUtc().toIso8601String(),
+    if (deadlineTo != null) 'deadlineTo': deadlineTo!.toUtc().toIso8601String(),
+  };
+
+  TaskListFilters copyWith({
+    String? search,
+    TaskStatus? status,
+    int? priority,
+    String? groupId,
+    bool? ungrouped,
+    String? assigneeAccountId,
+    String? tag,
+    DateTime? deadlineFrom,
+    DateTime? deadlineTo,
+    bool clearSearch = false,
+    bool clearStatus = false,
+    bool clearPriority = false,
+    bool clearGroup = false,
+    bool clearAssigneeAccountId = false,
+    bool clearTag = false,
+    bool clearDeadlineFrom = false,
+    bool clearDeadlineTo = false,
+  }) => TaskListFilters(
+    search: clearSearch ? null : search ?? this.search,
+    status: clearStatus ? null : status ?? this.status,
+    priority: clearPriority ? null : priority ?? this.priority,
+    groupId: clearGroup ? null : groupId ?? this.groupId,
+    ungrouped: clearGroup ? null : ungrouped ?? this.ungrouped,
+    assigneeAccountId: clearAssigneeAccountId
+        ? null
+        : assigneeAccountId ?? this.assigneeAccountId,
+    tag: clearTag ? null : tag ?? this.tag,
+    deadlineFrom: clearDeadlineFrom ? null : deadlineFrom ?? this.deadlineFrom,
+    deadlineTo: clearDeadlineTo ? null : deadlineTo ?? this.deadlineTo,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is TaskListFilters &&
+      other.search == search &&
+      other.status == status &&
+      other.priority == priority &&
+      other.groupId == groupId &&
+      other.ungrouped == ungrouped &&
+      other.assigneeAccountId == assigneeAccountId &&
+      other.tag == tag &&
+      other.deadlineFrom == deadlineFrom &&
+      other.deadlineTo == deadlineTo;
+
+  @override
+  int get hashCode => Object.hash(
+    search,
+    status,
+    priority,
+    groupId,
+    ungrouped,
+    assigneeAccountId,
+    tag,
+    deadlineFrom,
+    deadlineTo,
+  );
+}
+
+enum TaskStatus {
+  open('Open'),
+  completed('Completed'),
+  skipped('Skipped'),
+  duplicated('Duplicated');
+
+  const TaskStatus(this.apiValue);
+  final String apiValue;
+}
+
+class TaskListRequest {
+  const TaskListRequest({
+    required this.broadId,
+    this.filters = const TaskListFilters(),
+  });
+
+  final String broadId;
+  final TaskListFilters filters;
+
+  @override
+  bool operator ==(Object other) =>
+      other is TaskListRequest &&
+      other.broadId == broadId &&
+      other.filters == filters;
+
+  @override
+  int get hashCode => Object.hash(broadId, filters);
+}
+
 class WorkTask {
   const WorkTask({
     required this.id,
@@ -3107,9 +3250,10 @@ final broadsProvider = FutureProvider<List<Broad>>((ref) async {
       .toList();
 });
 
-final tasksProvider = FutureProvider.family<List<WorkTask>, String>(
-  (ref, broadId) async =>
-      ref.watch(wattEngineClientProvider).listTasks(broadId),
+final tasksProvider = FutureProvider.family<List<WorkTask>, TaskListRequest>(
+  (ref, request) async => ref
+      .watch(wattEngineClientProvider)
+      .listTasks(request.broadId, filters: request.filters),
 );
 
 final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(

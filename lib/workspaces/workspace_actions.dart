@@ -1271,11 +1271,13 @@ class WorkspaceList extends ConsumerWidget {
     required this.onActivate,
     this.manageActions = false,
     this.emptyMessage,
+    this.scrollable = true,
   });
 
   final Future<void> Function(Workspace workspace) onActivate;
   final bool manageActions;
   final String? emptyMessage;
+  final bool scrollable;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1304,205 +1306,218 @@ class WorkspaceList extends ConsumerWidget {
           );
         }
 
+        Widget itemBuilder(BuildContext context, int index) {
+          final workspace = items[index];
+          final isActive = selected?.id == workspace.id;
+          final planLabel = workspace.isIndividual
+              ? '${'personalWorkspace'.tr()} · ${workspace.planName}'
+              : '${'organization'.tr()} · ${workspace.planName}';
+          final background = workspace.background;
+          final backgroundPreview = background == null
+              ? null
+              : foundation.cloudFileImageProvider(
+                  serverUrl: kSolarNetworkApiBase,
+                  id: background.id,
+                  storageUrl: background.storageUrl,
+                  workspaceId: workspace.id,
+                );
+
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            color: isActive
+                ? scheme.primaryContainer.withValues(alpha: 0.55)
+                : scheme.surfaceContainerLow,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: isActive
+                  ? BorderSide(color: scheme.primary.withValues(alpha: 0.45))
+                  : BorderSide.none,
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => onActivate(workspace),
+              child: SizedBox(
+                height: 60,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (backgroundPreview != null)
+                      Image(
+                        image: backgroundPreview,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    if (backgroundPreview != null)
+                      ColoredBox(color: scheme.surface.withValues(alpha: 0.82)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(1.5),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                CloudFileAvatar(
+                                  file: workspace.picture,
+                                  workspaceId: workspace.id,
+                                  fallbackIcon: Symbols.workspaces,
+                                  size: 40,
+                                  selected: isActive,
+                                  borderRadius: workspace.isIndividual
+                                      ? BorderRadius.circular(999)
+                                      : null,
+                                  assumeImage: true,
+                                ),
+                                if (isActive)
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: scheme.surface,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Symbols.check_circle,
+                                        size: 16,
+                                        color: scheme.primary,
+                                        fill: 1,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  workspace.name,
+                                  style: text.titleMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  planLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (manageActions)
+                            PopupMenuButton<String>(
+                              tooltip: 'workspaceActions'.tr(),
+                              icon: Icon(
+                                Symbols.more_vert,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              onSelected: (value) {
+                                switch (value) {
+                                  case 'quota':
+                                    showWorkspaceQuota(context, ref, workspace);
+                                  case 'members':
+                                    showWorkspaceMembers(context, workspace);
+                                  case 'edit':
+                                    editWorkspaceAction(
+                                      context,
+                                      ref,
+                                      workspace,
+                                    );
+                                  case 'delete':
+                                    deleteWorkspaceAction(
+                                      context,
+                                      ref,
+                                      workspace,
+                                    );
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: 'quota',
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(
+                                      Symbols.workspace_premium,
+                                    ),
+                                    title: Text('planAndQuotas'.tr()),
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'members',
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(Symbols.group),
+                                    title: Text('manageMembers'.tr()),
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(Symbols.edit),
+                                    title: Text('edit'.tr()),
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(
+                                      Symbols.delete,
+                                      color: scheme.error,
+                                    ),
+                                    title: Text(
+                                      'delete'.tr(),
+                                      style: TextStyle(color: scheme.error),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Icon(
+                              Symbols.chevron_right,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (!scrollable) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              children: [
+                for (var index = 0; index < items.length; index++) ...[
+                  itemBuilder(context, index),
+                  if (index < items.length - 1) const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          );
+        }
+
         return ListView.separated(
           padding: const EdgeInsets.only(bottom: 16),
           itemCount: items.length,
           separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final workspace = items[index];
-            final isActive = selected?.id == workspace.id;
-            final planLabel = workspace.isIndividual
-                ? '${'personalWorkspace'.tr()} · ${workspace.planName}'
-                : '${'organization'.tr()} · ${workspace.planName}';
-            final background = workspace.background;
-            final backgroundPreview = background == null
-                ? null
-                : foundation.cloudFileImageProvider(
-                    serverUrl: kSolarNetworkApiBase,
-                    id: background.id,
-                    storageUrl: background.storageUrl,
-                    workspaceId: workspace.id,
-                  );
-
-            return Card(
-              clipBehavior: Clip.antiAlias,
-              color: isActive
-                  ? scheme.primaryContainer.withValues(alpha: 0.55)
-                  : scheme.surfaceContainerLow,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: isActive
-                    ? BorderSide(color: scheme.primary.withValues(alpha: 0.45))
-                    : BorderSide.none,
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onActivate(workspace),
-                child: SizedBox(
-                  height: 60,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (backgroundPreview != null)
-                        Image(
-                          image: backgroundPreview,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                        ),
-                      if (backgroundPreview != null)
-                        ColoredBox(
-                          color: scheme.surface.withValues(alpha: 0.82),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(1.5),
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  CloudFileAvatar(
-                                    file: workspace.picture,
-                                    workspaceId: workspace.id,
-                                    fallbackIcon: Symbols.workspaces,
-                                    size: 40,
-                                    selected: isActive,
-                                    assumeImage: true,
-                                  ),
-                                  if (isActive)
-                                    Positioned(
-                                      right: -2,
-                                      bottom: -2,
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: scheme.surface,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Symbols.check_circle,
-                                          size: 16,
-                                          color: scheme.primary,
-                                          fill: 1,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    workspace.name,
-                                    style: text.titleMedium,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    planLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: text.bodySmall?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (manageActions)
-                              PopupMenuButton<String>(
-                                tooltip: 'workspaceActions'.tr(),
-                                icon: Icon(
-                                  Symbols.more_vert,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                                onSelected: (value) {
-                                  switch (value) {
-                                    case 'quota':
-                                      showWorkspaceQuota(
-                                        context,
-                                        ref,
-                                        workspace,
-                                      );
-                                    case 'members':
-                                      showWorkspaceMembers(context, workspace);
-                                    case 'edit':
-                                      editWorkspaceAction(
-                                        context,
-                                        ref,
-                                        workspace,
-                                      );
-                                    case 'delete':
-                                      deleteWorkspaceAction(
-                                        context,
-                                        ref,
-                                        workspace,
-                                      );
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    value: 'quota',
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(
-                                        Symbols.workspace_premium,
-                                      ),
-                                      title: Text('planAndQuotas'.tr()),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'members',
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(Symbols.group),
-                                      title: Text('manageMembers'.tr()),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(Symbols.edit),
-                                      title: Text('edit'.tr()),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: ListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: Icon(
-                                        Symbols.delete,
-                                        color: scheme.error,
-                                      ),
-                                      title: Text(
-                                        'delete'.tr(),
-                                        style: TextStyle(color: scheme.error),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            else
-                              Icon(
-                                Symbols.chevron_right,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+          itemBuilder: itemBuilder,
         );
       },
     );
