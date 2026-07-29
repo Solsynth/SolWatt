@@ -447,54 +447,62 @@ class _FilesPageState extends ConsumerState<FilesPage> {
             color: scheme.surface,
             child: Align(
               alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                  child: _tabs.isEmpty
-                      ? _EmptyTabsState(
-                          onOpenIndexed: () =>
-                              _createTab(WorkspaceFileMode.indexed),
-                          onOpenUnindexed: () =>
-                              _createTab(WorkspaceFileMode.unindexed),
-                        )
-                      : IndexedStack(
-                          index: _activeTabIndex,
-                          sizing: StackFit.expand,
-                          children: [
-                            for (final t in _tabs)
-                              if (t.isFileDetail)
-                                _FileDetailTab(
-                                  key: ValueKey(t.id),
-                                  entry: t.file!,
-                                  unindexed: t.isUnindexed,
-                                  onRename: () => _rename(t.file!),
-                                  onDelete: () => _delete(t.file!),
-                                )
-                              else
-                                _TabBrowserBody(
-                                  key: ValueKey(t.id),
-                                  tab: t,
-                                  workspace: workspace,
-                                  onChanged: _notifyTabsChanged,
-                                  onInvalidate: _invalidateDrive,
-                                  onUpload: () => _uploadFiles(t),
-                                  onNavigatePath: (keepThrough) =>
-                                      _navigatePath(t, keepThrough),
-                                  onOpenFolder: (entry) =>
-                                      _openFolderInPlace(t, entry),
-                                  onOpenFolderInNewTab: (entry) =>
-                                      _openFolderInNewTab(entry, t),
-                                  onOpenFile: (entry) =>
-                                      _openFileDetailTab(entry, t),
-                                  onInspect: (entry) => _inspect(t, entry),
-                                  onRename: _rename,
-                                  onDelete: _delete,
-                                  applyFilters: (items) =>
-                                      _applyFilters(t, items),
-                                ),
-                          ],
-                        ),
+              child: SizedBox(
+                width: tab?.isFileDetail == true ? double.infinity : null,
+                height: tab?.isFileDetail == true ? double.infinity : null,
+                child: ConstrainedBox(
+                  constraints: tab?.isFileDetail == true
+                      ? const BoxConstraints()
+                      : const BoxConstraints(maxWidth: 1100),
+                  child: Padding(
+                    padding: tab?.isFileDetail == true
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                    child: _tabs.isEmpty
+                        ? _EmptyTabsState(
+                            onOpenIndexed: () =>
+                                _createTab(WorkspaceFileMode.indexed),
+                            onOpenUnindexed: () =>
+                                _createTab(WorkspaceFileMode.unindexed),
+                          )
+                        : IndexedStack(
+                            index: _activeTabIndex,
+                            sizing: StackFit.expand,
+                            children: [
+                              for (final t in _tabs)
+                                if (t.isFileDetail)
+                                  _FileDetailTab(
+                                    key: ValueKey(t.id),
+                                    entry: t.file!,
+                                    unindexed: t.isUnindexed,
+                                    onRename: () => _rename(t.file!),
+                                    onDelete: () => _delete(t.file!),
+                                  )
+                                else
+                                  _TabBrowserBody(
+                                    key: ValueKey(t.id),
+                                    tab: t,
+                                    workspace: workspace,
+                                    onChanged: _notifyTabsChanged,
+                                    onInvalidate: _invalidateDrive,
+                                    onUpload: () => _uploadFiles(t),
+                                    onNavigatePath: (keepThrough) =>
+                                        _navigatePath(t, keepThrough),
+                                    onOpenFolder: (entry) =>
+                                        _openFolderInPlace(t, entry),
+                                    onOpenFolderInNewTab: (entry) =>
+                                        _openFolderInNewTab(entry, t),
+                                    onOpenFile: (entry) =>
+                                        _openFileDetailTab(entry, t),
+                                    onInspect: (entry) => _inspect(t, entry),
+                                    onRename: _rename,
+                                    onDelete: _delete,
+                                    applyFilters: (items) =>
+                                        _applyFilters(t, items),
+                                  ),
+                            ],
+                          ),
+                  ),
                 ),
               ),
             ),
@@ -1719,7 +1727,7 @@ class _FileGridTile extends StatelessWidget {
 
 /// A persistent file viewer, modeled after Island's dedicated file detail
 /// screen, but kept inside the workspace Drive tab strip.
-class _FileDetailTab extends StatelessWidget {
+class _FileDetailTab extends StatefulWidget {
   const _FileDetailTab({
     super.key,
     required this.entry,
@@ -1734,16 +1742,28 @@ class _FileDetailTab extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
+  State<_FileDetailTab> createState() => _FileDetailTabState();
+}
+
+class _FileDetailTabState extends State<_FileDetailTab> {
+  final _showSidebar = ValueNotifier(false);
+
+  @override
+  void dispose() {
+    _showSidebar.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+    final entry = widget.entry;
     final url = cloudFileDisplayUrl(entry.file);
-    final isImage = !entry.isFolder && entry.mimeType.startsWith('image/');
+    final isImage = entry.mimeType.startsWith('image/');
     final isMedia =
-        !entry.isFolder &&
-        (isImage ||
-            entry.mimeType.startsWith('video/') ||
-            entry.mimeType.startsWith('audio/'));
+        isImage ||
+        entry.mimeType.startsWith('video/') ||
+        entry.mimeType.startsWith('audio/');
 
     Future<void> openExternally() async {
       final opened = await launchUrl(
@@ -1756,57 +1776,155 @@ class _FileDetailTab extends StatelessWidget {
     final preview = isImage
         ? InteractiveViewer(
             minScale: 0.8,
-            maxScale: 4,
+            maxScale: 8,
+            boundaryMargin: const EdgeInsets.all(96),
             child: Image.network(
               url,
               fit: BoxFit.contain,
-              errorBuilder: (_, _, _) =>
-                  _FilePreviewPlaceholder(entry: entry, unindexed: unindexed),
+              errorBuilder: (_, _, _) => _FilePreviewPlaceholder(
+                entry: entry,
+                unindexed: widget.unindexed,
+              ),
             ),
           )
-        : _FilePreviewPlaceholder(entry: entry, unindexed: unindexed);
+        : _FilePreviewPlaceholder(entry: entry, unindexed: widget.unindexed);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 760;
-        final details = SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ResponsiveSidebar(
+      showSidebar: _showSidebar,
+      sidebarWidth: 360,
+      minWideSidebarWidth: 320,
+      maxWideSidebarWidth: 480,
+      sidebarBackgroundColor: scheme.surfaceContainer,
+      drawerBuilder: (_) => SafeArea(
+        child: _FileDetailInspector(
+          entry: entry,
+          unindexed: widget.unindexed,
+          url: url,
+          onClose: () => _showSidebar.value = false,
+          onRename: widget.onRename,
+          onDelete: widget.onDelete,
+        ),
+      ),
+      sidebarContent: _FileDetailInspector(
+        entry: entry,
+        unindexed: widget.unindexed,
+        url: url,
+        onClose: () => _showSidebar.value = false,
+        onRename: widget.onRename,
+        onDelete: widget.onDelete,
+      ),
+      mainContent: Column(
+        children: [
+          Material(
+            color: isMedia ? Colors.black : scheme.surfaceContainerLow,
+            child: SizedBox(
+              height: 56,
+              child: Row(
+                children: [
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Text(
+                      entry.name.isEmpty ? 'fileDetails'.tr() : entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: isMedia ? Colors.white : null,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: isMedia ? 'view'.tr() : 'open'.tr(),
+                    onPressed: openExternally,
+                    color: isMedia ? Colors.white : null,
+                    icon: Icon(
+                      isMedia ? Symbols.open_in_new : Symbols.download,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'details'.tr(),
+                    onPressed: () => _showSidebar.value = !_showSidebar.value,
+                    color: isMedia ? Colors.white : null,
+                    icon: const Icon(Symbols.info),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: SizedBox(
+              width: double.infinity,
+              child: ColoredBox(
+                color: isMedia ? Colors.black : scheme.surfaceContainerHighest,
+                child: preview,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileDetailInspector extends StatelessWidget {
+  const _FileDetailInspector({
+    required this.entry,
+    required this.unindexed,
+    required this.url,
+    required this.onClose,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final DriveFileEntry entry;
+  final bool unindexed;
+  final String url;
+  final VoidCallback onClose;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        SizedBox(
+          height: 56,
+          child: Row(
             children: [
-              Text(
-                entry.name.isEmpty ? 'fileDetails'.tr() : entry.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: text.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  'fileDetails'.tr(),
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  if (entry.mimeType.isNotEmpty) entry.mimeType,
-                  if (!entry.isFolder) formatByteSize(entry.size),
-                ].join(' · '),
-                style: text.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+              IconButton(
+                tooltip: 'close'.tr(),
+                onPressed: onClose,
+                icon: const Icon(Symbols.close),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            children: [
               _DetailRow(label: 'id'.tr(), value: entry.id, copyable: true),
               _DetailRow(
                 label: 'type'.tr(),
-                value: entry.isFolder
-                    ? 'folder'.tr()
-                    : unindexed
+                value: unindexed
                     ? '${entry.mimeType} · unindexed'
                     : entry.mimeType,
               ),
-              if (!entry.isFolder)
-                _DetailRow(
-                  label: 'size'.tr(),
-                  value: formatByteSize(entry.size),
-                ),
+              _DetailRow(label: 'size'.tr(), value: formatByteSize(entry.size)),
               if (entry.workspaceId != null)
                 _DetailRow(label: 'workspace'.tr(), value: entry.workspaceId!),
               _DetailRow(
@@ -1814,74 +1932,33 @@ class _FileDetailTab extends StatelessWidget {
                 value: entry.file.indexed ? 'yes'.tr() : 'no'.tr(),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: openExternally,
-                    icon: Icon(
-                      isMedia ? Symbols.play_arrow : Symbols.open_in_new,
-                    ),
-                    label: Text(isMedia ? 'view'.tr() : 'open'.tr()),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: url));
-                      showSnackBar('linkCopied'.tr());
-                    },
-                    icon: const Icon(Symbols.link, size: 18),
-                    label: Text('copyLink'.tr()),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onRename,
-                    icon: const Icon(Symbols.edit, size: 18),
-                    label: Text('rename'.tr()),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onDelete,
-                    icon: Icon(Symbols.delete, size: 18, color: scheme.error),
-                    label: Text(
-                      'delete'.tr(),
-                      style: TextStyle(color: scheme.error),
-                    ),
-                  ),
-                ],
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: url));
+                  showSnackBar('linkCopied'.tr());
+                },
+                icon: const Icon(Symbols.link, size: 18),
+                label: Text('copyLink'.tr()),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: onRename,
+                icon: const Icon(Symbols.edit, size: 18),
+                label: Text('rename'.tr()),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: onDelete,
+                icon: Icon(Symbols.delete, size: 18, color: scheme.error),
+                label: Text(
+                  'delete'.tr(),
+                  style: TextStyle(color: scheme.error),
+                ),
               ),
             ],
           ),
-        );
-
-        if (!isWide) {
-          return Column(
-            children: [
-              Expanded(
-                child: ColoredBox(
-                  color: scheme.surfaceContainerHighest,
-                  child: preview,
-                ),
-              ),
-              SizedBox(height: 330, child: details),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(
-              child: ColoredBox(
-                color: scheme.surfaceContainerHighest,
-                child: Center(child: preview),
-              ),
-            ),
-            VerticalDivider(
-              width: 1,
-              thickness: 1,
-              color: scheme.outlineVariant,
-            ),
-            SizedBox(width: 360, child: details),
-          ],
-        );
-      },
+        ),
+      ],
     );
   }
 }

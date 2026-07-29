@@ -24,6 +24,11 @@ class MailPage extends ConsumerStatefulWidget {
 
 class _MailPageState extends ConsumerState<MailPage> {
   String? _selectedMailboxId;
+  String? _deliveryStatus;
+  bool? _isFlagged;
+  String? _from;
+  String? _to;
+  bool? _hasAttachments;
   MailEmail? _selectedEmail;
   final _take = 20;
   int _offset = 0;
@@ -35,6 +40,8 @@ class _MailPageState extends ConsumerState<MailPage> {
   Widget build(BuildContext context) {
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider);
+    final workspaceId = ref.watch(selectedWorkspaceProvider).value?.id;
+    final mailboxId = _effectiveMailboxId(mailboxes.value);
     final wide = isWideScreen(context);
 
     return PageScaffold(
@@ -42,10 +49,18 @@ class _MailPageState extends ConsumerState<MailPage> {
       subtitle: 'elecPostalMail'.tr(),
       maxContentWidth: wide ? 1400 : 960,
       actions: [
-        IconButton.filledTonal(
+        IconButton(
           tooltip: 'mailCredentials'.tr(),
           onPressed: () => _showCredentials(context),
           icon: const Icon(Symbols.key, size: 20),
+        ),
+        IconButton(
+          tooltip: 'emailFilters'.tr(),
+          onPressed: () => _showEmailFilters(context),
+          icon: Badge(
+            isLabelVisible: _hasDiscoveryFilters,
+            child: const Icon(Symbols.filter_alt, size: 20),
+          ),
         ),
         FilledButton.tonalIcon(
           onPressed: () => _compose(context),
@@ -77,7 +92,7 @@ class _MailPageState extends ConsumerState<MailPage> {
                 data: (items) => _MailboxSelector(
                   mailboxes: items,
                   mailHost: mailHost.value,
-                  selectedId: _selectedMailboxId,
+                  selectedId: mailboxId,
                   onSelected: (id) {
                     setState(() {
                       _selectedMailboxId = id;
@@ -97,21 +112,91 @@ class _MailPageState extends ConsumerState<MailPage> {
           Expanded(
             child: wide
                 ? _DesktopLayout(
-                    emails: _buildEmailList(mailHost.value),
+                    emails: _buildEmailList(
+                      mailHost.value,
+                      workspaceId: workspaceId,
+                      mailboxId: mailboxId,
+                    ),
                     detail: _buildDetail(mailHost.value),
                   )
-                : _buildEmailList(mailHost.value),
+                : _buildEmailList(
+                    mailHost.value,
+                    workspaceId: workspaceId,
+                    mailboxId: mailboxId,
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildEmailList(String? mailHost) {
+  String? _effectiveMailboxId([List<MailMailbox>? mailboxes]) {
+    final items = mailboxes ?? ref.read(mailboxesProvider).value;
+    if (items == null || items.isEmpty) return null;
+    if (items.any((mailbox) => mailbox.id == _selectedMailboxId)) {
+      return _selectedMailboxId;
+    }
+    return items
+        .firstWhere((mailbox) => mailbox.isDefault, orElse: () => items.first)
+        .id;
+  }
+
+  bool get _hasDiscoveryFilters =>
+      _deliveryStatus != null ||
+      _isFlagged != null ||
+      _from != null ||
+      _to != null ||
+      _hasAttachments != null;
+
+  EmailListFilter _emailFilter({String? mailboxId, String? workspaceId}) => (
+    mailboxId: mailboxId,
+    workspaceId: workspaceId,
+    status: _deliveryStatus,
+    isFlagged: _isFlagged,
+    from: _from,
+    to: _to,
+    hasAttachments: _hasAttachments,
+  );
+
+  Future<void> _showEmailFilters(BuildContext context) async {
+    final filter = await showDialog<_EmailDiscoveryFilter>(
+      context: context,
+      builder: (_) => _EmailFilterSheet(
+        initial: _EmailDiscoveryFilter(
+          status: _deliveryStatus,
+          isFlagged: _isFlagged,
+          from: _from,
+          to: _to,
+          hasAttachments: _hasAttachments,
+        ),
+      ),
+    );
+    if (filter == null || !mounted) return;
+    setState(() {
+      _deliveryStatus = filter.status;
+      _isFlagged = filter.isFlagged;
+      _from = filter.from;
+      _to = filter.to;
+      _hasAttachments = filter.hasAttachments;
+      _selectedEmail = null;
+      _offset = 0;
+      _emails.clear();
+      _total = 0;
+    });
+    ref.invalidate(emailsProvider);
+  }
+
+  Widget _buildEmailList(
+    String? mailHost, {
+    String? workspaceId,
+    String? mailboxId,
+  }) {
     return Card(
       margin: EdgeInsets.zero,
       child: _EmailList(
-        mailboxId: _selectedMailboxId,
+        mailboxId: mailboxId,
+        workspaceId: workspaceId,
+        filter: _emailFilter(mailboxId: mailboxId, workspaceId: workspaceId),
         mailHost: mailHost,
         selectedEmail: _selectedEmail,
         onOpen: (email) => _openEmail(context, email),
@@ -152,8 +237,14 @@ class _MailPageState extends ConsumerState<MailPage> {
     try {
       final page = await ref
           .read(wattEngineClientProvider)
-          .listMailboxEmails(
-            _selectedMailboxId ?? '',
+          .listEmails(
+            mailboxId: _effectiveMailboxId(),
+            workspaceId: ref.read(selectedWorkspaceProvider).value?.id,
+            status: _deliveryStatus,
+            isFlagged: _isFlagged,
+            from: _from,
+            to: _to,
+            hasAttachments: _hasAttachments,
             offset: _offset + _take,
             take: _take,
           );
@@ -561,9 +652,199 @@ class _MailboxSelector extends StatelessWidget {
   }
 }
 
+class _EmailDiscoveryFilter {
+  const _EmailDiscoveryFilter({
+    this.status,
+    this.isFlagged,
+    this.from,
+    this.to,
+    this.hasAttachments,
+  });
+
+  final String? status;
+  final bool? isFlagged;
+  final String? from;
+  final String? to;
+  final bool? hasAttachments;
+}
+
+class _EmailFilterSheet extends StatefulWidget {
+  const _EmailFilterSheet({required this.initial});
+
+  final _EmailDiscoveryFilter initial;
+
+  @override
+  State<_EmailFilterSheet> createState() => _EmailFilterSheetState();
+}
+
+class _EmailFilterSheetState extends State<_EmailFilterSheet> {
+  late String? _status = widget.initial.status;
+  late bool? _isFlagged = widget.initial.isFlagged;
+  late bool? _hasAttachments = widget.initial.hasAttachments;
+  late final _fromController = TextEditingController(text: widget.initial.from);
+  late final _toController = TextEditingController(text: widget.initial.to);
+
+  @override
+  void dispose() {
+    _fromController.dispose();
+    _toController.dispose();
+    super.dispose();
+  }
+
+  void _apply() => Navigator.of(context).pop(
+    _EmailDiscoveryFilter(
+      status: _status,
+      isFlagged: _isFlagged,
+      from: _fromController.text.trim().isEmpty
+          ? null
+          : _fromController.text.trim(),
+      to: _toController.text.trim().isEmpty ? null : _toController.text.trim(),
+      hasAttachments: _hasAttachments,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'emailFilters'.tr(),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                _FilterFieldLabel(label: 'deliveryStatus'.tr()),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String?>(
+                  initialValue: _status,
+                  decoration: const InputDecoration(isDense: true),
+                  items: [
+                    DropdownMenuItem(value: null, child: Text('any'.tr())),
+                    DropdownMenuItem(
+                      value: 'sent',
+                      child: Text('deliveryStatusSent'.tr()),
+                    ),
+                    DropdownMenuItem(
+                      value: 'pending',
+                      child: Text('deliveryStatusPending'.tr()),
+                    ),
+                    DropdownMenuItem(
+                      value: 'failed',
+                      child: Text('deliveryStatusFailed'.tr()),
+                    ),
+                    DropdownMenuItem(
+                      value: 'not_configured',
+                      child: Text('deliveryStatusNotConfigured'.tr()),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _status = value),
+                ),
+                const SizedBox(height: 12),
+                _FilterFieldLabel(label: 'emailFromFilter'.tr()),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _fromController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(isDense: true),
+                ),
+                const SizedBox(height: 12),
+                _FilterFieldLabel(label: 'emailToFilter'.tr()),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _toController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(isDense: true),
+                ),
+                const SizedBox(height: 16),
+                _BooleanFilterField(
+                  label: 'flagged'.tr(),
+                  value: _isFlagged,
+                  onChanged: (value) => setState(() => _isFlagged = value),
+                ),
+                const SizedBox(height: 12),
+                _BooleanFilterField(
+                  label: 'hasAttachments'.tr(),
+                  value: _hasAttachments,
+                  onChanged: (value) => setState(() => _hasAttachments = value),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(
+                        context,
+                      ).pop(const _EmailDiscoveryFilter()),
+                      child: Text('clear'.tr()),
+                    ),
+                    const Spacer(),
+                    FilledButton(onPressed: _apply, child: Text('apply'.tr())),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterFieldLabel extends StatelessWidget {
+  const _FilterFieldLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(label, style: Theme.of(context).textTheme.labelLarge);
+}
+
+class _BooleanFilterField extends StatelessWidget {
+  const _BooleanFilterField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool? value;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _FilterFieldLabel(label: label),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<bool?>(
+          initialValue: value,
+          decoration: const InputDecoration(isDense: true),
+          items: [
+            DropdownMenuItem(value: null, child: Text('any'.tr())),
+            DropdownMenuItem(value: true, child: Text('yes'.tr())),
+            DropdownMenuItem(value: false, child: Text('no'.tr())),
+          ],
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
 class _EmailList extends ConsumerWidget {
   const _EmailList({
     required this.mailboxId,
+    required this.workspaceId,
+    required this.filter,
     required this.mailHost,
     required this.selectedEmail,
     required this.onOpen,
@@ -572,6 +853,8 @@ class _EmailList extends ConsumerWidget {
   });
 
   final String? mailboxId;
+  final String? workspaceId;
+  final EmailListFilter filter;
   final String? mailHost;
   final MailEmail? selectedEmail;
   final ValueChanged<MailEmail> onOpen;
@@ -580,7 +863,7 @@ class _EmailList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final emails = ref.watch(emailsProvider(mailboxId));
+    final emails = ref.watch(emailsProvider(filter));
 
     return emails.when(
       loading: () => const PageLoading(),

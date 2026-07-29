@@ -467,5 +467,15 @@
   "labelRequired": "标签为必填项。",
   "htmlContent": "HTML 内容",
   "close": "关闭",
-  "mailboxRequired": "邮箱为必填项。"
+  "mailboxRequired": "邮箱为必填项。",
+  "emailFilters": "邮件筛选",
+  "deliveryStatus": "投递状态",
+  "any": "任意",
+  "emailFromFilter": "发件人",
+  "emailToFilter": "收件人",
+  "flagged": "已加星标",
+  "hasAttachments": "包含附件",
+  "yes": "是",
+  "no": "否",
+  "apply": "应用"
 }

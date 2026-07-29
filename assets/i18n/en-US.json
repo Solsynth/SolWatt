@@ -467,5 +467,15 @@
   "labelRequired": "Label is required.",
   "htmlContent": "HTML content",
   "close": "Close",
-  "mailboxRequired": "Mailbox is required."
+  "mailboxRequired": "Mailbox is required.",
+  "emailFilters": "Email filters",
+  "deliveryStatus": "Delivery status",
+  "any": "Any",
+  "emailFromFilter": "From",
+  "emailToFilter": "To",
+  "flagged": "Flagged",
+  "hasAttachments": "Has attachments",
+  "yes": "Yes",
+  "no": "No",
+  "apply": "Apply"
 }

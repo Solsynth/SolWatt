@@ -1040,12 +1040,30 @@ class WattEngineClient {
   }
 
   Future<PaginatedResult<MailEmail>> listEmails({
+    String? mailboxId,
+    String? workspaceId,
+    String? status,
+    bool? isFlagged,
+    String? from,
+    String? to,
+    bool? hasAttachments,
     int offset = 0,
     int take = 20,
   }) async => _parseEmailPage(
     await _get<List<dynamic>>(
       '$kElecPostalBase/emails',
-      queryParameters: {'offset': offset, 'take': take},
+      queryParameters: {
+        'offset': offset,
+        'take': take,
+        if (mailboxId != null && mailboxId.isNotEmpty) 'mailbox_id': mailboxId,
+        if (workspaceId != null && workspaceId.isNotEmpty)
+          'workspace_id': workspaceId,
+        if (status != null && status.isNotEmpty) 'status': status,
+        'is_flagged': ?isFlagged,
+        if (from != null && from.isNotEmpty) 'from': from,
+        if (to != null && to.isNotEmpty) 'to': to,
+        'has_attachments': ?hasAttachments,
+      },
     ),
   );
 
@@ -3186,17 +3204,32 @@ final mailboxesProvider = FutureProvider<List<MailMailbox>>((ref) async {
       .listMailboxes(workspaceId: workspace?.id);
 });
 
-/// Emails for the selected mailbox (or all account emails when null).
+typedef EmailListFilter = ({
+  String? mailboxId,
+  String? workspaceId,
+  String? status,
+  bool? isFlagged,
+  String? from,
+  String? to,
+  bool? hasAttachments,
+});
+
+/// Emails scoped to the selected mailbox and/or workspace.
 final emailsProvider =
-    FutureProvider.family<PaginatedResult<MailEmail>, String?>((
+    FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((
       ref,
-      mailboxId,
+      filter,
     ) async {
       final client = ref.watch(wattEngineClientProvider);
-      if (mailboxId == null || mailboxId.isEmpty) {
-        return client.listEmails();
-      }
-      return client.listMailboxEmails(mailboxId);
+      return client.listEmails(
+        mailboxId: filter.mailboxId,
+        workspaceId: filter.workspaceId,
+        status: filter.status,
+        isFlagged: filter.isFlagged,
+        from: filter.from,
+        to: filter.to,
+        hasAttachments: filter.hasAttachments,
+      );
     });
 
 /// Detailed email by id.
