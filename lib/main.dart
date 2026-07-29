@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -30,25 +31,29 @@ final globalOverlay = GlobalKey<OverlayState>();
 const gateRouteName = 'GateRoute';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   await EasyLocalization.ensureInitialized();
   EasyLocalization.logger.enableBuildModes = [];
   await initializeAppLogging();
 
   if (DesktopWindowFrame.isPlatformDesktop) {
     await windowManager.ensureInitialized();
+    const minimumWindowSize = Size(360, 640);
     const options = WindowOptions(
       size: Size(1180, 760),
-      minimumSize: Size(720, 520),
       center: true,
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: true,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
+      await windowManager.setMinimumSize(minimumWindowSize);
       await windowManager.show();
       await windowManager.focus();
     });
   }
+
+  FlutterNativeSplash.remove();
 
   runApp(
     ProviderScope(
@@ -95,6 +100,7 @@ class SolWattApp extends StatelessWidget {
               child: child ?? const SizedBox.shrink(),
             ),
           ),
+          OverlayEntry(builder: (_) => const _WebSocketIndicator()),
         ],
       ),
       routerConfig: _router.config(),
@@ -110,8 +116,7 @@ class AppRouter extends RootStackRouter {
     AutoRoute(
       page: AppShellRoute.page,
       children: [
-        AutoRoute(page: HomeRoute.page, initial: true),
-        AutoRoute(page: BoardsRoute.page),
+        AutoRoute(page: BoardsRoute.page, initial: true),
         AutoRoute(page: FilesRoute.page),
         AutoRoute(page: FlywheelRoute.page),
         AutoRoute(page: MailRoute.page),
@@ -131,7 +136,6 @@ class AppShellPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(appAccessProvider);
     ref.watch(realtimeBridgeProvider);
-    final wsState = ref.watch(websocketStateProvider);
 
     ref.listen(appAccessProvider, (previous, next) {
       next.whenData((state) {
@@ -178,7 +182,6 @@ class AppShellPage extends ConsumerWidget {
         }
         return AutoTabsRouter(
           routes: const [
-            HomeRoute(),
             BoardsRoute(),
             FilesRoute(),
             FlywheelRoute(),
@@ -191,7 +194,6 @@ class AppShellPage extends ConsumerWidget {
             return _NavigationShell(
               selectedIndex: tabs.activeIndex,
               onSelected: tabs.setActiveIndex,
-              websocketState: wsState,
               child: child,
             );
           },
@@ -202,16 +204,15 @@ class AppShellPage extends ConsumerWidget {
 }
 
 class _NavigationShell extends ConsumerWidget {
-  const _NavigationShell({
+  _NavigationShell({
     required this.selectedIndex,
     required this.onSelected,
-    required this.websocketState,
     required this.child,
   });
 
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   final int selectedIndex;
   final ValueChanged<int> onSelected;
-  final WebSocketConnectionState websocketState;
   final Widget child;
 
   @override
@@ -219,9 +220,26 @@ class _NavigationShell extends ConsumerWidget {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final wide = isWideScreen(context);
     final scheme = Theme.of(context).colorScheme;
+    final mobileSelectedIndex = switch (selectedIndex) {
+      0 => 1,
+      1 => 2,
+      3 => 3,
+      _settingsTabIndex => 4,
+      _ => 0,
+    };
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: scheme.surfaceContainer,
+      drawer: wide
+          ? null
+          : Drawer(
+              child: _MobileNavigationDrawer(
+                workspace: workspace,
+                selectedIndex: selectedIndex,
+                onSelected: onSelected,
+              ),
+            ),
       body: SafeArea(
         child: Column(
           children: [
@@ -233,7 +251,6 @@ class _NavigationShell extends ConsumerWidget {
                           selectedIndex: selectedIndex,
                           onSelected: onSelected,
                           workspace: workspace,
-                          websocketState: websocketState,
                         ),
                         Expanded(
                           child: Padding(
@@ -259,13 +276,25 @@ class _NavigationShell extends ConsumerWidget {
       bottomNavigationBar: wide
           ? null
           : NavigationBar(
-              selectedIndex: selectedIndex,
-              onDestinationSelected: onSelected,
+              selectedIndex: mobileSelectedIndex,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+              onDestinationSelected: (index) {
+                if (index == 0) {
+                  _scaffoldKey.currentState?.openDrawer();
+                  return;
+                }
+                onSelected(switch (index) {
+                  1 => 0,
+                  2 => 1,
+                  3 => 3,
+                  4 => _settingsTabIndex,
+                  _ => selectedIndex,
+                });
+              },
               destinations: [
                 NavigationDestination(
-                  icon: const Icon(Symbols.home),
-                  selectedIcon: const Icon(Symbols.home, fill: 1),
-                  label: 'home'.tr(),
+                  icon: const Icon(Symbols.menu),
+                  label: MaterialLocalizations.of(context).openAppDrawerTooltip,
                 ),
                 NavigationDestination(
                   icon: const Icon(Symbols.view_kanban),
@@ -277,20 +306,10 @@ class _NavigationShell extends ConsumerWidget {
                   selectedIcon: const Icon(Symbols.folder, fill: 1),
                   label: 'files'.tr(),
                 ),
-                const NavigationDestination(
-                  icon: Icon(Symbols.sync),
-                  selectedIcon: Icon(Symbols.sync, fill: 1),
-                  label: 'Flywheel',
-                ),
                 NavigationDestination(
                   icon: const Icon(Symbols.mail),
                   selectedIcon: const Icon(Symbols.mail, fill: 1),
                   label: 'mail'.tr(),
-                ),
-                NavigationDestination(
-                  icon: const Icon(Symbols.person),
-                  selectedIcon: const Icon(Symbols.person, fill: 1),
-                  label: 'profile'.tr(),
                 ),
                 NavigationDestination(
                   icon: const Icon(Symbols.settings),
@@ -303,20 +322,137 @@ class _NavigationShell extends ConsumerWidget {
   }
 }
 
-const _profileTabIndex = 5;
-const _settingsTabIndex = 6;
+class _MobileNavigationDrawer extends StatelessWidget {
+  const _MobileNavigationDrawer({
+    required this.workspace,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final Workspace? workspace;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const drawerRoutes = [0, 1, 2, 3, _profileTabIndex, _settingsTabIndex];
+    final selectedDrawerIndex = drawerRoutes.indexOf(selectedIndex);
+    final scheme = Theme.of(context).colorScheme;
+
+    void select(int index) {
+      Navigator.of(context).pop();
+      onSelected(index);
+    }
+
+    return SafeArea(
+      child: NavigationDrawer(
+        selectedIndex: selectedDrawerIndex < 0 ? null : selectedDrawerIndex,
+        onDestinationSelected: (index) => select(drawerRoutes[index]),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Material(
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => select(_profileTabIndex),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CloudFileAvatar(
+                        file: workspace?.picture,
+                        workspaceId: workspace?.id,
+                        fallbackIcon: Symbols.workspaces,
+                        size: 28,
+                        selected: true,
+                        borderRadius: BorderRadius.circular(8),
+                        assumeImage: true,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              workspace?.name ?? 'workspace'.tr(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            Text(
+                              'manageWorkspaces'.tr(),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Symbols.chevron_right),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Symbols.view_kanban),
+            selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
+            label: Text('boards'.tr()),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Symbols.folder),
+            selectedIcon: const Icon(Symbols.folder, fill: 1),
+            label: Text('files'.tr()),
+          ),
+          const NavigationDrawerDestination(
+            icon: Icon(Symbols.sync),
+            selectedIcon: Icon(Symbols.sync, fill: 1),
+            label: Text('Flywheel'),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Symbols.mail),
+            selectedIcon: const Icon(Symbols.mail, fill: 1),
+            label: Text('mail'.tr()),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Symbols.person),
+            selectedIcon: const Icon(Symbols.person, fill: 1),
+            label: Text('profile'.tr()),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Symbols.settings),
+            selectedIcon: const Icon(Symbols.settings, fill: 1),
+            label: Text('settings'.tr()),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Symbols.notifications),
+            title: Text('notifications'.tr()),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+            onTap: () {
+              Navigator.of(context).pop();
+              showNotificationsAttentionModal();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+const _profileTabIndex = 4;
+const _settingsTabIndex = 5;
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
     required this.selectedIndex,
     required this.onSelected,
-    required this.websocketState,
     this.workspace,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
-  final WebSocketConnectionState websocketState;
   final Workspace? workspace;
 
   String? get workspaceName => workspace?.name;
@@ -333,7 +469,7 @@ class _DesktopNavigation extends ConsumerWidget {
         selectedIndex: selectedIndex < _profileTabIndex ? selectedIndex : null,
         onDestinationSelected: onSelected,
         labelType: NavigationRailLabelType.all,
-        groupAlignment: -1,
+        groupAlignment: 0,
         leading: Padding(
           padding: const EdgeInsets.only(bottom: 16, top: 4),
           child: Tooltip(
@@ -395,8 +531,6 @@ class _DesktopNavigation extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _WebsocketStatusDot(state: websocketState),
-              const SizedBox(height: 4),
               const NotificationBellButton(),
               const SizedBox(height: 4),
               _RailIconButton(
@@ -415,11 +549,6 @@ class _DesktopNavigation extends ConsumerWidget {
           ),
         ),
         destinations: [
-          NavigationRailDestination(
-            icon: const Icon(Symbols.home),
-            selectedIcon: const Icon(Symbols.home, fill: 1),
-            label: Text('home'.tr()),
-          ),
           NavigationRailDestination(
             icon: const Icon(Symbols.view_kanban),
             selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
@@ -446,64 +575,79 @@ class _DesktopNavigation extends ConsumerWidget {
   }
 }
 
-class _WebsocketStatusDot extends ConsumerWidget {
-  const _WebsocketStatusDot({required this.state});
-
-  final WebSocketConnectionState state;
+class _WebSocketIndicator extends ConsumerWidget {
+  const _WebSocketIndicator();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final (color, label) = switch (state) {
-      WebSocketConnectionState.connected => (
-        const Color(0xFF34C759),
-        'Live · connected',
-      ),
+    final session = ref.watch(authSessionProvider).value;
+    final state = ref.watch(websocketStateProvider);
+    if (session == null || state == WebSocketConnectionState.connected) {
+      return const SizedBox.shrink();
+    }
+
+    final (color, message, icon, canReconnect) = switch (state) {
       WebSocketConnectionState.connecting => (
-        scheme.tertiary,
-        'Live · connecting…',
+        Colors.teal,
+        'Reconnecting…',
+        const SizedBox.square(
+          dimension: 16,
+          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+        ),
+        false,
       ),
       WebSocketConnectionState.serverDown => (
-        scheme.error,
-        'Live · server unavailable (tap to retry)',
+        Theme.of(context).colorScheme.error,
+        'Live updates are unavailable. Tap to retry.',
+        const Icon(Symbols.power_off, color: Colors.white, size: 16),
+        true,
       ),
       WebSocketConnectionState.error => (
-        scheme.error,
-        'Live · error (tap to retry)',
+        Theme.of(context).colorScheme.error,
+        'Connection error. Tap to retry.',
+        const Icon(Symbols.power_off, color: Colors.white, size: 16),
+        true,
       ),
       WebSocketConnectionState.disconnected => (
-        scheme.outline,
-        'Live · offline (tap to reconnect)',
+        Theme.of(context).colorScheme.error,
+        'Live updates are offline. Tap to reconnect.',
+        const Icon(Symbols.power_off, color: Colors.white, size: 16),
+        true,
       ),
+      WebSocketConnectionState.connected => throw StateError('unreachable'),
     };
 
-    return Tooltip(
-      message: label,
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: () =>
-              ref.read(websocketStateProvider.notifier).manualReconnect(),
-          child: SizedBox(
-            width: 48,
-            height: 28,
-            child: Center(
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  boxShadow: state == WebSocketConnectionState.connected
-                      ? [
-                          BoxShadow(
-                            color: color.withValues(alpha: 0.45),
-                            blurRadius: 6,
-                          ),
-                        ]
-                      : null,
+    return Positioned(
+      top: MediaQuery.paddingOf(context).top + 36,
+      left: 0,
+      right: 0,
+      child: IgnorePointer(
+        ignoring: !canReconnect,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: Material(
+            elevation: 4,
+            color: color,
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: canReconnect
+                  ? () => ref
+                        .read(websocketStateProvider.notifier)
+                        .manualReconnect()
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    icon,
+                    const SizedBox(width: 8),
+                    Text(message, style: const TextStyle(color: Colors.white)),
+                  ],
                 ),
               ),
             ),
@@ -540,155 +684,6 @@ class _RailIconButton extends StatelessWidget {
           onTap: onPressed,
           child: SizedBox(width: 48, height: 48, child: Center(child: child)),
         ),
-      ),
-    );
-  }
-}
-
-@RoutePage()
-class HomePage extends ConsumerWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final workspace = ref.watch(selectedWorkspaceProvider).value;
-    final boards = ref.watch(broadsProvider);
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-
-    return PageScaffold(
-      title: workspace?.name ?? 'home'.tr(),
-      subtitle: workspace?.description?.isNotEmpty == true
-          ? workspace!.description!
-          : 'activeWorkspace'.tr(),
-      actions: [
-        const NotificationBellButton(),
-        FilledButton.tonalIcon(
-          onPressed: () =>
-              AutoTabsRouter.of(context).setActiveIndex(_profileTabIndex),
-          icon: const Icon(Symbols.swap_horiz, size: 18),
-          label: Text('switch'.tr()),
-        ),
-      ],
-      child: ListView(
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      IconBadge(
-                        icon: Symbols.view_kanban,
-                        selected: true,
-                        size: 44,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('boards'.tr(), style: text.titleMedium),
-                            const SizedBox(height: 2),
-                            boards.when(
-                              loading: () => Text(
-                                'loading'.tr(),
-                                style: text.bodyMedium?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                              error: (error, _) => Text(
-                                error.toString(),
-                                style: text.bodyMedium?.copyWith(
-                                  color: scheme.error,
-                                ),
-                              ),
-                              data: (items) => Text(
-                                items.isEmpty
-                                    ? 'noBoardsYet'.tr()
-                                    : '${items.length} ${'boards'.tr()}',
-                                style: text.bodyMedium?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: () =>
-                            AutoTabsRouter.of(context).setActiveIndex(1),
-                        icon: const Icon(Symbols.view_kanban, size: 18),
-                        label: Text('openBoards'.tr()),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: () =>
-                            AutoTabsRouter.of(context).setActiveIndex(2),
-                        icon: const Icon(Symbols.folder, size: 18),
-                        label: Text('workspaceFiles'.tr()),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => AutoTabsRouter.of(
-                          context,
-                        ).setActiveIndex(_profileTabIndex),
-                        icon: const Icon(Symbols.workspaces, size: 18),
-                        label: Text('manageWorkspaces'.tr()),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (boards case AsyncData(:final value) when value.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            SectionHeader(
-              title: 'recentBoards'.tr(),
-              trailing: TextButton(
-                onPressed: () => AutoTabsRouter.of(context).setActiveIndex(1),
-                child: Text('viewAll'.tr()),
-              ),
-            ),
-            for (final board in value.take(4))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Card(
-                  child: ListTile(
-                    leading: const IconBadge(icon: Symbols.view_kanban),
-                    title: Text(board.name),
-                    subtitle: board.description?.isNotEmpty == true
-                        ? Text(
-                            board.description!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          )
-                        : null,
-                    trailing: Icon(
-                      Symbols.chevron_right,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => TaskBoardPage(
-                          broadId: board.id,
-                          broadName: board.name,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ],
       ),
     );
   }
