@@ -4,6 +4,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart'
+    as foundation;
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/network.dart';
@@ -17,69 +19,76 @@ class CloudFileAvatar extends StatelessWidget {
   const CloudFileAvatar({
     super.key,
     this.file,
+    this.workspaceId,
     this.fallbackIcon = Symbols.image,
     this.size = 40,
     this.selected = false,
     this.borderRadius,
+    this.assumeImage = false,
   });
 
   final IDisplayableCloudFile? file;
+  final String? workspaceId;
   final IconData fallbackIcon;
   final double size;
   final bool selected;
   final BorderRadius? borderRadius;
 
-  static const double _selectedBorderWidth = 1.5;
+  /// Attempts to render the reference as an image even when its MIME metadata
+  /// is missing or inaccurate. Use for image-only fields such as workspace
+  /// pictures; the normal error fallback still applies when loading fails.
+  final bool assumeImage;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final outerRadius = borderRadius ?? BorderRadius.circular(size * 0.28);
-    final url = file == null ? null : cloudFileDisplayUrl(file!);
-    // Profile pictures sometimes omit mime_type; treat empty mime as displayable.
-    final mime = file?.mimeType ?? '';
-    final isImage = mime.isEmpty || mime.startsWith('image/');
-    final iconColor = selected ? scheme.onPrimaryContainer : scheme.primary;
-    final fillColor = selected
-        ? scheme.primaryContainer
-        : scheme.surfaceContainerHighest;
-
-    // Keep the selection ring outside the clipped image. Putting border +
-    // clipBehavior on the same box clips the stroke (and images can paint over it).
-    final borderWidth = selected ? _selectedBorderWidth : 0.0;
-    final innerRadius = _deflateBorderRadius(outerRadius, borderWidth);
-
-    final content = url != null && isImage
-        ? Image.network(
-            url,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            errorBuilder: (_, _, _) => Center(
-              child: Icon(fallbackIcon, size: size * 0.45, color: iconColor),
-            ),
-          )
-        : Center(
-            child: Icon(fallbackIcon, size: size * 0.45, color: iconColor),
+    final radius = borderRadius ?? BorderRadius.circular(size * .28);
+    final borderWidth = selected ? 1.5 : 0.0;
+    // Profile pictures can omit MIME metadata; image-only fields may also opt
+    // in when the upload metadata is inaccurate.
+    final isImage =
+        file != null &&
+        (assumeImage ||
+            file!.mimeType.isEmpty ||
+            file!.mimeType.startsWith('image/'));
+    final image = !isImage
+        ? null
+        : foundation.cloudFileImageProvider(
+            serverUrl: kSolarNetworkApiBase,
+            id: file!.id,
+            storageUrl: file!.storageUrl,
+            workspaceId: workspaceId,
           );
+    final iconColor = selected ? scheme.onPrimaryContainer : scheme.primary;
 
     return Container(
       width: size,
       height: size,
+      padding: EdgeInsets.all(borderWidth),
       decoration: BoxDecoration(
-        borderRadius: outerRadius,
+        borderRadius: radius,
         border: selected
             ? Border.all(
-                color: scheme.primary.withValues(alpha: 0.55),
-                width: _selectedBorderWidth,
+                color: scheme.primary.withValues(alpha: .55),
+                width: borderWidth,
               )
             : null,
       ),
-      // Inset the clipped body so the ring sits fully outside it.
-      padding: EdgeInsets.all(borderWidth),
       child: ClipRRect(
-        borderRadius: innerRadius,
-        child: ColoredBox(color: fillColor, child: content),
+        borderRadius: _deflateBorderRadius(radius, borderWidth),
+        child: ColoredBox(
+          color: selected
+              ? scheme.primaryContainer
+              : scheme.surfaceContainerHighest,
+          child: image == null
+              ? Icon(fallbackIcon, size: size * .45, color: iconColor)
+              : Image(
+                  image: image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      Icon(fallbackIcon, size: size * .45, color: iconColor),
+                ),
+        ),
       ),
     );
   }
@@ -87,12 +96,10 @@ class CloudFileAvatar extends StatelessWidget {
 
 BorderRadius _deflateBorderRadius(BorderRadius radius, double delta) {
   if (delta <= 0) return radius;
-  Radius deflate(Radius corner) {
-    final x = (corner.x - delta).clamp(0.0, double.infinity);
-    final y = (corner.y - delta).clamp(0.0, double.infinity);
-    return Radius.elliptical(x, y);
-  }
-
+  Radius deflate(Radius corner) => Radius.elliptical(
+    (corner.x - delta).clamp(0.0, double.infinity),
+    (corner.y - delta).clamp(0.0, double.infinity),
+  );
   return BorderRadius.only(
     topLeft: deflate(radius.topLeft),
     topRight: deflate(radius.topRight),
@@ -106,44 +113,37 @@ class CloudFileChip extends StatelessWidget {
   const CloudFileChip({
     super.key,
     required this.file,
+    this.workspaceId,
     this.displayUrl,
     this.onPressed,
     this.onRemove,
   });
 
   final IDisplayableCloudFile file;
+  final String? workspaceId;
   final String? displayUrl;
   final VoidCallback? onPressed;
   final VoidCallback? onRemove;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isImage = file.mimeType.startsWith('image/');
-    return InputChip(
-      avatar: isImage
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                displayUrl ?? cloudFileDisplayUrl(file),
-                width: 24,
-                height: 24,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const Icon(Symbols.attach_file, size: 16),
-              ),
-            )
-          : const Icon(Symbols.attach_file, size: 16),
-      label: Text(
-        file.name.isEmpty ? file.id : file.name,
-        overflow: TextOverflow.ellipsis,
-      ),
-      onPressed: onPressed,
-      onDeleted: onRemove,
-      deleteIconColor: scheme.onSurfaceVariant,
-    );
-  }
+  Widget build(BuildContext context) => foundation.CloudFileChip(
+    file: _cloudFileDescriptor(file),
+    serverUrl: kSolarNetworkApiBase,
+    workspaceId: workspaceId,
+    displayUrl: displayUrl,
+    onPressed: onPressed,
+    onRemove: onRemove,
+  );
 }
+
+foundation.CloudFileDescriptor _cloudFileDescriptor(
+  IDisplayableCloudFile file,
+) => foundation.CloudFileDescriptor(
+  id: file.id,
+  name: file.name,
+  mimeType: file.mimeType,
+  storageUrl: file.storageUrl,
+);
 
 /// Opens a sheet to pick and upload local files to Solar Network Drive.
 ///

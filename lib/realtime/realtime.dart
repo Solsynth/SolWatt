@@ -45,6 +45,7 @@ class RealtimeBridge {
   final Map<String, Timer> _taskDebounce = {};
   Timer? _boardsDebounce;
   Timer? _notificationDebounce;
+  Timer? _mailDebounce;
 
   Future<void> ensureConnected() async {
     final session = await _ref.read(authSessionProvider.future);
@@ -64,6 +65,7 @@ class RealtimeBridge {
     _taskDebounce.clear();
     _boardsDebounce?.cancel();
     _notificationDebounce?.cancel();
+    _mailDebounce?.cancel();
     await _ref.read(websocketServiceProvider).disconnect();
   }
 
@@ -81,6 +83,11 @@ class RealtimeBridge {
 
     if (type == 'notifications.new') {
       _handleNotification(packet);
+      return;
+    }
+
+    if (type.startsWith('mail.')) {
+      _scheduleMailRefresh();
       return;
     }
 
@@ -122,6 +129,15 @@ class RealtimeBridge {
     _notificationDebounce = Timer(const Duration(milliseconds: 200), () {
       _ref.invalidate(notificationUnreadCountProvider);
       _ref.invalidate(notificationListProvider);
+    });
+  }
+
+  void _scheduleMailRefresh() {
+    _mailDebounce?.cancel();
+    _mailDebounce = Timer(const Duration(milliseconds: 200), () {
+      _log.info('Refreshing mail after realtime update');
+      _ref.invalidate(emailsProvider);
+      _ref.invalidate(emailProvider);
     });
   }
 

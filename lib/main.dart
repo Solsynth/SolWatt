@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_logging.dart';
@@ -18,6 +17,7 @@ import 'notifications/notifications.dart';
 import 'realtime/realtime.dart';
 import 'tasks/task_overlay.dart';
 import 'theme.dart';
+import 'ui/cloud_files.dart';
 import 'ui/page_scaffold.dart';
 import 'websocket.dart';
 import 'workspaces/workspace_actions.dart';
@@ -232,7 +232,7 @@ class _NavigationShell extends ConsumerWidget {
                         _DesktopNavigation(
                           selectedIndex: selectedIndex,
                           onSelected: onSelected,
-                          workspaceName: workspace?.name,
+                          workspace: workspace,
                           websocketState: websocketState,
                         ),
                         Expanded(
@@ -311,17 +311,18 @@ class _DesktopNavigation extends ConsumerWidget {
     required this.selectedIndex,
     required this.onSelected,
     required this.websocketState,
-    this.workspaceName,
+    this.workspace,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final WebSocketConnectionState websocketState;
-  final String? workspaceName;
+  final Workspace? workspace;
+
+  String? get workspaceName => workspace?.name;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(userInfoProvider);
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -356,13 +357,14 @@ class _DesktopNavigation extends ConsumerWidget {
                     ),
                     child: Column(
                       children: [
-                        Icon(
-                          Symbols.workspaces,
+                        CloudFileAvatar(
+                          file: workspace?.picture,
+                          workspaceId: workspace?.id,
+                          fallbackIcon: Symbols.workspaces,
                           size: 22,
-                          fill: selectedIndex == _profileTabIndex ? 1 : 0,
-                          color: selectedIndex == _profileTabIndex
-                              ? scheme.onSecondaryContainer
-                              : scheme.primary,
+                          selected: selectedIndex == _profileTabIndex,
+                          borderRadius: BorderRadius.circular(6),
+                          assumeImage: true,
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -396,16 +398,6 @@ class _DesktopNavigation extends ConsumerWidget {
               _WebsocketStatusDot(state: websocketState),
               const SizedBox(height: 4),
               const NotificationBellButton(),
-              const SizedBox(height: 4),
-              _RailIconButton(
-                tooltip: 'profile'.tr(),
-                selected: selectedIndex == _profileTabIndex,
-                onPressed: () => onSelected(_profileTabIndex),
-                child: _RailProfileAvatar(
-                  profile: profile,
-                  selected: selectedIndex == _profileTabIndex,
-                ),
-              ),
               const SizedBox(height: 4),
               _RailIconButton(
                 tooltip: 'settings'.tr(),
@@ -549,40 +541,6 @@ class _RailIconButton extends StatelessWidget {
           child: SizedBox(width: 48, height: 48, child: Center(child: child)),
         ),
       ),
-    );
-  }
-}
-
-class _RailProfileAvatar extends StatelessWidget {
-  const _RailProfileAvatar({required this.profile, this.selected = false});
-
-  final AsyncValue<SnAccount?> profile;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final user = profile.value;
-    final initials = _initials(user?.solWattDisplayName ?? '');
-    final scheme = Theme.of(context).colorScheme;
-    return CircleAvatar(
-      radius: 14,
-      backgroundColor: selected
-          ? scheme.primary
-          : scheme.surfaceContainerHighest,
-      foregroundColor: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
-      foregroundImage: user?.solWattAvatarUrl == null
-          ? null
-          : NetworkImage(user!.solWattAvatarUrl!),
-      child: user == null
-          ? Icon(Symbols.person, size: 18, fill: selected ? 1 : 0)
-          : Text(
-              initials,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
-              ),
-            ),
     );
   }
 }
@@ -879,7 +837,7 @@ class ProfilePage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const _BundledProProfileCard(),
+          const _PersonalWorkspacePlanCard(),
           const SizedBox(height: 24),
           SectionHeader(
             title: 'yourWorkspaces'.tr(),
@@ -917,85 +875,44 @@ class ProfilePage extends ConsumerWidget {
   }
 }
 
-class _BundledProProfileCard extends ConsumerWidget {
-  const _BundledProProfileCard();
+class _PersonalWorkspacePlanCard extends ConsumerWidget {
+  const _PersonalWorkspacePlanCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final overview = ref.watch(bundledProOverviewProvider);
+    final workspaces = ref.watch(workspacesProvider);
     final profile = ref.watch(solWattProfileProvider).value;
     final scheme = Theme.of(context).colorScheme;
 
-    return overview.when(
-      loading: () => const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: SizedBox(
-            height: 48,
-            child: Center(
-              child: SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return workspaces.when(
+      loading: () => Card(child: ListTile(title: Text('loading'.tr()))),
       error: (error, _) => Card(
         child: ListTile(
           leading: Icon(Symbols.error, color: scheme.error),
-          title: Text('bundledPro'.tr()),
+          title: Text('personalWorkspace'.tr()),
           subtitle: Text(wattApiErrorMessage(error)),
-          trailing: IconButton(
-            tooltip: 'retry'.tr(),
-            onPressed: () => ref.invalidate(bundledProOverviewProvider),
-            icon: const Icon(Symbols.refresh),
-          ),
         ),
       ),
-      data: (data) {
-        if (data == null) return const SizedBox.shrink();
-        final assigned = data.assignedWorkspace;
-        final eligible = data.eligible;
-        final caption = !eligible
-            ? 'requiresStellarSupernova'.tr(
-                namedArgs: {
-                  'perkLevel': bundledProRequiredPerkLevel.toString(),
-                  'perkTierName': profile?.perkTierName ?? 'Twinkle',
-                  'level': data.perkLevel.toString(),
-                },
-              )
-            : assigned != null
-            ? 'assignedToWorkspace'.tr(namedArgs: {'name': assigned.name})
-            : data.isAssigned
-            ? 'assignedElsewhere'.tr()
-            : 'notAssigned'.tr();
-
+      data: (items) {
+        final personal = items.where((item) => item.isIndividual).firstOrNull;
+        final eligible = profile?.canAssignBundledPro ?? false;
         return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                BundledSeatQuotaBar(
-                  usedSeats: data.usedSeats,
-                  totalSeats: data.totalSeats,
-                  caption: caption,
-                  locked: !eligible,
-                ),
-                if (eligible && assigned != null) ...[
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () =>
-                          showWorkspaceQuota(context, ref, assigned),
-                      child: Text('manage'.tr()),
-                    ),
-                  ),
-                ],
-              ],
+          child: ListTile(
+            leading: Icon(Symbols.person, color: scheme.primary),
+            title: Text('personalWorkspace'.tr()),
+            subtitle: Text(
+              personal == null
+                  ? 'personalWorkspaceProvisioning'.tr()
+                  : eligible && personal.isBundled
+                  ? 'bundledProAutomatic'.tr(namedArgs: {'name': personal.name})
+                  : 'bundledProPersonalEligibility'.tr(),
             ),
+            trailing: personal == null
+                ? null
+                : TextButton(
+                    onPressed: () => showWorkspaceQuota(context, ref, personal),
+                    child: Text('viewPlan'.tr()),
+                  ),
           ),
         );
       },

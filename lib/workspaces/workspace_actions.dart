@@ -6,6 +6,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart'
+    as foundation;
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -20,7 +22,7 @@ class WorkspaceDraft {
     required this.slug,
     required this.name,
     this.description,
-    required this.type,
+    this.type = WorkspaceType.organization,
     this.pictureId,
     this.updatePicture = false,
     this.backgroundId,
@@ -125,12 +127,11 @@ Future<void> showWorkspaceQuota(
   BuildContext context,
   WidgetRef ref,
   Workspace workspace,
-) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _WorkspacePlanQuotaSheet(workspace: workspace),
-    );
+) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  builder: (_) => _WorkspacePlanQuotaSheet(workspace: workspace),
+);
 
 class _WorkspacePlanQuotaSheet extends ConsumerStatefulWidget {
   const _WorkspacePlanQuotaSheet({required this.workspace});
@@ -168,77 +169,25 @@ class _WorkspacePlanQuotaSheetState
         );
   }
 
-  Future<void> _assignBundled() async {
-    final confirmed = await showConfirmAlert(
-      'assignBundledProConfirm'.tr(namedArgs: {'name': widget.workspace.name}),
-      'assignBundledPro'.tr(),
-      confirmLabel: 'assignBundledPro'.tr(),
-    );
-    if (!confirmed || !mounted) return;
-    await _runPlanAction(
-      () => ref
-          .read(wattEngineClientProvider)
-          .assignBundledPlan(widget.workspace.slug),
-      success: 'bundledProAssigned'.tr(namedArgs: {'name': widget.workspace.name}),
-    );
-  }
-
-  Future<void> _unassignBundled() async {
-    final confirmed = await showConfirmAlert(
-      'removeBundledProConfirm'.tr(namedArgs: {'name': widget.workspace.name}),
-      'removeBundledPro'.tr(),
-      confirmLabel: 'unassign'.tr(),
-    );
-    if (!confirmed || !mounted) return;
-    await _runPlanAction(
-      () => ref
-          .read(wattEngineClientProvider)
-          .unassignBundledPlan(widget.workspace.slug),
-      success: 'bundledProUnassigned'.tr(),
-    );
-  }
-
-  Future<void> _runPlanAction(
-    Future<void> Function() action, {
-    required String success,
-  }) async {
-    setState(() => _busy = true);
-    try {
-      await action();
-      ref.invalidate(workspacesProvider);
-      ref.invalidate(bundledProOverviewProvider);
-      invalidateWorkspaceScope(ref);
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _reload();
-      });
-      showSnackBar(success);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      showSnackBar(wattApiErrorMessage(error));
-    }
-  }
-
   Future<void> _subscribePlan(int plan, WorkspacePlanPrices? prices) async {
     final planName = WorkspacePlanTier.nameOf(plan);
     final priceLabel = prices == null
         ? null
         : plan == WorkspacePlanTier.pro
-            ? '${prices.pro} ${prices.currency}/mo'
-            : '${prices.enterprise} ${prices.currency}/mo';
+        ? '${prices.pro} ${prices.currency}/mo'
+        : '${prices.enterprise} ${prices.currency}/mo';
     final confirmed = await showConfirmAlert(
       priceLabel == null
-          ? 'createPaymentOrderNoPrice'.tr(namedArgs: {
-              'plan': planName,
-              'name': widget.workspace.name,
-            })
-          : 'createPaymentOrderWithPrice'.tr(namedArgs: {
-              'plan': planName,
-              'price': priceLabel,
-              'name': widget.workspace.name,
-            }),
+          ? 'createPaymentOrderNoPrice'.tr(
+              namedArgs: {'plan': planName, 'name': widget.workspace.name},
+            )
+          : 'createPaymentOrderWithPrice'.tr(
+              namedArgs: {
+                'plan': planName,
+                'price': priceLabel,
+                'name': widget.workspace.name,
+              },
+            ),
       'subscribeToPlan'.tr(namedArgs: {'plan': planName}),
       confirmLabel: 'continueToPayment'.tr(),
     );
@@ -289,16 +238,13 @@ class _WorkspacePlanQuotaSheetState
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final solWattProfile = ref.watch(solWattProfileProvider).value;
     final account =
-        solWattProfile?.account ?? ref.watch(userInfoProvider).value;
-    final perkLevel = solWattProfile?.perkLevel ?? 0;
-    final eligible = solWattProfile?.canAssignBundledPro ?? false;
+        ref.watch(solWattProfileProvider).value?.account ??
+        ref.watch(userInfoProvider).value;
     final isOwner =
         account != null &&
         widget.workspace.ownerAccountId != null &&
         widget.workspace.ownerAccountId == account.id;
-    final workspaces = ref.watch(workspacesProvider).value ?? const [];
 
     return SheetScaffold(
       titleText: 'planAndQuotas'.tr(),
@@ -322,23 +268,6 @@ class _WorkspacePlanQuotaSheetState
           }
           final status = snapshot.data!.status;
           final quota = snapshot.data!.quota;
-          final bundled = status.bundledPlan;
-          final assignedHere =
-              bundled != null &&
-              bundled.isEnabled &&
-              bundled.workspaceId == widget.workspace.id;
-          final assignedElsewhere =
-              bundled != null &&
-              bundled.isEnabled &&
-              bundled.workspaceId != null &&
-              bundled.workspaceId != widget.workspace.id;
-          final assignedWorkspace = assignedElsewhere
-               ? workspaces.where((w) => w.id == bundled.workspaceId).firstOrNull
-              : assignedHere
-                  ? widget.workspace
-                  : null;
-          final canManageBundled = isOwner && eligible && !_busy;
-
           return ListView(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
             children: [
@@ -368,9 +297,9 @@ class _WorkspacePlanQuotaSheetState
                     ),
                   if (status.planExpiresAt != null)
                     StatusChip(
-                      label: 'expires'.tr(namedArgs: {
-                        'date': _formatDate(status.planExpiresAt!),
-                      }),
+                      label: 'expires'.tr(
+                        namedArgs: {'date': _formatDate(status.planExpiresAt!)},
+                      ),
                       icon: Symbols.event,
                       tone: StatusChipTone.neutral,
                     ),
@@ -378,81 +307,20 @@ class _WorkspacePlanQuotaSheetState
               ),
               const SizedBox(height: 20),
               Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      BundledSeatQuotaBar(
-                        usedSeats: _bundledUsedSeats(
-                          eligible: eligible,
-                          bundled: bundled,
-                          assigned: assignedHere || assignedElsewhere,
-                        ),
-                        totalSeats: _bundledTotalSeats(
-                          eligible: eligible,
-                          bundled: bundled,
-                        ),
-                        caption: !eligible
-                            ? 'requiresStellarSupernova'.tr(namedArgs: {
-                                'perkLevel': bundledProRequiredPerkLevel.toString(),
-                                'perkTierName': solWattProfile?.perkTierName ?? 'Twinkle',
-                                'level': perkLevel.toString(),
-                              })
-                            : assignedHere
-                                ? 'assignedToThisWorkspace'.tr()
-                                : assignedElsewhere
-                                    ? (assignedWorkspace != null
-                                        ? 'assignedToWorkspace'.tr(namedArgs: {'name': assignedWorkspace.name})
-                                        : 'assignedToAnotherWorkspace'.tr())
-                                    : 'availableNotAssigned'.tr(),
-                        locked: !eligible,
-                      ),
-                      if (bundled?.cooldownActive == true) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'reassignCooldownActive'.tr(),
-                          style: text.bodySmall?.copyWith(color: scheme.error),
-                        ),
-                      ],
-                      if (eligible && !isOwner) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'onlyOwnerCanManageSeat'.tr(),
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                      if (canManageBundled) ...[
-                        const SizedBox(height: 12),
-                        if (assignedHere)
-                          OutlinedButton.icon(
-                            onPressed: _unassignBundled,
-                            icon: const Icon(Symbols.link_off, size: 18),
-                            label: Text('unassign'.tr()),
-                          )
-                        else if (assignedElsewhere && !bundled.cooldownActive)
-                          FilledButton.tonalIcon(
-                            onPressed: _assignBundled,
-                            icon: const Icon(Symbols.swap_horiz, size: 18),
-                            label: Text(
-                              assignedWorkspace == null
-                                  ? 'moveHere'.tr()
-                                  : 'moveFrom'.tr(namedArgs: {'name': assignedWorkspace.name}),
-                            ),
-                          )
-                        else if (!assignedElsewhere)
-                          FilledButton.icon(
-                            onPressed: _assignBundled,
-                            icon: const Icon(
-                              Symbols.workspace_premium,
-                              size: 18,
-                            ),
-                            label: Text('assignHere'.tr()),
-                          ),
-                      ],
-                    ],
+                child: ListTile(
+                  leading: Icon(
+                    widget.workspace.isIndividual
+                        ? Symbols.workspace_premium
+                        : Symbols.person,
+                    color: scheme.primary,
+                  ),
+                  title: Text('bundledPro'.tr()),
+                  subtitle: Text(
+                    widget.workspace.isIndividual
+                        ? (status.isBundled
+                              ? 'bundledProActivePersonal'.tr()
+                              : 'bundledProPersonalEligibility'.tr())
+                        : 'bundledProPersonalOnly'.tr(),
                   ),
                 ),
               ),
@@ -498,16 +366,19 @@ class _WorkspacePlanQuotaSheetState
                             onPressed: _busy
                                 ? null
                                 : () => _subscribePlan(
-                                      WorkspacePlanTier.pro,
-                                      status.prices,
-                                    ),
+                                    WorkspacePlanTier.pro,
+                                    status.prices,
+                                  ),
                             icon: const Icon(Symbols.payments, size: 18),
                             label: Text(
                               status.prices == null
                                   ? 'subscribeToPro'.tr()
-                                  : 'subscribeToProWithPrice'.tr(namedArgs: {
-                                      'price': '${status.prices!.pro} ${status.prices!.currency}',
-                                    }),
+                                  : 'subscribeToProWithPrice'.tr(
+                                      namedArgs: {
+                                        'price':
+                                            '${status.prices!.pro} ${status.prices!.currency}',
+                                      },
+                                    ),
                             ),
                           ),
                         if (status.plan < WorkspacePlanTier.enterprise) ...[
@@ -518,16 +389,19 @@ class _WorkspacePlanQuotaSheetState
                             onPressed: _busy
                                 ? null
                                 : () => _subscribePlan(
-                                      WorkspacePlanTier.enterprise,
-                                      status.prices,
-                                    ),
+                                    WorkspacePlanTier.enterprise,
+                                    status.prices,
+                                  ),
                             icon: const Icon(Symbols.diamond, size: 18),
                             label: Text(
                               status.prices == null
                                   ? 'subscribeToEnterprise'.tr()
-                                  : 'subscribeToEnterpriseWithPrice'.tr(namedArgs: {
-                                      'price': '${status.prices!.enterprise} ${status.prices!.currency}',
-                                    }),
+                                  : 'subscribeToEnterpriseWithPrice'.tr(
+                                      namedArgs: {
+                                        'price':
+                                            '${status.prices!.enterprise} ${status.prices!.currency}',
+                                      },
+                                    ),
                             ),
                           ),
                         ],
@@ -588,71 +462,6 @@ class _PlanQuotaBundle {
   final WorkspaceQuota quota;
 }
 
-class BundledSeatQuotaBar extends StatelessWidget {
-  const BundledSeatQuotaBar({
-    super.key,
-    required this.usedSeats,
-    required this.totalSeats,
-    this.caption,
-    this.locked = false,
-  });
-
-  final int usedSeats;
-  final int totalSeats;
-  final String? caption;
-  final bool locked;
-
-  double get _ratio =>
-      totalSeats > 0 ? (usedSeats / totalSeats).clamp(0.0, 1.0) : 0.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final seatLabel = totalSeats == 1 ? 'seat'.tr() : 'seats'.tr();
-    final countLabel = locked || totalSeats <= 0
-        ? 'Locked'
-        : '$usedSeats / $totalSeats $seatLabel';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Icon(
-              locked ? Symbols.lock : Symbols.workspace_premium,
-              size: 18,
-              color: locked ? scheme.onSurfaceVariant : scheme.primary,
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: Text('bundledPro'.tr(), style: text.labelLarge)),
-            Text(
-              countLabel,
-              style: text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: locked ? 0 : _ratio,
-            minHeight: 6,
-            backgroundColor: scheme.surfaceContainerHighest,
-          ),
-        ),
-        if (caption != null && caption!.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(
-            caption!,
-            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
 class _PaymentOrderDialog extends StatelessWidget {
   const _PaymentOrderDialog({
     required this.planName,
@@ -698,7 +507,10 @@ class _PaymentOrderDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('orderCreatedTitle'.tr(namedArgs: {'plan': planName}), style: text.headlineSmall),
+              Text(
+                'orderCreatedTitle'.tr(namedArgs: {'plan': planName}),
+                style: text.headlineSmall,
+              ),
               const SizedBox(height: 12),
               Text(
                 openedInBrowser
@@ -754,10 +566,12 @@ class _PaymentOrderDialog extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'orderAmount'.tr(namedArgs: {
-                  'orderId': order.orderId,
-                  'amount': '${order.amount} ${order.currency}',
-                }),
+                'orderAmount'.tr(
+                  namedArgs: {
+                    'orderId': order.orderId,
+                    'amount': '${order.amount} ${order.currency}',
+                  },
+                ),
                 textAlign: TextAlign.center,
                 style: text.labelLarge?.copyWith(
                   color: scheme.onSurfaceVariant,
@@ -767,9 +581,7 @@ class _PaymentOrderDialog extends StatelessWidget {
               Text(
                 'afterPaymentSettles'.tr(),
                 textAlign: TextAlign.center,
-                style: text.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 16),
               OverflowBar(
@@ -782,10 +594,7 @@ class _PaymentOrderDialog extends StatelessWidget {
                     },
                     child: Text('openInBrowser'.tr()),
                   ),
-                  FilledButton(
-                    onPressed: onClose,
-                    child: Text('done'.tr()),
-                  ),
+                  FilledButton(onPressed: onClose, child: Text('done'.tr())),
                 ],
               ),
             ],
@@ -796,35 +605,14 @@ class _PaymentOrderDialog extends StatelessWidget {
   }
 }
 
-int _bundledUsedSeats({
-  required bool eligible,
-  required BundledPlanInfo? bundled,
-  required bool assigned,
-}) {
-  if (!eligible) return 0;
-  final fromApi = bundled?.usedSeats;
-  if (fromApi != null) return fromApi;
-  return assigned ? 1 : 0;
-}
-
-int _bundledTotalSeats({
-  required bool eligible,
-  required BundledPlanInfo? bundled,
-}) {
-  if (!eligible) return 0;
-  final fromApi = bundled?.totalSeats;
-  if (fromApi != null && fromApi > 0) return fromApi;
-  return 1;
-}
-
 String _quotaLabel(String key) => switch (key) {
-      'max_projects' => 'projects'.tr(),
-      'max_members' => 'members'.tr(),
-      'max_tasks_per_project' => 'tasksPerProject'.tr(),
-      'max_broads_per_project' => 'boardsPerProject'.tr(),
-      'max_storage_bytes' => 'storage'.tr(),
-      _ => key.replaceAll('_', ' '),
-    };
+  'max_projects' => 'projects'.tr(),
+  'max_members' => 'members'.tr(),
+  'max_tasks_per_project' => 'tasksPerProject'.tr(),
+  'max_broads_per_project' => 'boardsPerProject'.tr(),
+  'max_storage_bytes' => 'storage'.tr(),
+  _ => key.replaceAll('_', ' '),
+};
 
 String _formatDate(DateTime value) {
   final local = value.toLocal();
@@ -873,10 +661,7 @@ class _WorkspaceMembersSheetState
           _AccountPickerSheet(client: ref.read(wattEngineClientProvider)),
     );
     if (account == null || !mounted) return;
-    final role = await _selectRole(
-      context,
-      title: 'inviteMember'.tr(),
-    );
+    final role = await _selectRole(context, title: 'inviteMember'.tr());
     if (role == null || !mounted) return;
     try {
       await ref
@@ -960,9 +745,9 @@ class _WorkspaceMembersSheetState
           children: [
             Text(
               widget.workspace.name,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -1015,7 +800,9 @@ class _WorkspaceMembersSheetState
                           itemBuilder: (_) => [
                             PopupMenuItem(
                               value: 'role',
-                              child: Text('${'role'.tr()}: ${_roleName(member.role)}'),
+                              child: Text(
+                                '${'role'.tr()}: ${_roleName(member.role)}',
+                              ),
                             ),
                             if (member.role != 100)
                               PopupMenuItem(
@@ -1041,34 +828,33 @@ Future<int?> _selectRole(
   BuildContext context, {
   required String title,
   int? selectedRole,
-}) =>
-    showModalBottomSheet<int>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => SheetScaffold(
-        titleText: title,
-        heightFactor: 0.45,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
-          children: [
-            for (final role in const [25, 50, 75, 100])
-              ListTile(
-                title: Text(_roleName(role)),
-                trailing: selectedRole == role ? const Icon(Symbols.check) : null,
-                onTap: () => Navigator.pop(context, role),
-              ),
-          ],
-        ),
-      ),
-    );
+}) => showModalBottomSheet<int>(
+  context: context,
+  isScrollControlled: true,
+  builder: (context) => SheetScaffold(
+    titleText: title,
+    heightFactor: 0.45,
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+      children: [
+        for (final role in const [25, 50, 75, 100])
+          ListTile(
+            title: Text(_roleName(role)),
+            trailing: selectedRole == role ? const Icon(Symbols.check) : null,
+            onTap: () => Navigator.pop(context, role),
+          ),
+      ],
+    ),
+  ),
+);
 
 String _roleName(int role) => switch (role) {
-      25 => 'viewer'.tr(),
-      50 => 'memberRole'.tr(),
-      75 => 'admin'.tr(),
-      100 => 'owner'.tr(),
-      _ => 'role'.tr(args: [role.toString()]),
-    };
+  25 => 'viewer'.tr(),
+  50 => 'memberRole'.tr(),
+  75 => 'admin'.tr(),
+  100 => 'owner'.tr(),
+  _ => 'role'.tr(args: [role.toString()]),
+};
 
 class _AccountAvatar extends StatelessWidget {
   const _AccountAvatar({
@@ -1170,9 +956,7 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
             const SizedBox(height: 8),
             Expanded(
               child: _results == null
-                  ? Center(
-                      child: Text('searchAccountToInvite'.tr()),
-                    )
+                  ? Center(child: Text('searchAccountToInvite'.tr()))
                   : FutureBuilder<List<SnAccount>>(
                       future: _results,
                       builder: (context, snapshot) {
@@ -1186,9 +970,7 @@ class _AccountPickerSheetState extends State<_AccountPickerSheet> {
                         }
                         final accounts = snapshot.data ?? const [];
                         if (accounts.isEmpty) {
-                          return Center(
-                            child: Text('noAccountsFound'.tr()),
-                          );
+                          return Center(child: Text('noAccountsFound'.tr()));
                         }
                         return ListView.builder(
                           itemCount: accounts.length,
@@ -1251,8 +1033,6 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
   late final TextEditingController _slug;
   late final TextEditingController _name;
   late final TextEditingController _description;
-  var _type = 0;
-  var _usePersonalDetails = false;
   SnCloudFileReference? _picture;
   SnCloudFileReference? _background;
   var _pictureChanged = false;
@@ -1265,7 +1045,6 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
     _slug = TextEditingController(text: workspace?.slug ?? '');
     _name = TextEditingController(text: workspace?.name ?? '');
     _description = TextEditingController(text: workspace?.description ?? '');
-    _type = workspace?.type ?? 0;
     _picture = workspace?.picture;
     _background = workspace?.background;
   }
@@ -1329,7 +1108,7 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
         description: _description.text.trim().isEmpty
             ? null
             : _description.text.trim(),
-        type: _type,
+        type: WorkspaceType.organization,
         pictureId: _picture?.id,
         updatePicture: _pictureChanged,
         backgroundId: _background?.id,
@@ -1340,7 +1119,6 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
     final workspace = widget.workspace;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -1362,6 +1140,7 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
                     file: _picture,
                     fallbackIcon: Symbols.workspaces,
                     size: 72,
+                    assumeImage: true,
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1384,7 +1163,9 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
                           TextButton.icon(
                             onPressed: _pickPicture,
                             icon: const Icon(Symbols.upload, size: 18),
-                            label: Text(_picture == null ? 'upload'.tr() : 'change'.tr()),
+                            label: Text(
+                              _picture == null ? 'upload'.tr() : 'change'.tr(),
+                            ),
                           ),
                           if (_picture != null)
                             TextButton(
@@ -1444,29 +1225,14 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
                 ),
               ),
               const SizedBox(height: 16),
-              if (profile?.name.isNotEmpty == true) ...[
-                Card(
-                  child: CheckboxListTile(
-                    value: _usePersonalDetails,
-                    title: Text('useMyPersonalDetails'.tr()),
-                    subtitle: Text(
-                      'useMyPersonalDetailsSubtitle'.tr(namedArgs: {'name': profile!.name}),
-                    ),
-                    onChanged: _type == 0
-                        ? (selected) => setState(() {
-                              _usePersonalDetails = selected ?? false;
-                              if (_usePersonalDetails) {
-                                _slug.text = profile.name;
-                                _name.text = profile.solWattDisplayName;
-                                _description.text =
-                                    "${profile.solWattDisplayName}'s personal workspace";
-                              }
-                            })
-                        : null,
-                  ),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Symbols.business),
+                  title: Text('organizationWorkspace'.tr()),
+                  subtitle: Text('organizationWorkspaceDescription'.tr()),
                 ),
-                const SizedBox(height: 16),
-              ],
+              ),
+              const SizedBox(height: 16),
             ],
             TextField(
               controller: _name,
@@ -1485,24 +1251,6 @@ class _WorkspaceEditorSheetState extends ConsumerState<_WorkspaceEditorSheet> {
               ),
               maxLines: 4,
             ),
-            if (workspace == null) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                initialValue: _type,
-                decoration: InputDecoration(
-                  labelText: 'Workspace type',
-                  prefixIcon: inputPrefixIcon(Symbols.category),
-                ),
-                items: [
-                  DropdownMenuItem(value: 0, child: Text('individual'.tr())),
-                  DropdownMenuItem(value: 1, child: Text('organization'.tr())),
-                ],
-                onChanged: (value) => setState(() {
-                  _type = value ?? 0;
-                  if (_type != 0) _usePersonalDetails = false;
-                }),
-              ),
-            ],
             const SizedBox(height: 28),
             FilledButton(
               onPressed: _submit,
@@ -1563,12 +1311,21 @@ class WorkspaceList extends ConsumerWidget {
           itemBuilder: (context, index) {
             final workspace = items[index];
             final isActive = selected?.id == workspace.id;
-            final planLabel = workspace.isBundled
-                ? '${workspace.planName} · perk'
-                : workspace.planName;
+            final planLabel = workspace.isIndividual
+                ? '${'personalWorkspace'.tr()} · ${workspace.planName}'
+                : '${'organization'.tr()} · ${workspace.planName}';
+            final background = workspace.background;
+            final backgroundPreview = background == null
+                ? null
+                : foundation.cloudFileImageProvider(
+                    serverUrl: kSolarNetworkApiBase,
+                    id: background.id,
+                    storageUrl: background.storageUrl,
+                    workspaceId: workspace.id,
+                  );
 
             return Card(
-              clipBehavior: Clip.none,
+              clipBehavior: Clip.antiAlias,
               color: isActive
                   ? scheme.primaryContainer.withValues(alpha: 0.55)
                   : scheme.surfaceContainerLow,
@@ -1581,132 +1338,165 @@ class WorkspaceList extends ConsumerWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => onActivate(workspace),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  child: Row(
+                child: SizedBox(
+                  height: 60,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.all(1.5),
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            CloudFileAvatar(
-                              file: workspace.picture,
-                              fallbackIcon: Symbols.workspaces,
-                              size: 40,
-                              selected: isActive,
-                            ),
-                            if (isActive)
-                              Positioned(
-                                right: -2,
-                                bottom: -2,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: scheme.surface,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Symbols.check_circle,
-                                    size: 16,
-                                    color: scheme.primary,
-                                    fill: 1,
-                                  ),
-                                ),
-                              ),
-                          ],
+                      if (backgroundPreview != null)
+                        Image(
+                          image: backgroundPreview,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      if (backgroundPreview != null)
+                        ColoredBox(
+                          color: scheme.surface.withValues(alpha: 0.82),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: Row(
                           children: [
-                            Text(
-                              workspace.name,
-                              style: text.titleMedium,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            Padding(
+                              padding: const EdgeInsets.all(1.5),
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  CloudFileAvatar(
+                                    file: workspace.picture,
+                                    workspaceId: workspace.id,
+                                    fallbackIcon: Symbols.workspaces,
+                                    size: 40,
+                                    selected: isActive,
+                                    assumeImage: true,
+                                  ),
+                                  if (isActive)
+                                    Positioned(
+                                      right: -2,
+                                      bottom: -2,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: scheme.surface,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Symbols.check_circle,
+                                          size: 16,
+                                          color: scheme.primary,
+                                          fill: 1,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              planLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.bodySmall?.copyWith(
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    workspace.name,
+                                    style: text.titleMedium,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    planLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.bodySmall?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (manageActions)
+                              PopupMenuButton<String>(
+                                tooltip: 'workspaceActions'.tr(),
+                                icon: Icon(
+                                  Symbols.more_vert,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                                onSelected: (value) {
+                                  switch (value) {
+                                    case 'quota':
+                                      showWorkspaceQuota(
+                                        context,
+                                        ref,
+                                        workspace,
+                                      );
+                                    case 'members':
+                                      showWorkspaceMembers(context, workspace);
+                                    case 'edit':
+                                      editWorkspaceAction(
+                                        context,
+                                        ref,
+                                        workspace,
+                                      );
+                                    case 'delete':
+                                      deleteWorkspaceAction(
+                                        context,
+                                        ref,
+                                        workspace,
+                                      );
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  PopupMenuItem(
+                                    value: 'quota',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(
+                                        Symbols.workspace_premium,
+                                      ),
+                                      title: Text('planAndQuotas'.tr()),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'members',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(Symbols.group),
+                                      title: Text('manageMembers'.tr()),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'edit',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(Symbols.edit),
+                                      title: Text('edit'.tr()),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(
+                                        Symbols.delete,
+                                        color: scheme.error,
+                                      ),
+                                      title: Text(
+                                        'delete'.tr(),
+                                        style: TextStyle(color: scheme.error),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else
+                              Icon(
+                                Symbols.chevron_right,
                                 color: scheme.onSurfaceVariant,
                               ),
-                            ),
                           ],
                         ),
                       ),
-                      if (manageActions)
-                        PopupMenuButton<String>(
-                          tooltip: 'workspaceActions'.tr(),
-                          icon: Icon(
-                            Symbols.more_vert,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'quota':
-                                showWorkspaceQuota(context, ref, workspace);
-                              case 'members':
-                                showWorkspaceMembers(context, workspace);
-                              case 'edit':
-                                editWorkspaceAction(context, ref, workspace);
-                              case 'delete':
-                                deleteWorkspaceAction(context, ref, workspace);
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              value: 'quota',
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Symbols.workspace_premium),
-                                title: Text('planAndQuotas'.tr()),
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'members',
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Symbols.group),
-                                title: Text('manageMembers'.tr()),
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'edit',
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Symbols.edit),
-                                title: Text('edit'.tr()),
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'delete',
-                              child: ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(
-                                  Symbols.delete,
-                                  color: scheme.error,
-                                ),
-                                title: Text(
-                                  'delete'.tr(),
-                                  style: TextStyle(color: scheme.error),
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Icon(
-                          Symbols.chevron_right,
-                          color: scheme.onSurfaceVariant,
-                        ),
                     ],
                   ),
                 ),

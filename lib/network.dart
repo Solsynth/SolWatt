@@ -400,7 +400,8 @@ extension SnAccountUi on SnAccount {
       perkLevelFromStellarIdentifier(perkSubscription?.identifier);
 }
 
-/// WattEngine requires perk level 3+ (Stellar Supernova) for one free Pro seat.
+/// WattEngine requires perk level 3+ (Stellar Supernova) for bundled Pro on
+/// the account's automatically provisioned individual workspace.
 const bundledProRequiredPerkLevel = 3;
 
 /// Signed-in account plus [perkLevel] from `/passport/accounts/me`.
@@ -1602,7 +1603,7 @@ class Workspace {
     required this.slug,
     required this.name,
     this.description,
-    this.type = 0,
+    this.type = WorkspaceType.individual,
     this.ownerAccountId,
     this.picture,
     this.background,
@@ -1623,6 +1624,9 @@ class Workspace {
   final bool isBundled;
 
   String get planName => WorkspacePlanTier.nameOf(plan);
+  bool get isIndividual => type == WorkspaceType.individual;
+  bool get isOrganization => type == WorkspaceType.organization;
+  String get typeName => isIndividual ? 'Individual' : 'Organization';
 
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
     id: json['id']?.toString() ?? '',
@@ -1630,13 +1634,21 @@ class Workspace {
     name: json['name']?.toString() ?? 'Untitled workspace',
     description: json['description']?.toString(),
     type: _parseOptionalInt(json['type']) ?? 0,
-    ownerAccountId: json['owner_account_id']?.toString(),
+    ownerAccountId: (json['owner_account_id'] ?? json['ownerAccountId'])
+        ?.toString(),
     picture: parseCloudFileReference(json['picture']),
     background: parseCloudFileReference(json['background']),
     plan: _parseOptionalInt(json['plan']) ?? 0,
-    planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
-    isBundled: json['is_bundled'] == true,
+    planExpiresAt: _parseOptionalDateTime(
+      json['plan_expires_at'] ?? json['planExpiresAt'],
+    ),
+    isBundled: json['is_bundled'] == true || json['isBundled'] == true,
   );
+}
+
+abstract final class WorkspaceType {
+  static const individual = 0;
+  static const organization = 1;
 }
 
 /// [SnCloudFile] plus the optional `workspace_id` field that the SDK model
@@ -1752,12 +1764,17 @@ class BundledPlanInfo {
 
   factory BundledPlanInfo.fromJson(Map<String, dynamic> json) =>
       BundledPlanInfo(
-        isEnabled: json['is_enabled'] == true,
-        workspaceId: json['workspace_id']?.toString(),
-        lastReassignedAt: _parseOptionalDateTime(json['last_reassigned_at']),
-        cooldownActive: json['cooldown_active'] == true,
-        totalSeats: _parseOptionalInt(json['total_seats']),
-        usedSeats: _parseOptionalInt(json['used_seats']),
+        isEnabled: json['is_enabled'] == true || json['isEnabled'] == true,
+        workspaceId: (json['workspace_id'] ?? json['workspaceId'])?.toString(),
+        lastReassignedAt: _parseOptionalDateTime(
+          json['last_reassigned_at'] ?? json['lastReassignedAt'],
+        ),
+        cooldownActive:
+            json['cooldown_active'] == true || json['cooldownActive'] == true,
+        totalSeats: _parseOptionalInt(
+          json['total_seats'] ?? json['totalSeats'],
+        ),
+        usedSeats: _parseOptionalInt(json['used_seats'] ?? json['usedSeats']),
       );
 }
 
@@ -1798,12 +1815,14 @@ class WorkspacePlanStatus {
   String get planName => WorkspacePlanTier.nameOf(plan);
 
   factory WorkspacePlanStatus.fromJson(Map<String, dynamic> json) {
-    final bundledRaw = json['bundled_plan'];
+    final bundledRaw = json['bundled_plan'] ?? json['bundledPlan'];
     final pricesRaw = json['prices'];
     return WorkspacePlanStatus(
       plan: _parseOptionalInt(json['plan']) ?? 0,
-      planExpiresAt: _parseOptionalDateTime(json['plan_expires_at']),
-      isBundled: json['is_bundled'] == true,
+      planExpiresAt: _parseOptionalDateTime(
+        json['plan_expires_at'] ?? json['planExpiresAt'],
+      ),
+      isBundled: json['is_bundled'] == true || json['isBundled'] == true,
       bundledPlan: bundledRaw is Map
           ? BundledPlanInfo.fromJson(Map<String, dynamic>.from(bundledRaw))
           : null,
@@ -2440,6 +2459,7 @@ class MailEmail {
     this.cc = const [],
     this.bcc = const [],
     this.attachments = const [],
+    this.inlineAttachments = const {},
     this.isRead = false,
     this.createdAt,
     this.mailbox,
@@ -2462,6 +2482,9 @@ class MailEmail {
   final List<MailRecipient> cc;
   final List<MailRecipient> bcc;
   final List<SnCloudFileReference> attachments;
+
+  /// Inline MIME attachments keyed by their RFC 2392 Content-ID.
+  final Map<String, SnCloudFileReference> inlineAttachments;
   final bool isRead;
   final DateTime? createdAt;
   final String? deliveryStatus;
@@ -2470,15 +2493,19 @@ class MailEmail {
   final String? deliveryError;
   final String? providerMessageId;
 
-  bool get hasDeliveryStatus => deliveryStatus != null && deliveryStatus!.isNotEmpty;
+  bool get hasDeliveryStatus =>
+      deliveryStatus != null && deliveryStatus!.isNotEmpty;
 
   bool get isHtml => contentType?.toLowerCase() == 'text/html';
 
-  String get displaySubject => subject.trim().isNotEmpty ? subject : '(no subject)';
+  String get displaySubject =>
+      subject.trim().isNotEmpty ? subject : '(no subject)';
 
   String get previewText {
     final stripped = isHtml
-        ? body.replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll(RegExp(r'&[^;]+;'), ' ')
+        ? body
+              .replaceAll(RegExp(r'<[^>]*>'), ' ')
+              .replaceAll(RegExp(r'&[^;]+;'), ' ')
         : body;
     return stripped.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
@@ -2499,11 +2526,15 @@ class MailEmail {
 
     final allRecipients = recipientsRaw is List
         ? recipientsRaw
-            .whereType<Map>()
-            .map((item) => MailRecipient.fromJson(Map<String, dynamic>.from(item)))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (item) =>
+                    MailRecipient.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList()
         : <MailRecipient>[];
 
+    final parsedAttachments = parseMailAttachments(json['attachments']);
     return MailEmail(
       id: json['id']?.toString() ?? '',
       mailboxId: json['mailbox_id']?.toString() ?? '',
@@ -2518,16 +2549,72 @@ class MailEmail {
       to: allRecipients.where((r) => r.kind == 'to').toList(),
       cc: allRecipients.where((r) => r.kind == 'cc').toList(),
       bcc: allRecipients.where((r) => r.kind == 'bcc').toList(),
-      attachments: parseCloudFileReferenceList(json['attachments']),
+      attachments: parsedAttachments.map((item) => item.file).toList(),
+      inlineAttachments: {
+        for (final attachment in parsedAttachments)
+          if (attachment.contentId != null)
+            attachment.contentId!: attachment.file,
+      },
       isRead: json['is_read'] == true,
       createdAt: parseInstant(json['created_at']),
       deliveryStatus: nonEmptyString(json['delivery_status']?.toString()),
       deliveryAttempts: (json['delivery_attempts'] as num?)?.toInt() ?? 0,
       lastDeliveryAttemptAt: parseInstant(json['last_delivery_attempt_at']),
       deliveryError: nonEmptyString(json['delivery_error']?.toString()),
-      providerMessageId: nonEmptyString(json['provider_message_id']?.toString()),
+      providerMessageId: nonEmptyString(
+        json['provider_message_id']?.toString(),
+      ),
     );
   }
+}
+
+class MailAttachment {
+  const MailAttachment({required this.file, this.contentId});
+
+  final SnCloudFileReference file;
+  final String? contentId;
+}
+
+List<MailAttachment> parseMailAttachments(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) {
+        final json = Map<String, dynamic>.from(item);
+        final reference = json['file'] is Map
+            ? Map<String, dynamic>.from(json['file'] as Map)
+            : json;
+        final fileId =
+            (reference['id'] ??
+                    json['storage_key'] ??
+                    json['file_id'] ??
+                    json['id'])
+                ?.toString();
+        if (fileId == null || fileId.isEmpty) return null;
+        try {
+          final file = SnCloudFileReference.fromJson({
+            ...reference,
+            'id': fileId,
+            'name': reference['name'] ?? json['filename'] ?? fileId,
+            'mime_type':
+                reference['mime_type'] ??
+                json['mime_type'] ??
+                'application/octet-stream',
+            'size': reference['size'] ?? json['size'] ?? 0,
+          });
+          final contentId = json['content_id']?.toString().trim();
+          return MailAttachment(
+            file: file,
+            contentId: contentId == null || contentId.isEmpty
+                ? null
+                : contentId.replaceAll(RegExp(r'^<|>$'), ''),
+          );
+        } catch (_) {
+          return null;
+        }
+      })
+      .whereType<MailAttachment>()
+      .toList(growable: false);
 }
 
 class MailCredential {

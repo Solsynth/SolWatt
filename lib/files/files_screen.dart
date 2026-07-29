@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
@@ -25,10 +26,11 @@ enum WorkspaceMediaFilter { all, image, video, audio, document }
 enum WorkspaceFileSort { name, size, date }
 
 class _DriveTab {
-  _DriveTab({required this.id, required this.mode});
+  _DriveTab({required this.id, required this.mode, this.file});
 
   final String id;
   final WorkspaceFileMode mode;
+  final DriveFileEntry? file;
 
   final List<({String id, String name})> path = [];
   WorkspaceFileViewMode viewMode = WorkspaceFileViewMode.list;
@@ -43,9 +45,14 @@ class _DriveTab {
 
   bool get isUnindexed => mode == WorkspaceFileMode.unindexed;
 
+  bool get isFileDetail => file != null;
+
   String get parentId => path.isEmpty ? '' : path.last.id;
 
   String get title {
+    if (file != null) {
+      return file!.name.isEmpty ? 'fileDetails'.tr() : file!.name;
+    }
     if (isUnindexed) return 'assets'.tr();
     if (path.isEmpty) return 'folders'.tr();
     return path.last.name;
@@ -147,6 +154,21 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       ..addAll(from.path)
       ..add((id: folder.id, name: folder.name));
     tab.viewMode = from.viewMode;
+    setState(() {
+      _tabs.add(tab);
+      _activeTabId = tab.id;
+    });
+  }
+
+  void _openFileDetailTab(DriveFileEntry entry, _DriveTab from) {
+    if (entry.isFolder) return;
+    final existing = _tabs.where((tab) => tab.file?.id == entry.id).firstOrNull;
+    if (existing != null) {
+      _selectTab(existing.id);
+      return;
+    }
+
+    final tab = _DriveTab(id: _newTabId(), mode: from.mode, file: entry);
     setState(() {
       _tabs.add(tab);
       _activeTabId = tab.id;
@@ -285,9 +307,9 @@ class _FilesPageState extends ConsumerState<FilesPage> {
 
   Future<void> _delete(DriveFileEntry entry) async {
     final confirmed = await showConfirmAlert(
-      'permanentlyDelete'.tr(namedArgs: {
-        'name': entry.name.isEmpty ? entry.id : entry.name,
-      }),
+      'permanentlyDelete'.tr(
+        namedArgs: {'name': entry.name.isEmpty ? entry.id : entry.name},
+      ),
       entry.isFolder ? 'deleteFolder'.tr() : 'deleteFile'.tr(),
       icon: Symbols.delete,
       isDanger: true,
@@ -408,10 +430,14 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           onAddIndexedTab: () => _createTab(WorkspaceFileMode.indexed),
           onAddUnindexedTab: () => _createTab(WorkspaceFileMode.unindexed),
           onRefresh: tab == null ? null : _invalidateDrive,
-          onNewFolder: tab == null || tab.isUnindexed || workspace == null
+          onNewFolder:
+              tab == null ||
+                  tab.isFileDetail ||
+                  tab.isUnindexed ||
+                  workspace == null
               ? null
               : () => _createFolder(tab),
-          onUpload: tab == null || workspace == null
+          onUpload: tab == null || tab.isFileDetail || workspace == null
               ? null
               : () => _uploadFiles(tab),
           uploadIsAsset: tab?.isUnindexed == true,
@@ -437,25 +463,36 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                           sizing: StackFit.expand,
                           children: [
                             for (final t in _tabs)
-                              _TabBrowserBody(
-                                key: ValueKey(t.id),
-                                tab: t,
-                                workspace: workspace,
-                                onChanged: _notifyTabsChanged,
-                                onInvalidate: _invalidateDrive,
-                                onUpload: () => _uploadFiles(t),
-                                onNavigatePath: (keepThrough) =>
-                                    _navigatePath(t, keepThrough),
-                                onOpenFolder: (entry) =>
-                                    _openFolderInPlace(t, entry),
-                                onOpenFolderInNewTab: (entry) =>
-                                    _openFolderInNewTab(entry, t),
-                                onInspect: (entry) => _inspect(t, entry),
-                                onRename: _rename,
-                                onDelete: _delete,
-                                applyFilters: (items) =>
-                                    _applyFilters(t, items),
-                              ),
+                              if (t.isFileDetail)
+                                _FileDetailTab(
+                                  key: ValueKey(t.id),
+                                  entry: t.file!,
+                                  unindexed: t.isUnindexed,
+                                  onRename: () => _rename(t.file!),
+                                  onDelete: () => _delete(t.file!),
+                                )
+                              else
+                                _TabBrowserBody(
+                                  key: ValueKey(t.id),
+                                  tab: t,
+                                  workspace: workspace,
+                                  onChanged: _notifyTabsChanged,
+                                  onInvalidate: _invalidateDrive,
+                                  onUpload: () => _uploadFiles(t),
+                                  onNavigatePath: (keepThrough) =>
+                                      _navigatePath(t, keepThrough),
+                                  onOpenFolder: (entry) =>
+                                      _openFolderInPlace(t, entry),
+                                  onOpenFolderInNewTab: (entry) =>
+                                      _openFolderInNewTab(entry, t),
+                                  onOpenFile: (entry) =>
+                                      _openFileDetailTab(entry, t),
+                                  onInspect: (entry) => _inspect(t, entry),
+                                  onRename: _rename,
+                                  onDelete: _delete,
+                                  applyFilters: (items) =>
+                                      _applyFilters(t, items),
+                                ),
                           ],
                         ),
                 ),
@@ -583,7 +620,9 @@ class _DriveTabStrip extends StatelessWidget {
                             index: index,
                             child: _DriveTabItem(
                               title: tab.title,
-                              icon: tab.isUnindexed
+                              icon: tab.isFileDetail
+                                  ? Symbols.description
+                                  : tab.isUnindexed
                                   ? Symbols.inventory_2
                                   : Symbols.folder,
                               isSelected: selected,
@@ -735,14 +774,14 @@ class _DriveTabItem extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: isSelected
-                                  ? scheme.onSurface
-                                  : scheme.onSurfaceVariant,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                              fontSize: 13,
-                            ),
+                          color: isSelected
+                              ? scheme.onSurface
+                              : scheme.onSurfaceVariant,
+                          fontWeight: isSelected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                     SizedBox(
@@ -819,6 +858,7 @@ class _TabBrowserBody extends ConsumerWidget {
     required this.onNavigatePath,
     required this.onOpenFolder,
     required this.onOpenFolderInNewTab,
+    required this.onOpenFile,
     required this.onInspect,
     required this.onRename,
     required this.onDelete,
@@ -833,6 +873,7 @@ class _TabBrowserBody extends ConsumerWidget {
   final ValueChanged<int> onNavigatePath;
   final ValueChanged<DriveFileEntry> onOpenFolder;
   final ValueChanged<DriveFileEntry> onOpenFolderInNewTab;
+  final ValueChanged<DriveFileEntry> onOpenFile;
   final ValueChanged<DriveFileEntry> onInspect;
   final ValueChanged<DriveFileEntry> onRename;
   final ValueChanged<DriveFileEntry> onDelete;
@@ -892,7 +933,11 @@ class _TabBrowserBody extends ConsumerWidget {
                                       icon: const Icon(Symbols.home, size: 18),
                                       label: Text('root'.tr()),
                                     ),
-                                    for (var i = 0; i < tab.path.length; i++) ...[
+                                    for (
+                                      var i = 0;
+                                      i < tab.path.length;
+                                      i++
+                                    ) ...[
                                       Icon(
                                         Symbols.chevron_right,
                                         size: 16,
@@ -924,8 +969,8 @@ class _TabBrowserBody extends ConsumerWidget {
                         style: IconButton.styleFrom(
                           foregroundColor:
                               tab.showFilters || tab.activeFilterCount > 0
-                                  ? scheme.primary
-                                  : scheme.onSurfaceVariant,
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
                         ),
                         icon: Badge(
                           isLabelVisible:
@@ -1021,14 +1066,18 @@ class _TabBrowserBody extends ConsumerWidget {
                               icon: Symbols.category,
                               label: switch (tab.kindFilter) {
                                 WorkspaceFileKindFilter.all => 'all'.tr(),
-                                WorkspaceFileKindFilter.folders => 'folders'.tr(),
+                                WorkspaceFileKindFilter.folders =>
+                                  'folders'.tr(),
                                 WorkspaceFileKindFilter.files => 'files'.tr(),
                               },
                               active:
                                   tab.kindFilter != WorkspaceFileKindFilter.all,
                               items: [
                                 (WorkspaceFileKindFilter.all, 'all'.tr()),
-                                (WorkspaceFileKindFilter.folders, 'folders'.tr()),
+                                (
+                                  WorkspaceFileKindFilter.folders,
+                                  'folders'.tr(),
+                                ),
                                 (WorkspaceFileKindFilter.files, 'files'.tr()),
                               ],
                               onSelected: (v) {
@@ -1090,7 +1139,9 @@ class _TabBrowserBody extends ConsumerWidget {
                                   : Symbols.arrow_upward,
                               size: 16,
                             ),
-                            label: Text(tab.sortDesc ? 'desc'.tr() : 'asc'.tr()),
+                            label: Text(
+                              tab.sortDesc ? 'desc'.tr() : 'asc'.tr(),
+                            ),
                             onPressed: () {
                               tab.sortDesc = !tab.sortDesc;
                               onChanged();
@@ -1137,8 +1188,8 @@ class _TabBrowserBody extends ConsumerWidget {
                   title: tab.isUnindexed
                       ? 'noUnindexedAssetsYet'.tr()
                       : tab.path.isEmpty
-                          ? 'noWorkspaceFilesYet'.tr()
-                          : 'folderIsEmpty'.tr(),
+                      ? 'noWorkspaceFilesYet'.tr()
+                      : 'folderIsEmpty'.tr(),
                   message: tab.isUnindexed
                       ? 'uploadLogosAndBackgrounds'.tr()
                       : 'uploadFilesOrCreateFolder'.tr(),
@@ -1167,7 +1218,7 @@ class _TabBrowserBody extends ConsumerWidget {
                               if (!tab.isUnindexed && entry.isFolder) {
                                 onOpenFolder(entry);
                               } else {
-                                onInspect(entry);
+                                onOpenFile(entry);
                               }
                             },
                             onOpenInNewTab: !tab.isUnindexed && entry.isFolder
@@ -1183,11 +1234,11 @@ class _TabBrowserBody extends ConsumerWidget {
                         padding: const EdgeInsets.only(bottom: 8),
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 200,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 0.88,
-                        ),
+                              maxCrossAxisExtent: 200,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.88,
+                            ),
                         itemCount: sorted.length,
                         itemBuilder: (context, index) {
                           final entry = sorted[index];
@@ -1198,7 +1249,7 @@ class _TabBrowserBody extends ConsumerWidget {
                               if (!tab.isUnindexed && entry.isFolder) {
                                 onOpenFolder(entry);
                               } else {
-                                onInspect(entry);
+                                onOpenFile(entry);
                               }
                             },
                             onOpenInNewTab: !tab.isUnindexed && entry.isFolder
@@ -1402,11 +1453,11 @@ class _FilterMenuButton<T> extends StatelessWidget {
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: active
-                          ? scheme.onSecondaryContainer
-                          : scheme.onSurface,
-                      fontSize: 12,
-                    ),
+                  color: active
+                      ? scheme.onSecondaryContainer
+                      : scheme.onSurface,
+                  fontSize: 12,
+                ),
               ),
               const SizedBox(width: 4),
               Icon(
@@ -1460,8 +1511,8 @@ class _FileListTile extends StatelessWidget {
         fallbackIcon: entry.isFolder
             ? Symbols.folder
             : unindexed
-                ? Symbols.inventory_2
-                : Symbols.description,
+            ? Symbols.inventory_2
+            : Symbols.description,
         size: 44,
       ),
       title: Text(
@@ -1493,7 +1544,9 @@ class _FileListTile extends StatelessWidget {
         itemBuilder: (context) => [
           PopupMenuItem(
             value: 'open',
-            child: Text(entry.isFolder && !unindexed ? 'open'.tr() : 'view'.tr()),
+            child: Text(
+              entry.isFolder && !unindexed ? 'open'.tr() : 'view'.tr(),
+            ),
           ),
           if (onOpenInNewTab != null)
             const PopupMenuItem(
@@ -1570,8 +1623,8 @@ class _FileGridTile extends StatelessWidget {
                         entry.isFolder
                             ? Symbols.folder
                             : unindexed
-                                ? Symbols.inventory_2
-                                : Symbols.description,
+                            ? Symbols.inventory_2
+                            : Symbols.description,
                         size: 40,
                         color: scheme.primary,
                       ),
@@ -1605,7 +1658,11 @@ class _FileGridTile extends StatelessWidget {
                         itemBuilder: (context) => [
                           PopupMenuItem(
                             value: 'open',
-                            child: Text(entry.isFolder && !unindexed ? 'open'.tr() : 'view'.tr()),
+                            child: Text(
+                              entry.isFolder && !unindexed
+                                  ? 'open'.tr()
+                                  : 'view'.tr(),
+                            ),
                           ),
                           if (onOpenInNewTab != null)
                             const PopupMenuItem(
@@ -1655,6 +1712,210 @@ class _FileGridTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A persistent file viewer, modeled after Island's dedicated file detail
+/// screen, but kept inside the workspace Drive tab strip.
+class _FileDetailTab extends StatelessWidget {
+  const _FileDetailTab({
+    super.key,
+    required this.entry,
+    required this.unindexed,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final DriveFileEntry entry;
+  final bool unindexed;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final url = cloudFileDisplayUrl(entry.file);
+    final isImage = !entry.isFolder && entry.mimeType.startsWith('image/');
+    final isMedia =
+        !entry.isFolder &&
+        (isImage ||
+            entry.mimeType.startsWith('video/') ||
+            entry.mimeType.startsWith('audio/'));
+
+    Future<void> openExternally() async {
+      final opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) showSnackBar('Could not open this file.');
+    }
+
+    final preview = isImage
+        ? InteractiveViewer(
+            minScale: 0.8,
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) =>
+                  _FilePreviewPlaceholder(entry: entry, unindexed: unindexed),
+            ),
+          )
+        : _FilePreviewPlaceholder(entry: entry, unindexed: unindexed);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 760;
+        final details = SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                entry.name.isEmpty ? 'fileDetails'.tr() : entry.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: text.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                [
+                  if (entry.mimeType.isNotEmpty) entry.mimeType,
+                  if (!entry.isFolder) formatByteSize(entry.size),
+                ].join(' · '),
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _DetailRow(label: 'id'.tr(), value: entry.id, copyable: true),
+              _DetailRow(
+                label: 'type'.tr(),
+                value: entry.isFolder
+                    ? 'folder'.tr()
+                    : unindexed
+                    ? '${entry.mimeType} · unindexed'
+                    : entry.mimeType,
+              ),
+              if (!entry.isFolder)
+                _DetailRow(
+                  label: 'size'.tr(),
+                  value: formatByteSize(entry.size),
+                ),
+              if (entry.workspaceId != null)
+                _DetailRow(label: 'workspace'.tr(), value: entry.workspaceId!),
+              _DetailRow(
+                label: 'indexed'.tr(),
+                value: entry.file.indexed ? 'yes'.tr() : 'no'.tr(),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: openExternally,
+                    icon: Icon(
+                      isMedia ? Symbols.play_arrow : Symbols.open_in_new,
+                    ),
+                    label: Text(isMedia ? 'view'.tr() : 'open'.tr()),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: url));
+                      showSnackBar('linkCopied'.tr());
+                    },
+                    icon: const Icon(Symbols.link, size: 18),
+                    label: Text('copyLink'.tr()),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onRename,
+                    icon: const Icon(Symbols.edit, size: 18),
+                    label: Text('rename'.tr()),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onDelete,
+                    icon: Icon(Symbols.delete, size: 18, color: scheme.error),
+                    label: Text(
+                      'delete'.tr(),
+                      style: TextStyle(color: scheme.error),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+
+        if (!isWide) {
+          return Column(
+            children: [
+              Expanded(
+                child: ColoredBox(
+                  color: scheme.surfaceContainerHighest,
+                  child: preview,
+                ),
+              ),
+              SizedBox(height: 330, child: details),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(
+              child: ColoredBox(
+                color: scheme.surfaceContainerHighest,
+                child: Center(child: preview),
+              ),
+            ),
+            VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: scheme.outlineVariant,
+            ),
+            SizedBox(width: 360, child: details),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FilePreviewPlaceholder extends StatelessWidget {
+  const _FilePreviewPlaceholder({required this.entry, required this.unindexed});
+
+  final DriveFileEntry entry;
+  final bool unindexed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            entry.isFolder
+                ? Symbols.folder
+                : unindexed
+                ? Symbols.inventory_2
+                : Symbols.description,
+            size: 72,
+            color: scheme.primary,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            entry.mimeType.isEmpty ? 'fileDetails'.tr() : entry.mimeType,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }
@@ -1715,8 +1976,8 @@ class _FileDetailSheet extends StatelessWidget {
                   entry.isFolder
                       ? Symbols.folder
                       : unindexed
-                          ? Symbols.inventory_2
-                          : Symbols.description,
+                      ? Symbols.inventory_2
+                      : Symbols.description,
                   size: 48,
                   color: scheme.primary,
                 ),
@@ -1729,8 +1990,8 @@ class _FileDetailSheet extends StatelessWidget {
             value: entry.isFolder
                 ? 'folder'.tr()
                 : unindexed
-                    ? '${entry.mimeType} · unindexed'
-                    : entry.mimeType,
+                ? '${entry.mimeType} · unindexed'
+                : entry.mimeType,
           ),
           if (!entry.isFolder)
             _DetailRow(label: 'size'.tr(), value: formatByteSize(entry.size)),
@@ -1768,7 +2029,10 @@ class _FileDetailSheet extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: onDelete,
                 icon: Icon(Symbols.delete, size: 18, color: scheme.error),
-                label: Text('delete'.tr(), style: TextStyle(color: scheme.error)),
+                label: Text(
+                  'delete'.tr(),
+                  style: TextStyle(color: scheme.error),
+                ),
               ),
             ],
           ),

@@ -887,7 +887,12 @@ class _EmailDetailContent extends StatelessWidget {
             ),
           ),
         if (email.isHtml)
-          _HtmlBodyViewer(html: email.body)
+          _HtmlBodyViewer(
+            html: email.body,
+            attachments: email.attachments,
+            inlineAttachments: email.inlineAttachments,
+            workspaceId: attachmentWorkspaceId,
+          )
         else
           _PlainTextEmailBody(
             body: email.body,
@@ -1033,14 +1038,7 @@ class _PlainTextEmailBody extends StatelessWidget {
         );
       }
       final filename = match.group(1)!.trim().toLowerCase();
-      SnCloudFileReference? attachment;
-      for (final file in attachments) {
-        if (file.mimeType.startsWith('image/') &&
-            file.name.trim().toLowerCase() == filename) {
-          attachment = file;
-          break;
-        }
-      }
+      final attachment = _imageAttachmentForFilename(attachments, filename);
       children.add(
         attachment == null
             ? SelectableText(match.group(0)!, style: style)
@@ -1085,9 +1083,17 @@ class _InlineEmailImage extends StatelessWidget {
 }
 
 class _HtmlBodyViewer extends StatefulWidget {
-  const _HtmlBodyViewer({required this.html});
+  const _HtmlBodyViewer({
+    required this.html,
+    required this.attachments,
+    required this.inlineAttachments,
+    required this.workspaceId,
+  });
 
   final String html;
+  final List<SnCloudFileReference> attachments;
+  final Map<String, SnCloudFileReference> inlineAttachments;
+  final String? workspaceId;
 
   @override
   State<_HtmlBodyViewer> createState() => _HtmlBodyViewerState();
@@ -1130,7 +1136,7 @@ class _HtmlBodyViewerState extends State<_HtmlBodyViewer> {
           blockquote { margin: 0; padding-left: 1em; border-left: 3px solid #${_colorHex(scheme.outlineVariant)}; }
         </style>
       </head>
-      <body>${widget.html}</body>
+      <body>${_replaceInlineImageReferences(widget.html, widget.attachments, widget.inlineAttachments, widget.workspaceId)}</body>
       </html>
     ''';
 
@@ -1155,6 +1161,56 @@ class _HtmlBodyViewerState extends State<_HtmlBodyViewer> {
       ),
     );
   }
+}
+
+String _replaceInlineImageReferences(
+  String body,
+  List<SnCloudFileReference> attachments,
+  Map<String, SnCloudFileReference> inlineAttachments,
+  String? workspaceId,
+) {
+  final imageMarker = RegExp(
+    r'\[image:\s*([^\]\r\n]+)\]',
+    caseSensitive: false,
+  );
+  final withMarkers = body.replaceAllMapped(imageMarker, (match) {
+    final filename = match.group(1)!.trim().toLowerCase();
+    final attachment = _imageAttachmentForFilename(attachments, filename);
+    if (attachment == null) return match.group(0)!;
+    final url = _cloudFileUri(
+      attachment,
+      workspaceId,
+    ).toString().replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+    return '<img src="$url" alt="$filename">';
+  });
+  return withMarkers.replaceAllMapped(
+    RegExp(r'''cid:([^"'\s>]+)''', caseSensitive: false),
+    (match) {
+      final contentId = match.group(1)!.trim().toLowerCase();
+      final attachment =
+          inlineAttachments[contentId] ??
+          inlineAttachments.entries
+              .where((entry) => entry.key.toLowerCase() == contentId)
+              .firstOrNull
+              ?.value;
+      return attachment == null
+          ? match.group(0)!
+          : _cloudFileUri(attachment, workspaceId).toString();
+    },
+  );
+}
+
+SnCloudFileReference? _imageAttachmentForFilename(
+  List<SnCloudFileReference> attachments,
+  String filename,
+) {
+  for (final file in attachments) {
+    if (file.mimeType.startsWith('image/') &&
+        file.name.trim().toLowerCase() == filename) {
+      return file;
+    }
+  }
+  return null;
 }
 
 class _EmailDetailSheet extends StatelessWidget {
