@@ -57,9 +57,8 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     await EasyLocalization.ensureInitialized();
-    // Dark from the very first pump: _MediaQueryFromView caches
-    // platformBrightness at creation, so flipping it mid-test would leave the
-    // theme stuck on light.
+    // Start dark so the initial chrome assertion below runs in dark mode;
+    // a later section flips the brightness to prove the titlebar follows.
     tester.binding.platformDispatcher.platformBrightnessTestValue =
         Brightness.dark;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -87,10 +86,14 @@ void main() {
             mailboxUnreadCountsProvider.overrideWith(
               (ref) async => const {'mb-1': 2},
             ),
+            mailCredentialsProvider.overrideWith(
+              (ref) async => const <MailCredential>[],
+            ),
             emailsProvider.overrideWith(
               (ref, filter) async =>
                   PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
             ),
+            broadsProvider.overrideWith((ref) async => const <Broad>[]),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
             websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
           ],
@@ -139,6 +142,18 @@ void main() {
     expect(find.text('Personal'), findsOneWidget);
     expect(find.byIcon(Symbols.menu), findsOneWidget);
 
+    // The mail settings page merges credentials and import.
+    await tester.tap(find.byIcon(Symbols.settings));
+    await tester.pumpAndSettle();
+    expect(find.text('Mail settings'), findsOneWidget);
+    expect(find.text('Mail credentials'), findsOneWidget);
+    expect(find.text('No credentials'), findsOneWidget);
+    expect(find.text('Import emails'), findsWidgets); // section + button
+    expect(find.text('work@example.com'), findsWidgets); // import mailbox
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+
     // Drawer hides the rest of the app: boards/ideask, files, flywheel.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
@@ -159,19 +174,31 @@ void main() {
     // (below the notification bell) opens the drawer with everything else.
     expect(find.byType(NavigationRail), findsOneWidget);
     final rail = find.byType(NavigationRail);
-    for (final folder in ['Inbox', 'Sent', 'Drafts', 'Spam', 'Trash', 'Archive']) {
+    for (final folder in [
+      'Inbox',
+      'Sent',
+      'Drafts',
+      'Spam',
+      'Trash',
+      'Archive',
+    ]) {
       expect(
         find.descendant(of: rail, matching: find.text(folder)),
         findsOneWidget,
       );
     }
-    expect(find.descendant(of: rail, matching: find.text('Work')), findsNothing);
+    expect(
+      find.descendant(of: rail, matching: find.text('Work')),
+      findsNothing,
+    );
     expect(find.byIcon(Symbols.menu), findsOneWidget); // burger → drawer
     expect(find.byIcon(Symbols.notifications), findsOneWidget);
 
-    // Mail page: folder tabs + mailbox dropdown + email tile.
+    // Mail page: mailbox dropdown + email tile. The folder chips are hidden
+    // because the rail already owns the folders on wide screens.
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('work@example.com'), findsOneWidget); // dropdown value
+    expect(find.byType(ChoiceChip), findsNothing);
 
     // No bottom nav on desktop.
     expect(find.byType(NavigationBar), findsNothing);
@@ -182,6 +209,44 @@ void main() {
     expect(find.text('Flywheel'), findsOneWidget);
     await tester.tapAt(const Offset(1100, 400)); // close the drawer
     await tester.pumpAndSettle();
+
+    // Outside Mail the rail swaps the folders for the feature destinations.
+    await tester.tap(find.byIcon(Symbols.menu));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Boards'));
+    await tester.pumpAndSettle();
+    for (final feature in [
+      'Mail',
+      'Boards',
+      'Files',
+      'Flywheel',
+      'Profile',
+      'Settings',
+    ]) {
+      expect(
+        find.descendant(of: rail, matching: find.text(feature)),
+        findsOneWidget,
+      );
+    }
+    for (final folder in [
+      'Inbox',
+      'Sent',
+      'Drafts',
+      'Spam',
+      'Trash',
+      'Archive',
+    ]) {
+      expect(
+        find.descendant(of: rail, matching: find.text(folder)),
+        findsNothing,
+      );
+    }
+    expect(tester.widget<NavigationRail>(rail).selectedIndex, 1); // Boards
+    // The unread badge rides on the Mail destination in feature mode.
+    expect(
+      find.descendant(of: rail, matching: find.byType(Badge)),
+      findsOneWidget,
+    );
 
     // ---- Titlebar follows the active (dark) theme ----
     await pumpApp(const Size(1200, 800));
@@ -202,5 +267,26 @@ void main() {
     // Title text is pinned to the dark theme's onSurface so it stays visible.
     final titleText = tester.widget<Text>(find.text('appName'.tr()));
     expect(titleText.style?.color, darkScheme.onSurface);
+
+    // ---- The titlebar follows the app brightness at runtime ----
+    // Flip the platform brightness on the *same* widget tree: the chrome
+    // theme must be rebuilt (main.dart mirrors it inside the OverlayEntry),
+    // not frozen at the brightness from launch.
+    tester.binding.platformDispatcher.platformBrightnessTestValue =
+        Brightness.light;
+    await tester.pumpAndSettle();
+
+    final lightScheme = createSolWattTheme(Brightness.light).colorScheme;
+    final lightFrameMaterial = tester.widget<mui.Material>(
+      find
+          .descendant(
+            of: find.byType(DesktopWindowFrame),
+            matching: find.byType(mui.Material),
+          )
+          .first,
+    );
+    expect(lightFrameMaterial.color, lightScheme.surface);
+    final lightTitleText = tester.widget<Text>(find.text('appName'.tr()));
+    expect(lightTitleText.style?.color, lightScheme.onSurface);
   });
 }

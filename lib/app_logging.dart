@@ -3,8 +3,8 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
-import 'app_log_sink_stub.dart'
-    if (dart.library.io) 'app_log_sink_io.dart'
+import 'package:solwatt/app_log_sink_stub.dart'
+    if (dart.library.io) 'package:solwatt/app_log_sink_io.dart'
     as file_sink;
 
 /// Configures the same root-record pattern used by Island: structured records

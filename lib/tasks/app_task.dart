@@ -13,6 +13,7 @@ enum AppTaskStatus {
 abstract final class AppTaskType {
   static const driveUpload = 'drive.upload';
   static const driveDownload = 'drive.download';
+  static const mailImport = 'mail.import';
   static const generic = 'generic';
 }
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -337,6 +338,40 @@ Two.
       expect(result.items.single.status, 'duplicate');
       expect(result.items.single.source, 'backup.mbox#3');
       expect(result.items.single.emailId, isNull);
+    });
+  });
+
+  group('parseImportFiles (background isolate entry point)', () {
+    test('reads mbox files by path and reports per-file errors', () {
+      final dir = Directory.systemTemp.createTempSync('solwatt-import-test');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final mbox = File('${dir.path}/archive.mbox')
+        ..writeAsStringSync(
+          'From alice@example.com Sat Sep 25 10:00:00 2026\n'
+          'Subject: one\n\nbody one\n'
+          'From bob@example.com Sat Sep 25 11:00:00 2026\n'
+          'Subject: two\n\nbody two\n',
+        );
+      final broken = File('${dir.path}/broken.eml')
+        ..writeAsStringSync('not an email at all');
+
+      final outputs = parseImportFiles([
+        ImportParseInput(path: mbox.path, name: 'archive.mbox'),
+        ImportParseInput(path: '${dir.path}/missing.mbox', name: 'missing.mbox'),
+        ImportParseInput(path: broken.path, name: 'broken.eml'),
+        const ImportParseInput(name: 'bytes.eml', bytes: null),
+      ]);
+
+      expect(outputs[0].error, isNull);
+      expect(outputs[0].messages, hasLength(2));
+      expect(outputs[0].messages.first.subject, 'one');
+      expect(outputs[0].messages.last.sourceLabel, 'archive.mbox#2');
+
+      // Missing file and no-path/no-bytes inputs surface as messages.
+      expect(outputs[1].messages, isEmpty);
+      expect(outputs[1].error, isNotNull);
+      expect(outputs[3].messages, isEmpty);
+      expect(outputs[3].error, isNotNull);
     });
   });
 }

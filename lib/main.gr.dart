@@ -261,6 +261,22 @@ class MailRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [MailSettingsPage]
+class MailSettingsRoute extends PageRouteInfo<void> {
+  const MailSettingsRoute({List<PageRouteInfo>? children})
+    : super(MailSettingsRoute.name, initialChildren: children);
+
+  static const String name = 'MailSettingsRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const MailSettingsPage();
+    },
+  );
+}
+
+/// generated route for
 /// [ProfilePage]
 class ProfileRoute extends PageRouteInfo<void> {
   const ProfileRoute({List<PageRouteInfo>? children})

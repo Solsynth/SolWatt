@@ -3,11 +3,104 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
-import '../../network.dart';
-import 'eml_parser.dart';
-import 'mail_import_file_reader.dart';
-import 'mail_import_models.dart';
-import 'mbox_parser.dart';
+import 'package:solwatt/network.dart';
+import 'package:solwatt/mail/import/eml_parser.dart';
+import 'package:solwatt/mail/import/mail_import_file_reader.dart';
+import 'package:solwatt/mail/import/mail_import_models.dart';
+import 'package:solwatt/mail/import/mbox_parser.dart';
+
+/// Parses one file's bytes. Dispatch is by extension (`.eml` / `.mbox`);
+/// unknown extensions fall back to content sniffing (an mbox starts with a
+/// `From ` envelope delimiter, an EML with headers).
+List<ParsedMailMessage> parseMailBytes(
+  Uint8List bytes, {
+  required String fileName,
+  required String sourceLabel,
+}) {
+  final lower = fileName.toLowerCase();
+  if (lower.endsWith('.mbox')) {
+    return MboxParser.parseBytes(bytes, sourceLabel: sourceLabel);
+  }
+  if (lower.endsWith('.eml')) {
+    return [EmlParser.parseBytes(bytes, sourceLabel: sourceLabel)];
+  }
+  final text = String.fromCharCodes(bytes.take(1024));
+  final looksLikeMbox = RegExp(
+    r'^From (-\S*|\S+@\S+)( .*)?$',
+    multiLine: true,
+  ).hasMatch(text);
+  return looksLikeMbox
+      ? MboxParser.parseBytes(bytes, sourceLabel: sourceLabel)
+      : [EmlParser.parseBytes(bytes, sourceLabel: sourceLabel)];
+}
+
+/// One picked file to parse off the main isolate. Desktop picks carry a
+/// [path] so the isolate reads the file itself; web picks (no filesystem)
+/// pass the already-read [bytes] instead.
+class ImportParseInput {
+  const ImportParseInput({this.path, this.bytes, required this.name});
+
+  final String? path;
+  final Uint8List? bytes;
+  final String name;
+}
+
+/// Per-file parse result. [error] is the message of the first failure, so
+/// non-sendable exception objects never cross the isolate boundary.
+class ImportParseOutput {
+  const ImportParseOutput({
+    required this.name,
+    required this.messages,
+    this.error,
+  });
+
+  final String name;
+  final List<ParsedMailMessage> messages;
+  final String? error;
+}
+
+/// `compute()` callback: reads each input (from disk when a path is present)
+/// and parses it, so huge archives never load or decode on the main isolate.
+/// Failures are collected per file instead of being rethrown, because
+/// exception objects (e.g. [MailImportException.cause]) may not be sendable.
+List<ImportParseOutput> parseImportFiles(List<ImportParseInput> inputs) {
+  final outputs = <ImportParseOutput>[];
+  for (final input in inputs) {
+    try {
+      final Uint8List bytes;
+      if (input.path != null) {
+        bytes = readImportFileSync(input.path!);
+      } else if (input.bytes != null) {
+        bytes = input.bytes!;
+      } else {
+        throw const MailImportException(
+          'Could not read the selected file: no path or bytes.',
+        );
+      }
+      outputs.add(
+        ImportParseOutput(
+          name: input.name,
+          messages: parseMailBytes(
+            bytes,
+            fileName: input.name,
+            sourceLabel: input.name,
+          ),
+        ),
+      );
+    } catch (error) {
+      outputs.add(
+        ImportParseOutput(
+          name: input.name,
+          messages: const [],
+          error: error is MailImportException
+              ? error.message
+              : error.toString(),
+        ),
+      );
+    }
+  }
+  return outputs;
+}
 
 /// Client-side mail import logic layer: parses selected `.eml` files and
 /// `.mbox` archives into ElecPostal import items, uploads decoded attachments
@@ -92,23 +185,7 @@ class MailImportService {
     Uint8List bytes, {
     required String fileName,
     required String sourceLabel,
-  }) {
-    final lower = fileName.toLowerCase();
-    if (lower.endsWith('.mbox')) {
-      return MboxParser.parseBytes(bytes, sourceLabel: sourceLabel);
-    }
-    if (lower.endsWith('.eml')) {
-      return [EmlParser.parseBytes(bytes, sourceLabel: sourceLabel)];
-    }
-    final text = String.fromCharCodes(bytes.take(1024));
-    final looksLikeMbox = RegExp(
-      r'^From (-\S*|\S+@\S+)( .*)?$',
-      multiLine: true,
-    ).hasMatch(text);
-    return looksLikeMbox
-        ? MboxParser.parseBytes(bytes, sourceLabel: sourceLabel)
-        : [EmlParser.parseBytes(bytes, sourceLabel: sourceLabel)];
-  }
+  }) => parseMailBytes(bytes, fileName: fileName, sourceLabel: sourceLabel);
 
   // --- import -----------------------------------------------------------------
 

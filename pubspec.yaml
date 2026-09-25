@@ -75,10 +75,14 @@ dependencies:
   easy_localization: ^3.0.8
   flutter_native_splash: ^2.4.8
   flutter_widget_from_html_core: ^0.17.4
+  flutter_quill: ^11.6.0
+  flutter_quill_delta_from_html: ^1.5.3
+  vsc_quill_delta_to_html: ^1.0.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
   shared_preferences: ^2.3.0
+  cross_file: ^0.3.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

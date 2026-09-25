@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'mail_import_models.dart';
+import 'package:solwatt/mail/import/mail_import_models.dart';
 
 /// Parses a single RFC 5322 message (an `.eml` file) into the fields the
 /// ElecPostal import endpoint accepts.

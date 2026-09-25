@@ -9,3 +9,10 @@ Future<Uint8List> readImportFile(String path) {
     'Pass the picked file bytes to MailImportService.parseBytes instead.',
   );
 }
+
+/// Web has no filesystem; callers always pass picked bytes instead.
+Uint8List readImportFileSync(String path) {
+  throw UnsupportedError(
+    'Reading import files by path is unavailable on this platform.',
+  );
+}

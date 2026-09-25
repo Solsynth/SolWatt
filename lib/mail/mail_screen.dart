@@ -5,10 +5,13 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
@@ -452,25 +455,34 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                 inboxUnread: inboxUnread,
                 onSelectFolder: _selectFolder,
                 hasDiscoveryFilters: _hasDiscoveryFilters,
-                onShowCredentials: () => _showCredentials(context),
+                onOpenSettings: () => _openSettings(context),
                 onShowFilters: () => _showEmailFilters(context),
               ),
               const Divider(height: 1),
               Expanded(
-                child: _EmailList(
-                  mailboxId: mailboxId,
-                  workspaceId: workspaceId,
-                  filter: _emailFilter(
+                // Crossfade between lists when the rail (or bottom bar/folder
+                // chips) switches mailbox or folder, so the reload doesn't
+                // blink from a stale list to a spinner.
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  child: _EmailList(
+                    key: ValueKey('$mailboxId/$folder'),
                     mailboxId: mailboxId,
                     workspaceId: workspaceId,
-                    folder: folder,
+                    filter: _emailFilter(
+                      mailboxId: mailboxId,
+                      workspaceId: workspaceId,
+                      folder: folder,
+                    ),
+                    mailHost: mailHost,
+                    selectedEmail: _selectedEmail,
+                    onOpen: (email) => _openEmail(context, email),
+                    onToggleStar: _toggleStar,
+                    onRefresh: () => _refreshEmails(ref),
+                    onLoadMore: () => _loadMoreEmails(ref),
                   ),
-                  mailHost: mailHost,
-                  selectedEmail: _selectedEmail,
-                  onOpen: (email) => _openEmail(context, email),
-                  onToggleStar: _toggleStar,
-                  onRefresh: () => _refreshEmails(ref),
-                  onLoadMore: () => _loadMoreEmails(ref),
                 ),
               ),
             ],
@@ -569,12 +581,13 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   Future<void> _createMailbox(BuildContext context) =>
       createMailboxAction(context, ref);
 
-  Future<void> _showCredentials(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _CredentialsSheet(),
-    );
+  void _openSettings(BuildContext context) {
+    final route = MailSettingsRoute();
+    if (isWideScreen(context)) {
+      context.router.navigate(route);
+    } else {
+      context.router.push(route);
+    }
   }
 }
 
@@ -583,9 +596,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 class MailboxPickerResult {
   const MailboxPickerResult.mailbox(this.mailboxId) : createNew = false;
 
-  const MailboxPickerResult.createNew()
-    : mailboxId = null,
-      createNew = true;
+  const MailboxPickerResult.createNew() : mailboxId = null, createNew = true;
 
   final String? mailboxId;
   final bool createNew;
@@ -663,9 +674,7 @@ class _MailboxPickerSheet extends StatelessWidget {
           for (final mailbox in mailboxes)
             ListTile(
               leading: Icon(
-                mailbox.id == selectedId
-                    ? Symbols.mail
-                    : Symbols.mail_outline,
+                mailbox.id == selectedId ? Symbols.mail : Symbols.mail_outline,
                 color: mailbox.id == selectedId
                     ? scheme.primary
                     : scheme.onSurfaceVariant,
@@ -692,8 +701,9 @@ class _MailboxPickerSheet extends StatelessWidget {
           ListTile(
             leading: const Icon(Symbols.add),
             title: Text('newMailbox'.tr()),
-            onTap: () =>
-                Navigator.of(context).pop(const MailboxPickerResult.createNew()),
+            onTap: () => Navigator.of(
+              context,
+            ).pop(const MailboxPickerResult.createNew()),
           ),
         ],
       ),
@@ -788,11 +798,12 @@ void _forwardEmail(BuildContext context, MailEmail email) {
   }
 }
 
-void _composeEmail(BuildContext context, MailEmail replyingTo, {bool replyAll = false}) {
-  final route = MailComposeRoute(
-    replyToId: replyingTo.id,
-    replyAll: replyAll,
-  );
+void _composeEmail(
+  BuildContext context,
+  MailEmail replyingTo, {
+  bool replyAll = false,
+}) {
+  final route = MailComposeRoute(replyToId: replyingTo.id, replyAll: replyAll);
   if (isWideScreen(context)) {
     context.router.navigate(route);
   } else {
@@ -859,7 +870,7 @@ class _MailListHeader extends StatelessWidget {
     required this.inboxUnread,
     required this.onSelectFolder,
     required this.hasDiscoveryFilters,
-    required this.onShowCredentials,
+    required this.onOpenSettings,
     required this.onShowFilters,
   });
 
@@ -872,7 +883,7 @@ class _MailListHeader extends StatelessWidget {
   final int inboxUnread;
   final ValueChanged<String> onSelectFolder;
   final bool hasDiscoveryFilters;
-  final VoidCallback onShowCredentials;
+  final VoidCallback onOpenSettings;
   final VoidCallback onShowFilters;
 
   @override
@@ -894,9 +905,9 @@ class _MailListHeader extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'mailCredentials'.tr(),
-                onPressed: onShowCredentials,
-                icon: const Icon(Symbols.key, size: 20),
+                tooltip: 'mailSettings'.tr(),
+                onPressed: onOpenSettings,
+                icon: const Icon(Symbols.settings, size: 20),
               ),
               IconButton(
                 tooltip: 'emailFilters'.tr(),
@@ -926,11 +937,15 @@ class _MailListHeader extends StatelessWidget {
               ),
             ),
           ),
-        _FolderTabs(
-          folder: folder,
-          inboxUnread: inboxUnread,
-          onSelect: onSelectFolder,
-        ),
+        // On wide screens the desktop rail already lists every folder, so the
+        // horizontal switcher would be redundant; keep it only where the rail
+        // is absent.
+        if (!isWideScreen(context))
+          _FolderTabs(
+            folder: folder,
+            inboxUnread: inboxUnread,
+            onSelect: onSelectFolder,
+          ),
       ],
     );
   }
@@ -977,9 +992,7 @@ class _FolderTabs extends StatelessWidget {
             onSelected: (_) => onSelect(id),
             avatar: id == 'inbox' && inboxUnread > 0
                 ? Badge(
-                    label: Text(
-                      inboxUnread > 99 ? '99+' : '$inboxUnread',
-                    ),
+                    label: Text(inboxUnread > 99 ? '99+' : '$inboxUnread'),
                     child: const Icon(Symbols.mail, size: 16),
                   )
                 : null,
@@ -1328,6 +1341,7 @@ class _BooleanFilterField extends StatelessWidget {
 
 class _EmailList extends ConsumerWidget {
   const _EmailList({
+    super.key,
     required this.mailboxId,
     required this.workspaceId,
     required this.filter,
@@ -1630,8 +1644,9 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                       ),
                     ),
                     IconButton(
-                      tooltip:
-                          email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+                      tooltip: email.isRead
+                          ? 'markUnread'.tr()
+                          : 'markRead'.tr(),
                       onPressed: widget.onToggleRead,
                       icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
                     ),
@@ -1773,10 +1788,7 @@ class _EmailHeaderSpace extends StatelessWidget {
 }
 
 class _EmailDetailContent extends StatelessWidget {
-  const _EmailDetailContent({
-    required this.email,
-    required this.workspaceId,
-  });
+  const _EmailDetailContent({required this.email, required this.workspaceId});
 
   final MailEmail email;
   final String? workspaceId;
@@ -1882,9 +1894,7 @@ class _EmailDetailContent extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 8),
                       child: SelectableText(
                         email.deliveryError!,
-                        style: text.bodySmall?.copyWith(
-                          color: scheme.error,
-                        ),
+                        style: text.bodySmall?.copyWith(color: scheme.error),
                       ),
                     ),
                 ],
@@ -2322,10 +2332,12 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   final _ccController = TextEditingController();
   final _bccController = TextEditingController();
   final _subjectController = TextEditingController();
-  final _bodyController = TextEditingController();
+  final _quillController = QuillController.basic();
   final List<({String id, String name})> _attachments = [];
-  var _isHtml = false;
+  var _showCcBcc = false;
   var _pickingAttachment = false;
+  final _shortcutFocusNode = FocusNode();
+  final _bodyFocusNode = FocusNode();
 
   MailMailbox? get _selectedMailbox =>
       widget.mailboxes.where((m) => m.id == _mailboxId).firstOrNull;
@@ -2357,12 +2369,14 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         }
       }
       _subjectController.text = 'Re: ${replyingTo.displaySubject}';
-      _isHtml = replyingTo.isHtml;
-      _bodyController.text = _quoteBody(replyingTo, forwarded: false);
+      _quillController.document = Document.fromDelta(
+        HtmlToDelta().convert(_quoteBody(replyingTo, forwarded: false)),
+      );
     } else if (forwarding != null) {
       _subjectController.text = 'Fwd: ${forwarding.displaySubject}';
-      _isHtml = forwarding.isHtml;
-      _bodyController.text = _quoteBody(forwarding, forwarded: true);
+      _quillController.document = Document.fromDelta(
+        HtmlToDelta().convert(_quoteBody(forwarding, forwarded: true)),
+      );
       _attachments.addAll(
         forwarding.attachments.map((file) => (id: file.id, name: file.name)),
       );
@@ -2370,13 +2384,13 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   }
 
   String _quoteBody(MailEmail email, {required bool forwarded}) {
-    final quoted = _isHtml
-        ? '\n\n<blockquote>\n${email.body}\n</blockquote>'
-        : '\n\n${forwarded ? '---------- ${'forwardedMessage'.tr()} ----------\n' : '---'}\n'
-              '${email.from?.fullAddress(widget.mailHost) ?? ''}\n'
-              '${email.createdAt?.toLocal() ?? ''}\n'
-              '${'subject'.tr()}: ${email.displaySubject}\n\n${email.body}';
-    return quoted;
+    final header = forwarded
+        ? '<p>---------- ${'forwardedMessage'.tr()} ----------<br>'
+              '${email.from?.fullAddress(widget.mailHost) ?? ''}<br>'
+              '${email.createdAt?.toLocal() ?? ''}<br>'
+              '${'subject'.tr()}: ${email.displaySubject}</p>'
+        : '';
+    return '\n\n<blockquote>$header${email.body}</blockquote>';
   }
 
   @override
@@ -2385,7 +2399,9 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     _ccController.dispose();
     _bccController.dispose();
     _subjectController.dispose();
-    _bodyController.dispose();
+    _quillController.dispose();
+    _shortcutFocusNode.dispose();
+    _bodyFocusNode.dispose();
     super.dispose();
   }
 
@@ -2432,37 +2448,15 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         cc: _parseRecipients(_ccController.text),
         bcc: _parseRecipients(_bccController.text),
         subject: _subjectController.text,
-        body: _bodyController.text,
+        body: QuillDeltaToHtmlConverter(
+          _quillController.document.toDelta().toJson(),
+          ConverterOptions.forEmail(),
+        ).convert(),
         attachmentIds: _attachments.map((a) => a.id).toList(growable: false),
         replyToId: widget.replyingTo?.id,
         isDraft: draft,
-        contentType: _isHtml ? 'text/html' : 'text/plain',
+        contentType: 'text/html',
       ),
-    );
-  }
-
-  void _applyInlineFormat(String before, String after) {
-    final controller = _bodyController;
-    final selection = controller.selection;
-    final text = controller.text;
-    String newText;
-    int cursor;
-    if (selection.isValid && !selection.isCollapsed) {
-      final selected = selection.textInside(text);
-      newText = text.replaceRange(
-        selection.start,
-        selection.end,
-        '$before$selected$after',
-      );
-      cursor = selection.start + before.length + selected.length + after.length;
-    } else {
-      final offset = selection.isValid ? selection.start : text.length;
-      newText = text.replaceRange(offset, offset, '$before$after');
-      cursor = offset + before.length;
-    }
-    controller.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: cursor),
     );
   }
 
@@ -2490,7 +2484,8 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
               child: Text('close'.tr()),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
               child: Text('apply'.tr()),
             ),
           ],
@@ -2498,229 +2493,325 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
       },
     );
     if (url == null || url.isEmpty) return;
-    _applyInlineFormat('<a href="$url">', '</a>');
+    _quillController.formatSelection(LinkAttribute(url));
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: 56,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'close'.tr(),
-                  onPressed: widget.onClose,
-                  icon: const Icon(Symbols.close),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'compose'.tr(),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
-            ),
+    final textTheme = Theme.of(context).textTheme;
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.enter, meta: true):
+            _SendEmailIntent(),
+        SingleActivator(LogicalKeyboardKey.enter, control: true):
+            _SendEmailIntent(),
+        SingleActivator(LogicalKeyboardKey.numpadEnter, meta: true):
+            _SendEmailIntent(),
+        SingleActivator(LogicalKeyboardKey.numpadEnter, control: true):
+            _SendEmailIntent(),
+        SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+            _SaveDraftIntent(),
+        SingleActivator(LogicalKeyboardKey.keyS, control: true):
+            _SaveDraftIntent(),
+      },
+      child: Actions(
+        actions: {
+          _SendEmailIntent: CallbackAction<_SendEmailIntent>(
+            onInvoke: (_) {
+              _submit();
+              return null;
+            },
           ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: _mailboxId,
-                  decoration: InputDecoration(
-                    labelText: 'fromMailbox'.tr(),
-                    prefixIcon: const Icon(Symbols.mail),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  items: [
-                    for (final mailbox in widget.mailboxes)
-                      DropdownMenuItem(
-                        value: mailbox.id,
-                        child: Text(mailbox.displayName),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _mailboxId = value);
-                  },
-                ),
-                if (_selectedMailbox
-                        ?.fullAddress(widget.mailHost)
-                        .contains('@') !=
-                    true) ...[
-                  const SizedBox(height: 12),
-                  _MailboxInvalidBanner(
-                    message: 'mailboxAddressInvalidSend'.tr(),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _toController,
-                  decoration: InputDecoration(
-                    labelText: 'to'.tr(),
-                    hintText: 'recipientHint'.tr(),
-                    prefixIcon: const Icon(Symbols.person),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _ccController,
-                  decoration: InputDecoration(
-                    labelText: 'cc'.tr(),
-                    hintText: 'recipientHint'.tr(),
-                    prefixIcon: const Icon(Symbols.group),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _bccController,
-                  decoration: InputDecoration(
-                    labelText: 'bcc'.tr(),
-                    hintText: 'recipientHint'.tr(),
-                    prefixIcon: const Icon(Symbols.visibility_off),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _subjectController,
-                  decoration: InputDecoration(
-                    labelText: 'subject'.tr(),
-                    prefixIcon: const Icon(Symbols.title),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_isHtml) ...[
-                  _HtmlFormatToolbar(
-                    onBold: () => _applyInlineFormat('<b>', '</b>'),
-                    onItalic: () => _applyInlineFormat('<i>', '</i>'),
-                    onUnderline: () => _applyInlineFormat('<u>', '</u>'),
-                    onStrikethrough: () => _applyInlineFormat('<s>', '</s>'),
-                    onBulletList: () =>
-                        _applyInlineFormat('<ul><li>', '</li></ul>'),
-                    onNumberedList: () =>
-                        _applyInlineFormat('<ol><li>', '</li></ol>'),
-                    onQuote: () =>
-                        _applyInlineFormat('<blockquote>', '</blockquote>'),
-                    onLink: _insertLink,
-                    onAttach: _pickingAttachment ? null : _pickAttachment,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                TextField(
-                  controller: _bodyController,
-                  decoration: InputDecoration(
-                    labelText: 'body'.tr(),
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  maxLines: _isHtml ? 10 : 8,
-                ),
-                if (_attachments.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+          _SaveDraftIntent: CallbackAction<_SaveDraftIntent>(
+            onInvoke: (_) {
+              _submit(draft: true);
+              return null;
+            },
+          ),
+        },
+        child: KeyboardListener(
+          focusNode: _shortcutFocusNode,
+          onKeyEvent: (event) {
+            if (event is KeyDownEvent &&
+                event.logicalKey == LogicalKeyboardKey.escape) {
+              widget.onClose();
+            }
+          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header: close, title, save draft, send.
+              SizedBox(
+                height: 56,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
                     children: [
-                      for (final file in _attachments)
-                        InputChip(
-                          avatar: Icon(
-                            Symbols.attach_file,
-                            size: 18,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                          label: Text(
-                            file.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onDeleted: () =>
-                              setState(() => _attachments.remove(file)),
-                          deleteButtonTooltipMessage: 'removeAttachment'.tr(),
+                      IconButton(
+                        tooltip: 'close'.tr(),
+                        onPressed: widget.onClose,
+                        icon: const Icon(Symbols.close),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'compose'.tr(),
+                          style: textTheme.titleMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'saveDraft'.tr(),
+                        onPressed: () => _submit(draft: true),
+                        icon: const Icon(Symbols.bookmark_add),
+                      ),
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: 'sendShortcut'.tr(),
+                        child: FilledButton.icon(
+                          onPressed: () => _submit(),
+                          icon: const Icon(Symbols.send, size: 18),
+                          label: Text('send'.tr()),
+                        ),
+                      ),
                     ],
                   ),
-                ],
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  value: _isHtml,
-                  onChanged: (v) => setState(() => _isHtml = v),
-                  title: Text('htmlContent'.tr()),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
                 ),
-                if (!_isHtml) ...[
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _pickingAttachment ? null : _pickAttachment,
-                      icon: const Icon(Symbols.attach_file, size: 18),
-                      label: Text('addAttachment'.tr()),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
+              ),
+              const Divider(height: 1),
+              // Compact header fields: from, to, (cc/bcc), subject.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Column(
                   children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _submit(draft: true),
-                        child: Text('saveDraft'.tr()),
+                    _CompactLabeledField(
+                      label: 'from'.tr(),
+                      field: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _mailboxId,
+                          isDense: true,
+                          isExpanded: true,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                          items: [
+                            for (final mailbox in widget.mailboxes)
+                              DropdownMenuItem(
+                                value: mailbox.id,
+                                child: Text(mailbox.displayName),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _mailboxId = value);
+                            }
+                          },
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _submit(),
-                        icon: const Icon(Symbols.send, size: 18),
-                        label: Text('send'.tr()),
+                    if (_selectedMailbox
+                            ?.fullAddress(widget.mailHost)
+                            .contains('@') !=
+                        true) ...[
+                      _MailboxInvalidBanner(
+                        message: 'mailboxAddressInvalidSend'.tr(),
                       ),
+                    ],
+                    const SizedBox(height: 8),
+                    _CompactLabeledField(
+                      label: 'to'.tr(),
+                      controller: _toController,
+                      autofocus: true,
+                      onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                      suffix: IconButton(
+                        tooltip: 'ccBcc'.tr(),
+                        onPressed: () =>
+                            setState(() => _showCcBcc = !_showCcBcc),
+                        icon: Icon(
+                          _showCcBcc
+                              ? Symbols.expand_less
+                              : Symbols.expand_more,
+                          size: 18,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                      ),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      alignment: Alignment.topCenter,
+                      child: _showCcBcc
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(height: 8),
+                                _CompactLabeledField(
+                                  label: 'cc'.tr(),
+                                  controller: _ccController,
+                                  onSubmitted: (_) =>
+                                      FocusScope.of(context).nextFocus(),
+                                ),
+                                const SizedBox(height: 8),
+                                _CompactLabeledField(
+                                  label: 'bcc'.tr(),
+                                  controller: _bccController,
+                                  onSubmitted: (_) =>
+                                      FocusScope.of(context).nextFocus(),
+                                ),
+                              ],
+                            )
+                          : const SizedBox(width: double.infinity),
+                    ),
+                    const SizedBox(height: 8),
+                    _CompactLabeledField(
+                      label: 'subject'.tr(),
+                      controller: _subjectController,
+                      style: textTheme.titleMedium,
+                      onSubmitted: (_) => _bodyFocusNode.requestFocus(),
                     ),
                   ],
                 ),
+              ),
+              const Divider(height: 1),
+              // Formatting toolbar with inline styles and block presets.
+              _ComposeToolbar(
+                onBold: () => _quillController.formatSelection(Attribute.bold),
+                onItalic: () =>
+                    _quillController.formatSelection(Attribute.italic),
+                onUnderline: () =>
+                    _quillController.formatSelection(Attribute.underline),
+                onStrikethrough: () =>
+                    _quillController.formatSelection(Attribute.strikeThrough),
+                onHeading1: () =>
+                    _quillController.formatSelection(Attribute.h1),
+                onHeading2: () =>
+                    _quillController.formatSelection(Attribute.h2),
+                onHeading3: () =>
+                    _quillController.formatSelection(Attribute.h3),
+                onBulletList: () =>
+                    _quillController.formatSelection(Attribute.ul),
+                onNumberedList: () =>
+                    _quillController.formatSelection(Attribute.ol),
+                onQuote: () =>
+                    _quillController.formatSelection(Attribute.blockQuote),
+                onCode: () =>
+                    _quillController.formatSelection(Attribute.codeBlock),
+                onLink: _insertLink,
+                onAttach: _pickingAttachment ? null : _pickAttachment,
+              ),
+              // Body fills the remaining height, inside a rounded card that
+              // subtly highlights while focused.
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: AnimatedBuilder(
+                    animation: _bodyFocusNode,
+                    builder: (context, child) {
+                      final focused = _bodyFocusNode.hasFocus;
+                      return AnimatedContainer(
+                        key: const ValueKey('compose-body-card'),
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: focused
+                                ? scheme.primary
+                                : scheme.outlineVariant,
+                            width: focused ? 1.5 : 1,
+                          ),
+                        ),
+                        child: child,
+                      );
+                    },
+                    child: QuillEditor.basic(
+                      key: const ValueKey('compose-body'),
+                      controller: _quillController,
+                      focusNode: _bodyFocusNode,
+                      config: QuillEditorConfig(
+                        placeholder: 'body'.tr(),
+                        expands: true,
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        // Esc: quill's internal Shortcuts consumes Esc before
+                        // the sheet-level listener, so intercept it here.
+                        // ignore: experimental_member_use
+                        onKeyPressed: (event, node) {
+                          if (event is KeyDownEvent &&
+                              event.logicalKey == LogicalKeyboardKey.escape) {
+                            widget.onClose();
+                            return KeyEventResult.handled;
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_attachments.isNotEmpty) ...[
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: scheme.outlineVariant),
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final file in _attachments)
+                          InputChip(
+                            avatar: Icon(
+                              Symbols.attach_file,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            label: Text(
+                              file.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            onDeleted: () =>
+                                setState(() => _attachments.remove(file)),
+                            deleteButtonTooltipMessage: 'removeAttachment'.tr(),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
-            ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
 
-/// Lightweight HTML formatting toolbar for the compose body.
-class _HtmlFormatToolbar extends StatelessWidget {
-  const _HtmlFormatToolbar({
+/// Compact formatting toolbar with inline styles and block presets.
+class _ComposeToolbar extends StatelessWidget {
+  const _ComposeToolbar({
     required this.onBold,
     required this.onItalic,
     required this.onUnderline,
     required this.onStrikethrough,
+    required this.onHeading1,
+    required this.onHeading2,
+    required this.onHeading3,
     required this.onBulletList,
     required this.onNumberedList,
     required this.onQuote,
+    required this.onCode,
     required this.onLink,
     required this.onAttach,
   });
@@ -2729,37 +2820,154 @@ class _HtmlFormatToolbar extends StatelessWidget {
   final VoidCallback onItalic;
   final VoidCallback onUnderline;
   final VoidCallback onStrikethrough;
+  final VoidCallback onHeading1;
+  final VoidCallback onHeading2;
+  final VoidCallback onHeading3;
   final VoidCallback onBulletList;
   final VoidCallback onNumberedList;
   final VoidCallback onQuote;
+  final VoidCallback onCode;
   final VoidCallback onLink;
   final VoidCallback? onAttach;
 
   @override
   Widget build(BuildContext context) {
-    Widget button(IconData icon, String tooltip, VoidCallback onPressed) =>
+    Widget iconButton(IconData icon, String tooltip, VoidCallback? onPressed) =>
         IconButton(
           tooltip: tooltip,
           onPressed: onPressed,
           icon: Icon(icon, size: 18),
           visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
         );
-    return Row(
-      children: [
-        button(Symbols.format_bold, 'bold'.tr(), onBold),
-        button(Symbols.format_italic, 'italic'.tr(), onItalic),
-        button(Symbols.format_underlined, 'underline'.tr(), onUnderline),
-        button(Symbols.format_strikethrough, 'strikethrough'.tr(), onStrikethrough),
-        const SizedBox(width: 4),
-        button(Symbols.format_list_bulleted, 'bulletList'.tr(), onBulletList),
-        button(Symbols.format_list_numbered, 'numberedList'.tr(), onNumberedList),
-        button(Symbols.format_quote, 'quote'.tr(), onQuote),
-        button(Symbols.link, 'insertLink'.tr(), onLink),
-        const Spacer(),
-        button(Symbols.attach_file, 'addAttachment'.tr(), onAttach ?? () {}),
-      ],
+    Widget presetButton(String label, String tooltip, VoidCallback onPressed) =>
+        Tooltip(
+          message: tooltip,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(32, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(label),
+          ),
+        );
+    return SizedBox(
+      height: 44,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            iconButton(Symbols.format_bold, 'bold'.tr(), onBold),
+            iconButton(Symbols.format_italic, 'italic'.tr(), onItalic),
+            iconButton(
+              Symbols.format_underlined,
+              'underline'.tr(),
+              onUnderline,
+            ),
+            iconButton(
+              Symbols.format_strikethrough,
+              'strikethrough'.tr(),
+              onStrikethrough,
+            ),
+            const SizedBox(width: 8),
+            presetButton('H1', 'heading1'.tr(), onHeading1),
+            presetButton('H2', 'heading2'.tr(), onHeading2),
+            presetButton('H3', 'heading3'.tr(), onHeading3),
+            const SizedBox(width: 8),
+            iconButton(
+              Symbols.format_list_bulleted,
+              'bulletList'.tr(),
+              onBulletList,
+            ),
+            iconButton(
+              Symbols.format_list_numbered,
+              'numberedList'.tr(),
+              onNumberedList,
+            ),
+            iconButton(Symbols.format_quote, 'quote'.tr(), onQuote),
+            iconButton(Symbols.code, 'codeBlock'.tr(), onCode),
+            const SizedBox(width: 8),
+            iconButton(Symbols.link, 'insertLink'.tr(), onLink),
+            iconButton(Symbols.attach_file, 'addAttachment'.tr(), onAttach),
+          ],
+        ),
+      ),
     );
   }
+}
+
+/// Compact borderless labeled field used for recipients and subject.
+class _CompactLabeledField extends StatelessWidget {
+  const _CompactLabeledField({
+    required this.label,
+    this.controller,
+    this.field,
+    this.autofocus = false,
+    this.style,
+    this.onSubmitted,
+    this.suffix,
+  }) : assert(field != null || controller != null);
+
+  final String label;
+  final TextEditingController? controller;
+  final Widget? field;
+  final bool autofocus;
+  final TextStyle? style;
+  final ValueChanged<String>? onSubmitted;
+  final Widget? suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 44,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+          Expanded(
+            child:
+                field ??
+                TextField(
+                  controller: controller,
+                  autofocus: autofocus,
+                  style: style,
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                  ),
+                  textInputAction: TextInputAction.next,
+                  onSubmitted: onSubmitted,
+                  onTapOutside: (_) =>
+                      FocusManager.instance.primaryFocus?.unfocus(),
+                ),
+          ),
+          ?suffix,
+        ],
+      ),
+    );
+  }
+}
+
+class _SendEmailIntent extends Intent {
+  const _SendEmailIntent();
+}
+
+class _SaveDraftIntent extends Intent {
+  const _SaveDraftIntent();
 }
 
 class _MailboxDraft {
@@ -2889,331 +3097,6 @@ class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _CredentialsSheet extends ConsumerStatefulWidget {
-  const _CredentialsSheet();
-
-  @override
-  ConsumerState<_CredentialsSheet> createState() => _CredentialsSheetState();
-}
-
-class _CredentialsSheetState extends ConsumerState<_CredentialsSheet> {
-  Future<void> _openCreateSheet() async {
-    final created = await showModalBottomSheet<MailCredentialCreated>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _CreateCredentialSheet(),
-    );
-    if (created == null || !mounted) return;
-    ref.invalidate(mailCredentialsProvider);
-    _showSecret(created);
-  }
-
-  Future<void> _revoke(MailCredential credential) async {
-    final confirmed = await showConfirmAlert(
-      'revokeCredentialConfirm'.tr(namedArgs: {'label': credential.label}),
-      'revokeCredential'.tr(),
-      icon: Symbols.key,
-      isDanger: true,
-      confirmLabel: 'revoke'.tr(),
-    );
-    if (!confirmed) return;
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .revokeMailCredential(credential.id);
-      ref.invalidate(mailCredentialsProvider);
-      if (mounted) showSnackBar('credentialRevoked'.tr());
-    } catch (error) {
-      showSnackBar(error.toString());
-    }
-  }
-
-  void _showSecret(MailCredentialCreated created) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        icon: const Icon(Symbols.key),
-        title: Text('credentialCreated'.tr()),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('saveSecretOnce'.tr()),
-            const SizedBox(height: 12),
-            SelectableText(
-              created.secret,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: created.secret));
-              Navigator.pop(context);
-              showSnackBar('copied'.tr());
-            },
-            child: Text('copy'.tr()),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('done'.tr()),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final credentials = ref.watch(mailCredentialsProvider);
-    final mailboxesAsync = ref.watch(mailboxesProvider);
-    final mailHost = ref.watch(mailHostProvider).value;
-    final scheme = Theme.of(context).colorScheme;
-    final mailboxList = mailboxesAsync.maybeWhen(
-      data: (data) => data,
-      orElse: () => const <MailMailbox>[],
-    );
-
-    return SheetScaffold(
-      titleText: 'mailCredentials'.tr(),
-      actions: [
-        IconButton(
-          onPressed: _openCreateSheet,
-          icon: const Icon(Symbols.add),
-          tooltip: 'createCredential'.tr(),
-        ),
-      ],
-      heightFactor: 0.75,
-      child: CustomScrollView(
-        slivers: [
-          ...credentials.when(
-            loading: () => const [
-              SliverFillRemaining(child: Center(child: PageLoading())),
-            ],
-            error: (error, _) => [
-              SliverFillRemaining(
-                child: PageError(
-                  message: error.toString(),
-                  onRetry: () => ref.invalidate(mailCredentialsProvider),
-                ),
-              ),
-            ],
-            data: (items) {
-              if (items.isEmpty) {
-                return [
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: EmptyState(
-                      icon: Symbols.key,
-                      title: 'noCredentials'.tr(),
-                      message: 'noCredentialsDescription'.tr(),
-                    ),
-                  ),
-                ];
-              }
-              return [
-                SliverList.builder(
-                  itemCount: items.length * 2 - 1,
-                  itemBuilder: (context, index) {
-                    if (index.isOdd) return const Divider(height: 1);
-                    final credential = items[index ~/ 2];
-                    final mailbox = mailboxList
-                        .where((m) => m.id == credential.mailboxId)
-                        .firstOrNull;
-                    return ListTile(
-                      shape: const RoundedRectangleBorder(),
-                      leading: const Icon(Symbols.key),
-                      title: Text(credential.label),
-                      subtitle: Text(
-                        '${mailbox?.fullAddress(mailHost) ?? credential.mailboxId} • ${credential.protocols.map((p) => p.toUpperCase()).join(', ')}',
-                      ),
-                      trailing: IconButton(
-                        tooltip: 'revoke'.tr(),
-                        onPressed: () => _revoke(credential),
-                        icon: Icon(Symbols.delete, color: scheme.error),
-                      ),
-                    );
-                  },
-                ),
-              ];
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CreateCredentialSheet extends ConsumerStatefulWidget {
-  const _CreateCredentialSheet();
-
-  @override
-  ConsumerState<_CreateCredentialSheet> createState() =>
-      _CreateCredentialSheetState();
-}
-
-class _CreateCredentialSheetState
-    extends ConsumerState<_CreateCredentialSheet> {
-  final _labelController = TextEditingController();
-  final Set<String> _protocols = {'smtp', 'imap'};
-  String? _selectedMailboxId;
-
-  @override
-  void dispose() {
-    _labelController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _create() async {
-    final label = _labelController.text.trim();
-    if (label.isEmpty) {
-      showSnackBar('labelRequired'.tr());
-      return;
-    }
-    final mailboxId = _selectedMailboxId;
-    if (mailboxId == null || mailboxId.isEmpty) {
-      showSnackBar('mailboxRequired'.tr());
-      return;
-    }
-    try {
-      final created = await ref
-          .read(wattEngineClientProvider)
-          .createMailCredential(
-            mailboxId: mailboxId,
-            label: label,
-            protocols: _protocols.toList(),
-          );
-      if (mounted) Navigator.of(context).pop(created);
-    } catch (error) {
-      showSnackBar(error.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final mailboxes = ref.watch(mailboxesProvider);
-    final mailHost = ref.watch(mailHostProvider).value;
-    final scheme = Theme.of(context).colorScheme;
-
-    return SheetScaffold(
-      titleText: 'createCredential'.tr(),
-      heightFactor: 0.65,
-      child: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  mailboxes.when(
-                    loading: () => const SizedBox(
-                      height: 56,
-                      child: Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    error: (error, _) => Text(
-                      error.toString(),
-                      style: TextStyle(color: scheme.error),
-                    ),
-                    data: (items) {
-                      if (items.isEmpty) {
-                        return Text(
-                          'createMailboxFirst'.tr(),
-                          style: TextStyle(color: scheme.onSurfaceVariant),
-                        );
-                      }
-                      _selectedMailboxId ??= items
-                          .firstWhere(
-                            (mailbox) => mailbox.isDefault,
-                            orElse: () => items.first,
-                          )
-                          .id;
-                      return DropdownButtonFormField<String>(
-                        initialValue: _selectedMailboxId,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          labelText: 'mailbox'.tr(),
-                          prefixIcon: const Icon(Symbols.mail),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        items: [
-                          for (final mailbox in items)
-                            DropdownMenuItem(
-                              value: mailbox.id,
-                              child: Text(mailbox.fullAddress(mailHost)),
-                            ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _selectedMailboxId = value),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _labelController,
-                    decoration: InputDecoration(
-                      labelText: 'credentialLabel'.tr(),
-                      hintText: 'credentialLabelHint'.tr(),
-                      prefixIcon: const Icon(Symbols.label),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final protocol in ['smtp', 'imap', 'pop3'])
-                        FilterChip(
-                          label: Text(protocol.toUpperCase()),
-                          selected: _protocols.contains(protocol),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _protocols.add(protocol);
-                              } else {
-                                _protocols.remove(protocol);
-                              }
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed:
-                        _protocols.isNotEmpty && _selectedMailboxId != null
-                        ? _create
-                        : null,
-                    icon: const Icon(Symbols.add, size: 18),
-                    label: Text('createCredential'.tr()),
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

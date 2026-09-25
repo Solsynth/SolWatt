@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'eml_parser.dart';
-import 'mail_import_models.dart';
+import 'package:solwatt/mail/import/eml_parser.dart';
+import 'package:solwatt/mail/import/mail_import_models.dart';
 
 /// Splits an RFC 4155 mbox file into its member messages and parses each one
 /// with [EmlParser].

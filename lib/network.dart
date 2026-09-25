@@ -11,7 +11,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
-import 'mail/import/mail_import_service.dart';
+import 'package:solwatt/mail/import/mail_import_service.dart';
 
 const _issuer = 'https://api.solian.app';
 const _callbackScheme = 'solwatt';
@@ -1128,8 +1128,7 @@ class WattEngineClient {
         'attachment_ids': attachmentIds,
         'is_draft': isDraft,
         'content_type': contentType,
-        if (replyToId != null && replyToId.isNotEmpty)
-          'reply_to_id': replyToId,
+        if (replyToId != null && replyToId.isNotEmpty) 'reply_to_id': replyToId,
       },
     );
     return MailEmail.fromJson(response.data!);
@@ -1146,10 +1145,7 @@ class WattEngineClient {
     final response = await _request<Map<String, dynamic>>(
       'POST',
       '$kElecPostalBase/import',
-      data: {
-        'emails': items,
-        'dedupe': dedupe ? 'message_id' : 'off',
-      },
+      data: {'emails': items, 'dedupe': dedupe ? 'message_id' : 'off'},
     );
     return MailImportResult.fromJson(response.data ?? const {});
   }
@@ -1159,12 +1155,11 @@ class WattEngineClient {
 
   /// Moves a message to another folder
   /// (`inbox`, `sent`, `drafts`, `spam`, `trash`, `archive`).
-  Future<void> moveEmail(String emailId, String folder) =>
-      _request<void>(
-        'POST',
-        '$kElecPostalBase/emails/$emailId/move',
-        data: {'folder': folder},
-      );
+  Future<void> moveEmail(String emailId, String folder) => _request<void>(
+    'POST',
+    '$kElecPostalBase/emails/$emailId/move',
+    data: {'folder': folder},
+  );
 
   Future<void> starEmail(String emailId, {required bool starred}) =>
       _request<void>(
@@ -2979,7 +2974,8 @@ class MailImportResult {
         imported: (json['imported'] as num?)?.toInt() ?? 0,
         duplicates: (json['duplicates'] as num?)?.toInt() ?? 0,
         failed: (json['failed'] as num?)?.toInt() ?? 0,
-        items: (json['items'] as List?)
+        items:
+            (json['items'] as List?)
                 ?.whereType<Map>()
                 .map(
                   (item) => MailImportItemResult.fromJson(
@@ -3537,7 +3533,6 @@ class SelectedFolderNotifier extends Notifier<String> {
   void select(String folder) => state = folder;
 }
 
-
 typedef EmailListFilter = ({
   String? mailboxId,
   String? workspaceId,
@@ -3554,18 +3549,19 @@ typedef EmailListFilter = ({
 });
 
 /// Unread Inbox count per mailbox id, driving the Inbox badge.
-final mailboxUnreadCountsProvider =
-    FutureProvider<Map<String, int>>((ref) async {
-      final mailboxes = await ref.watch(mailboxesProvider.future);
-      final client = ref.watch(wattEngineClientProvider);
-      final counts = <String, int>{};
-      for (final mailbox in mailboxes) {
-        counts[mailbox.id] = await client
-            .listUnreadInboxCount(mailbox.id)
-            .catchError((_) => 0);
-      }
-      return counts;
-    });
+final mailboxUnreadCountsProvider = FutureProvider<Map<String, int>>((
+  ref,
+) async {
+  final mailboxes = await ref.watch(mailboxesProvider.future);
+  final client = ref.watch(wattEngineClientProvider);
+  final counts = <String, int>{};
+  for (final mailbox in mailboxes) {
+    counts[mailbox.id] = await client
+        .listUnreadInboxCount(mailbox.id)
+        .catchError((_) => 0);
+  }
+  return counts;
+});
 
 final emailsProvider =
     FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((

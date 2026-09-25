@@ -2,27 +2,29 @@ import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app_logging.dart';
-import 'boards/boards_screen.dart';
-import 'files/files_screen.dart';
-import 'flywheel/flywheel_page.dart';
-import 'gate/gate_page.dart';
-import 'mail/mail_screen.dart';
-import 'network.dart';
-import 'notifications/notifications.dart';
-import 'realtime/realtime.dart';
-import 'tasks/task_overlay.dart';
-import 'theme.dart';
-import 'ui/cloud_files.dart';
-import 'ui/page_scaffold.dart';
-import 'websocket.dart';
-import 'workspaces/workspace_actions.dart';
+import 'package:solwatt/app_logging.dart';
+import 'package:solwatt/boards/boards_screen.dart';
+import 'package:solwatt/files/files_screen.dart';
+import 'package:solwatt/flywheel/flywheel_page.dart';
+import 'package:solwatt/gate/gate_page.dart';
+import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/mail/mail_settings_page.dart';
+import 'package:solwatt/network.dart';
+import 'package:solwatt/notifications/notifications.dart';
+import 'package:solwatt/realtime/realtime.dart';
+import 'package:solwatt/tasks/task_overlay.dart';
+import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:solwatt/websocket.dart';
+import 'package:solwatt/workspaces/workspace_actions.dart';
 
 part 'main.gr.dart';
 
@@ -89,11 +91,12 @@ class SolWattApp extends StatelessWidget {
       darkTheme: createSolWattTheme(Brightness.dark),
       themeMode: ThemeMode.system,
       supportedLocales: context.supportedLocales,
-      localizationsDelegates: context.localizationDelegates,
+      localizationsDelegates: [
+        ...context.localizationDelegates,
+        FlutterQuillLocalizations.delegate,
+      ],
       locale: context.locale,
       builder: (context, child) {
-        final scheme = Theme.of(context).colorScheme;
-        final brightness = Theme.of(context).brightness;
         // DesktopWindowFrame (island_ui_foundation) paints with the
         // `material_ui` fork's Material, which reads a *separate* theme
         // system from Flutter's. Without a material_ui Theme in scope it
@@ -101,37 +104,45 @@ class SolWattApp extends StatelessWidget {
         // titlebar never followed the app theme. Mirror the app scheme in a
         // material_ui theme; the window chrome (titlebar) uses the main
         // surface color.
-        final chromeScheme = mui.ColorScheme.fromSeed(
-          seedColor: kSolWattSeedColor,
-          brightness: brightness,
-        ).copyWith(surfaceContainer: scheme.surface);
-        final chromeTheme = (brightness == Brightness.dark
-                ? mui.ThemeData.dark()
-                : mui.ThemeData.light())
-            .copyWith(colorScheme: chromeScheme);
+        //
+        // The mirroring must happen inside the OverlayEntry builder: Overlay
+        // only reads `initialEntries` once, so a closure capturing builder-
+        // scope values would freeze the chrome at launch brightness. Reading
+        // Theme.of(context) here re-runs on every app theme change.
         return Overlay(
           key: globalOverlay,
           initialEntries: [
             OverlayEntry(
-              builder: (_) => mui.Theme(
-                data: chromeTheme,
-                child: DesktopWindowFrame(
-                  isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-                  title: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      'appName'.tr(),
-                      // The titlebar sits outside any Scaffold, so the default
-                      // text style would fall back to a light-mode color; pin
-                      // it to the active scheme explicitly.
-                      style: TextStyle(
-                        color: scheme.onSurface,
+              builder: (context) {
+                final scheme = Theme.of(context).colorScheme;
+                final brightness = Theme.of(context).brightness;
+                final chromeScheme = mui.ColorScheme.fromSeed(
+                  seedColor: kSolWattSeedColor,
+                  brightness: brightness,
+                ).copyWith(surfaceContainer: scheme.surface);
+                final chromeTheme =
+                    (brightness == Brightness.dark
+                            ? mui.ThemeData.dark()
+                            : mui.ThemeData.light())
+                        .copyWith(colorScheme: chromeScheme);
+                return mui.Theme(
+                  data: chromeTheme,
+                  child: DesktopWindowFrame(
+                    isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
+                    title: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'appName'.tr(),
+                        // The titlebar sits outside any Scaffold, so the
+                        // default text style would fall back to a light-mode
+                        // color; pin it to the active scheme explicitly.
+                        style: TextStyle(color: scheme.onSurface),
                       ),
                     ),
+                    child: child ?? const SizedBox.shrink(),
                   ),
-                  child: child ?? const SizedBox.shrink(),
-                ),
-              ),
+                );
+              },
             ),
             OverlayEntry(builder: (_) => const _WebSocketIndicator()),
           ],
@@ -155,6 +166,7 @@ class AppRouter extends RootStackRouter {
           initial: true,
           children: [
             AutoRoute(page: MailListRoute.page, path: '', initial: true),
+            AutoRoute(page: MailSettingsRoute.page, path: 'settings'),
             AutoRoute(page: MailComposeRoute.page, path: 'compose'),
             AutoRoute(page: MailDetailRoute.page, path: ':id'),
           ],
@@ -312,15 +324,13 @@ class _NavigationShell extends ConsumerWidget {
       bottomNavigationBar: wide
           ? null
           : isMail
-              ? _MailInboxNavigationBar(
-                  onOpenDrawer: () =>
-                      _scaffoldKey.currentState?.openDrawer(),
-                )
-              : _FeatureNavigationBar(
-                  onOpenDrawer: () =>
-                      _scaffoldKey.currentState?.openDrawer(),
-                  onGoToMail: () => onSelected(_mailTabIndex),
-                ),
+          ? _MailInboxNavigationBar(
+              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+            )
+          : _FeatureNavigationBar(
+              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+              onGoToMail: () => onSelected(_mailTabIndex),
+            ),
     );
   }
 }
@@ -414,9 +424,9 @@ class _GlobalNavigationDrawer extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(28, 12, 16, 4),
             child: Text(
               'more'.tr(),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
           NavigationDrawerDestination(
@@ -515,14 +525,13 @@ class _MailInboxNavigationBar extends ConsumerWidget {
     required List<MailMailbox> mailboxes,
     required String? mailHost,
     required String? selectedId,
-  }) =>
-      _openMailboxPicker(
-        context,
-        ref,
-        mailboxes: mailboxes,
-        mailHost: mailHost,
-        selectedId: selectedId,
-      );
+  }) => _openMailboxPicker(
+    context,
+    ref,
+    mailboxes: mailboxes,
+    mailHost: mailHost,
+    selectedId: selectedId,
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -542,16 +551,14 @@ class _MailInboxNavigationBar extends ConsumerWidget {
     final selected =
         mailboxes.where((m) => m.id == selectedId).firstOrNull ??
         mailboxes.firstWhere((m) => m.isDefault, orElse: () => mailboxes.first);
-    final ordered = [
-      selected,
-      ...mailboxes.where((m) => m != selected),
-    ];
+    final ordered = [selected, ...mailboxes.where((m) => m != selected)];
     final visible = ordered.take(_maxVisibleMailboxes).toList();
     final hasOverflow = ordered.length > _maxVisibleMailboxes;
 
     final index = ordered.indexOf(selected);
     final current = index < _maxVisibleMailboxes
-        ? index + 1 // +1 for the leading drawer destination
+        ? index +
+              1 // +1 for the leading drawer destination
         : _maxVisibleMailboxes + 1; // overflow destination
 
     return Padding(
@@ -624,9 +631,7 @@ class _FeatureNavigationBar extends StatelessWidget {
           child: Row(
             children: [
               IconButton(
-                tooltip: MaterialLocalizations.of(
-                  context,
-                ).openAppDrawerTooltip,
+                tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
                 onPressed: onOpenDrawer,
                 icon: const Icon(Symbols.menu),
               ),
@@ -661,6 +666,17 @@ class _DesktopNavigation extends ConsumerWidget {
     'archive',
   ];
 
+  /// Feature destinations shown on the rail when the current tab is not Mail,
+  /// so the mail folders only appear while working in Mail.
+  static const _features = [
+    (index: _mailTabIndex, icon: Symbols.mail, label: 'mail'),
+    (index: _boardsTabIndex, icon: Symbols.view_kanban, label: 'boards'),
+    (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
+    (index: _flywheelTabIndex, icon: Symbols.sync, label: 'flywheel'),
+    (index: _profileTabIndex, icon: Symbols.person, label: 'profile'),
+    (index: _settingsTabIndex, icon: Symbols.settings, label: 'settings'),
+  ];
+
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final VoidCallback onOpenDrawer;
@@ -684,12 +700,16 @@ class _DesktopNavigation extends ConsumerWidget {
         mailboxes.where((m) => m.id == selectedMailboxId).firstOrNull ??
         mailboxes.where((m) => m.isDefault).firstOrNull ??
         (mailboxes.isEmpty ? null : mailboxes.first);
-    final inboxUnread =
-        effectiveMailbox == null ? 0 : (unreadCounts[effectiveMailbox.id] ?? 0);
+    final inboxUnread = effectiveMailbox == null
+        ? 0
+        : (unreadCounts[effectiveMailbox.id] ?? 0);
 
+    final isMail = selectedIndex == _mailTabIndex;
     final folderIndex = _folders.indexOf(selectedFolder);
-    final current =
-        selectedIndex == _mailTabIndex && folderIndex >= 0 ? folderIndex : null;
+    final featureIndex = _features.indexWhere((f) => f.index == selectedIndex);
+    final current = isMail
+        ? (folderIndex >= 0 ? folderIndex : null)
+        : (featureIndex >= 0 ? featureIndex : null);
 
     return SizedBox(
       width: 88,
@@ -697,8 +717,12 @@ class _DesktopNavigation extends ConsumerWidget {
         backgroundColor: Colors.transparent,
         selectedIndex: current,
         onDestinationSelected: (index) {
-          ref.read(selectedFolderProvider.notifier).select(_folders[index]);
-          onSelected(_mailTabIndex);
+          if (isMail) {
+            ref.read(selectedFolderProvider.notifier).select(_folders[index]);
+            onSelected(_mailTabIndex);
+          } else {
+            onSelected(_features[index].index);
+          }
         },
         labelType: NavigationRailLabelType.all,
         groupAlignment: 0,
@@ -767,16 +791,28 @@ class _DesktopNavigation extends ConsumerWidget {
           ),
         ),
         destinations: [
-          for (final folder in _folders)
-            NavigationRailDestination(
-              icon: folder == 'inbox'
-                  ? _InboxRailIcon(unread: inboxUnread)
-                  : Icon(_folderIcon(folder)),
-              selectedIcon: folder == 'inbox'
-                  ? _InboxRailIcon(unread: inboxUnread, selected: true)
-                  : Icon(_folderIcon(folder), fill: 1),
-              label: Text(mailFolderLabel(folder)),
-            ),
+          if (isMail)
+            for (final folder in _folders)
+              NavigationRailDestination(
+                icon: folder == 'inbox'
+                    ? _InboxRailIcon(unread: inboxUnread)
+                    : Icon(_folderIcon(folder)),
+                selectedIcon: folder == 'inbox'
+                    ? _InboxRailIcon(unread: inboxUnread, selected: true)
+                    : Icon(_folderIcon(folder), fill: 1),
+                label: Text(mailFolderLabel(folder)),
+              )
+          else
+            for (final feature in _features)
+              NavigationRailDestination(
+                icon: feature.index == _mailTabIndex
+                    ? _InboxRailIcon(unread: inboxUnread)
+                    : Icon(feature.icon),
+                selectedIcon: feature.index == _mailTabIndex
+                    ? _InboxRailIcon(unread: inboxUnread, selected: true)
+                    : Icon(feature.icon, fill: 1),
+                label: Text(feature.label.tr()),
+              ),
         ],
       ),
     );
@@ -806,10 +842,7 @@ class _InboxRailIcon extends StatelessWidget {
       fill: selected ? 1 : 0,
     );
     if (unread <= 0) return icon;
-    return Badge(
-      label: Text(unread > 99 ? '99+' : '$unread'),
-      child: icon,
-    );
+    return Badge(label: Text(unread > 99 ? '99+' : '$unread'), child: icon);
   }
 }
 

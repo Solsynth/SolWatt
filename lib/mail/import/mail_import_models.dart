@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import '../../network.dart';
+import 'package:solwatt/network.dart';
 
 /// One recipient of an imported message, matching the ElecPostal
 /// `RecipientInput` JSON shape.

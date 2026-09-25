@@ -8,7 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:solwatt/network.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import 'websocket_channel_factory.dart';
+import 'package:solwatt/websocket_channel_factory.dart';
 
 final _log = Logger('SolWatt.WebSocket');
 
