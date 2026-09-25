@@ -9,8 +9,7 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/realtime/realtime.dart';
-import 'package:solwatt/websocket.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -71,15 +70,23 @@ void main() {
             (ref) async => const <MailCredential>[],
           ),
           emailsProvider.overrideWith(
-            (ref, filter) async => PaginatedResult<MailEmail>(
-              items: [_email],
-              totalCount: 1,
-            ),
+            (ref, filter) async =>
+                PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
           ),
           emailProvider.overrideWith((ref, id) async => _email),
           broadsProvider.overrideWith((ref) async => const <Broad>[]),
-          realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
-          websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
+          mailAddressSuggestionsProvider.overrideWith((ref, request) async {
+            if (request.query.toLowerCase() != 'alice') return const [];
+            return const [
+              MailAddressSuggestion(
+                address: 'alice@example.net',
+                name: 'Alice Contact',
+                avatarUrl: '',
+                avatarSource: 'gravatar',
+                gravatarUrl: '',
+              ),
+            ];
+          }),
         ],
         child: EasyLocalization(
           supportedLocales: const [Locale('en', 'US')],
@@ -113,9 +120,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cc'), findsOneWidget);
     expect(find.text('Bcc'), findsOneWidget);
-
-    // Body editor fills the remaining height.
     final bodyFinder = find.byKey(const ValueKey('compose-body'));
+    final toField = find.byType(TextField).first;
+
+    await tester.enterText(toField, 'alice');
+    await tester.pumpAndSettle();
+    expect(find.text('Alice Contact'), findsOneWidget);
+    expect(find.text('alice@example.net'), findsOneWidget);
+    await tester.tap(find.text('Alice Contact'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(toField).controller!.text,
+      'alice@example.net, ',
+    );
+
     QuillController quill() =>
         tester.widget<QuillEditor>(bodyFinder).controller;
     expect(tester.getSize(bodyFinder).height, greaterThan(200));
@@ -142,14 +160,12 @@ void main() {
     final cardDecoration = card.decoration! as BoxDecoration;
     expect(cardDecoration.borderRadius, BorderRadius.circular(12));
 
-    // Cmd+Enter (control in tests) with no recipients shows the guard snackbar.
-    await tester.tap(bodyFinder);
-    await tester.pump();
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.enterText(toField, '');
+    await tester.tap(find.byTooltip('Save draft'));
     await tester.pump();
     expect(find.text('Add at least one recipient.'), findsOneWidget);
+    await tester.pumpAndSettle();
+    await tester.enterText(toField, 'alice@example.net');
 
     // Escape closes the compose sheet (works while the editor is focused).
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);

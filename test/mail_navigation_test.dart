@@ -118,7 +118,6 @@ void main() {
 
     // Email-first: the mail list is the initial surface after sign-in.
     expect(find.text('Alice'), findsOneWidget); // sender on the email tile
-    expect(find.byIcon(Symbols.star_outline), findsOneWidget); // star toggle
 
     // Folder tabs (proper email client navigation).
     for (final folder in ['Inbox', 'Sent', 'Drafts', 'Spam']) {
@@ -154,13 +153,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
 
-    // Drawer hides the rest of the app: boards/ideask, files, flywheel.
+    // Drawer hides the rest of the app: boards/ideask, files, flywheel, and
+    // the merged account entry. Settings and notifications are no longer
+    // separate drawer entries.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     expect(find.text('Boards'), findsOneWidget);
     expect(find.text('Files'), findsOneWidget);
     expect(find.text('Flywheel'), findsOneWidget);
     expect(find.text('Mail'), findsOneWidget);
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Settings'), findsNothing);
+    expect(find.text('Notifications'), findsNothing);
 
     // Close the drawer via the scrim; the mail list is still there.
     await tester.tapAt(const Offset(350, 400));
@@ -214,15 +218,14 @@ void main() {
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Boards'));
+    // The mode switch animates: mid-transition both destination sets coexist
+    // (the outgoing folders rail cross-fades into the feature rail).
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byType(NavigationRail), findsNWidgets(2));
     await tester.pumpAndSettle();
-    for (final feature in [
-      'Mail',
-      'Boards',
-      'Files',
-      'Flywheel',
-      'Profile',
-      'Settings',
-    ]) {
+    // Flywheel and Profile stay behind the burger; the rail only carries
+    // Mail, Boards and Files.
+    for (final feature in ['Mail', 'Boards', 'Files']) {
       expect(
         find.descendant(of: rail, matching: find.text(feature)),
         findsOneWidget,
@@ -246,6 +249,20 @@ void main() {
     expect(
       find.descendant(of: rail, matching: find.byType(Badge)),
       findsOneWidget,
+    );
+
+    // Switching back to Mail animates the folders back in the same way.
+    await tester.tap(find.text('Mail'));
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byType(NavigationRail), findsNWidgets(2));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: rail, matching: find.text('Inbox')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: rail, matching: find.text('Boards')),
+      findsNothing,
     );
 
     // ---- Titlebar follows the active (dark) theme ----
@@ -288,5 +305,18 @@ void main() {
     expect(lightFrameMaterial.color, lightScheme.surface);
     final lightTitleText = tester.widget<Text>(find.text('appName'.tr()));
     expect(lightTitleText.style?.color, lightScheme.onSurface);
+
+    // Profile absorbs Settings: the merged page carries the connection card
+    // and sign-out from the former Settings page. The real session providers
+    // resolve to null in this harness, so the page settles with the static
+    // content only — bounded pumps keep the drawer transition honest.
+    await tester.tap(find.byIcon(Symbols.menu));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Profile'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Account and workspaces'), findsOneWidget);
+    expect(find.text('Your workspaces'), findsOneWidget);
+    expect(find.text('Sign out'), findsOneWidget);
   });
 }

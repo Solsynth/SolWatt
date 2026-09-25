@@ -7,6 +7,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart'
+    as foundation;
 import 'package:window_manager/window_manager.dart';
 
 import 'package:solwatt/app_logging.dart';
@@ -176,7 +178,6 @@ class AppRouter extends RootStackRouter {
         AutoRoute(page: FlywheelRoute.page),
         AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
-        AutoRoute(page: SettingsRoute.page),
       ],
     ),
   ];
@@ -241,7 +242,6 @@ class AppShellPage extends ConsumerWidget {
             FilesRoute(),
             FlywheelRoute(),
             ProfileRoute(),
-            SettingsRoute(),
           ],
           builder: (context, child) {
             final tabs = AutoTabsRouter.of(context);
@@ -265,6 +265,9 @@ class _NavigationShell extends ConsumerWidget {
   });
 
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  static final _desktopNavigationKey = GlobalKey(
+    debugLabel: 'desktop-navigation',
+  );
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final Widget child;
@@ -294,6 +297,13 @@ class _NavigationShell extends ConsumerWidget {
                   ? Row(
                       children: [
                         _DesktopNavigation(
+                          // Switching tabs re-keys the shell route's page
+                          // (auto_route keys AutoRoutePage by the route
+                          // matchId), which remounts this whole subtree. The
+                          // rail keeps a stable GlobalKey so the
+                          // AnimatedSwitcher below survives the remount and
+                          // can cross-fade the destination sets.
+                          key: _desktopNavigationKey,
                           selectedIndex: selectedIndex,
                           onSelected: onSelected,
                           workspace: workspace,
@@ -354,10 +364,24 @@ class _GlobalNavigationDrawer extends StatelessWidget {
       _filesTabIndex,
       _flywheelTabIndex,
       _profileTabIndex,
-      _settingsTabIndex,
     ];
     final selectedDrawerIndex = drawerRoutes.indexOf(selectedIndex);
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    // The header shows the workspace background as a cover image (Island
+    // style); the info row then needs light text over the dark gradient.
+    final background = workspace?.background;
+    final backgroundImage = background == null
+        ? null
+        : foundation.cloudFileImageProvider(
+            serverUrl: kSolarNetworkApiBase,
+            id: background.id,
+            storageUrl: background.storageUrl,
+            workspaceId: workspace?.id,
+          );
+    final onHeader = backgroundImage == null ? null : Colors.white;
+    final onHeaderMuted = backgroundImage == null ? null : Colors.white70;
 
     void select(int index) {
       Navigator.of(context).pop();
@@ -374,41 +398,77 @@ class _GlobalNavigationDrawer extends StatelessWidget {
             child: Material(
               color: scheme.secondaryContainer,
               borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
               child: InkWell(
-                borderRadius: BorderRadius.circular(16),
                 onTap: () => select(_profileTabIndex),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
+                child: SizedBox(
+                  height: 96,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      CloudFileAvatar(
-                        file: workspace?.picture,
-                        workspaceId: workspace?.id,
-                        fallbackIcon: Symbols.workspaces,
-                        size: 28,
-                        selected: true,
-                        borderRadius: _workspaceAvatarBorderRadius(workspace),
-                        assumeImage: true,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              workspace?.name ?? 'workspace'.tr(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall,
+                      if (backgroundImage != null)
+                        Image(
+                          image: backgroundImage,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                        ),
+                      if (backgroundImage != null)
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: 0.12),
+                                Colors.black.withValues(alpha: 0.48),
+                              ],
                             ),
-                            Text(
-                              'manageWorkspaces'.tr(),
-                              style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            CloudFileAvatar(
+                              file: workspace?.picture,
+                              workspaceId: workspace?.id,
+                              fallbackIcon: Symbols.workspaces,
+                              size: 28,
+                              selected: true,
+                              borderRadius: _workspaceAvatarBorderRadius(
+                                workspace,
+                              ),
+                              assumeImage: true,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    workspace?.name ?? 'workspace'.tr(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.titleSmall?.copyWith(
+                                      color: onHeader,
+                                    ),
+                                  ),
+                                  Text(
+                                    'manageWorkspaces'.tr(),
+                                    style: text.bodySmall?.copyWith(
+                                      color: onHeaderMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Symbols.chevron_right,
+                              color: onHeader,
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Symbols.chevron_right),
                     ],
                   ),
                 ),
@@ -419,15 +479,6 @@ class _GlobalNavigationDrawer extends StatelessWidget {
             icon: const Icon(Symbols.mail),
             selectedIcon: const Icon(Symbols.mail, fill: 1),
             label: Text('mail'.tr()),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(28, 12, 16, 4),
-            child: Text(
-              'more'.tr(),
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
           ),
           NavigationDrawerDestination(
             icon: const Icon(Symbols.view_kanban),
@@ -444,26 +495,13 @@ class _GlobalNavigationDrawer extends StatelessWidget {
             selectedIcon: const Icon(Symbols.sync, fill: 1),
             label: Text('flywheel'.tr()),
           ),
-          const Divider(),
+          // Generous spacing around the divider (height grows, the 1px line
+          // stays thin) so the account entry reads as a separate group.
+          const Divider(height: 32, thickness: 1),
           NavigationDrawerDestination(
             icon: const Icon(Symbols.person),
             selectedIcon: const Icon(Symbols.person, fill: 1),
             label: Text('profile'.tr()),
-          ),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.settings),
-            selectedIcon: const Icon(Symbols.settings, fill: 1),
-            label: Text('settings'.tr()),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Symbols.notifications),
-            title: Text('notifications'.tr()),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 28),
-            onTap: () {
-              Navigator.of(context).pop();
-              showNotificationsAttentionModal();
-            },
           ),
         ],
       ),
@@ -476,7 +514,6 @@ const _boardsTabIndex = 1;
 const _filesTabIndex = 2;
 const _flywheelTabIndex = 3;
 const _profileTabIndex = 4;
-const _settingsTabIndex = 5;
 
 void _selectMailbox(WidgetRef ref, String id) {
   if (ref.read(selectedMailboxIdProvider) == id) return;
@@ -561,48 +598,45 @@ class _MailInboxNavigationBar extends ConsumerWidget {
               1 // +1 for the leading drawer destination
         : _maxVisibleMailboxes + 1; // overflow destination
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-      child: NavigationBar(
-        selectedIndex: current,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        onDestinationSelected: (index) {
-          if (index == 0) {
-            onOpenDrawer();
-            return;
-          }
-          if (hasOverflow && index == _maxVisibleMailboxes + 1) {
-            _openPicker(
-              context,
-              ref,
-              mailboxes: mailboxes,
-              mailHost: mailHost,
-              selectedId: selectedId,
-            );
-            return;
-          }
-          final mailbox = visible[index - 1];
-          _selectMailbox(ref, mailbox.id);
-        },
-        destinations: [
+    return NavigationBar(
+      selectedIndex: current,
+      labelBehavior: .alwaysHide,
+      onDestinationSelected: (index) {
+        if (index == 0) {
+          onOpenDrawer();
+          return;
+        }
+        if (hasOverflow && index == _maxVisibleMailboxes + 1) {
+          _openPicker(
+            context,
+            ref,
+            mailboxes: mailboxes,
+            mailHost: mailHost,
+            selectedId: selectedId,
+          );
+          return;
+        }
+        final mailbox = visible[index - 1];
+        _selectMailbox(ref, mailbox.id);
+      },
+      destinations: [
+        NavigationDestination(
+          icon: const Icon(Symbols.menu),
+          label: MaterialLocalizations.of(context).openAppDrawerTooltip,
+        ),
+        for (final mailbox in visible)
           NavigationDestination(
-            icon: const Icon(Symbols.menu),
-            label: MaterialLocalizations.of(context).openAppDrawerTooltip,
+            icon: const Icon(Symbols.mail),
+            selectedIcon: const Icon(Symbols.mail, fill: 1),
+            label: mailbox.displayName,
+            tooltip: mailbox.fullAddress(mailHost),
           ),
-          for (final mailbox in visible)
-            NavigationDestination(
-              icon: const Icon(Symbols.mail),
-              selectedIcon: const Icon(Symbols.mail, fill: 1),
-              label: mailbox.displayName,
-              tooltip: mailbox.fullAddress(mailHost),
-            ),
-          if (hasOverflow)
-            NavigationDestination(
-              icon: const Icon(Symbols.more_horiz),
-              label: 'allInboxes'.tr(),
-            ),
-        ],
-      ),
+        if (hasOverflow)
+          NavigationDestination(
+            icon: const Icon(Symbols.more_horiz),
+            label: 'allInboxes'.tr(),
+          ),
+      ],
     );
   }
 }
@@ -651,6 +685,7 @@ class _FeatureNavigationBar extends StatelessWidget {
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
+    super.key,
     required this.selectedIndex,
     required this.onSelected,
     required this.onOpenDrawer,
@@ -667,14 +702,12 @@ class _DesktopNavigation extends ConsumerWidget {
   ];
 
   /// Feature destinations shown on the rail when the current tab is not Mail,
-  /// so the mail folders only appear while working in Mail.
+  /// so the mail folders only appear while working in Mail. Flywheel and the
+  /// merged Profile/Settings entry stay reachable through the "more" drawer.
   static const _features = [
     (index: _mailTabIndex, icon: Symbols.mail, label: 'mail'),
     (index: _boardsTabIndex, icon: Symbols.view_kanban, label: 'boards'),
     (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
-    (index: _flywheelTabIndex, icon: Symbols.sync, label: 'flywheel'),
-    (index: _profileTabIndex, icon: Symbols.person, label: 'profile'),
-    (index: _settingsTabIndex, icon: Symbols.settings, label: 'settings'),
   ];
 
   final int selectedIndex;
@@ -707,113 +740,186 @@ class _DesktopNavigation extends ConsumerWidget {
     final isMail = selectedIndex == _mailTabIndex;
     final folderIndex = _folders.indexOf(selectedFolder);
     final featureIndex = _features.indexWhere((f) => f.index == selectedIndex);
-    final current = isMail
-        ? (folderIndex >= 0 ? folderIndex : null)
-        : (featureIndex >= 0 ? featureIndex : null);
 
-    return SizedBox(
-      width: 88,
-      child: NavigationRail(
-        backgroundColor: Colors.transparent,
-        selectedIndex: current,
-        onDestinationSelected: (index) {
-          if (isMail) {
-            ref.read(selectedFolderProvider.notifier).select(_folders[index]);
-            onSelected(_mailTabIndex);
-          } else {
-            onSelected(_features[index].index);
-          }
-        },
-        labelType: NavigationRailLabelType.all,
-        groupAlignment: 0,
-        leading: Padding(
-          padding: const EdgeInsets.only(bottom: 16, top: 4),
-          child: Tooltip(
-            message: workspaceName == null
-                ? 'workspaces'.tr()
-                : '${'workspace'.tr()}: $workspaceName',
-            child: Material(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: onOpenDrawer,
-                child: SizedBox(
-                  width: 64,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 10,
+    // Leading/trailing chrome is identical for both destination sets and is
+    // hoisted out of the animated rails so it never flickers during the
+    // cross-fade below.
+    final leading = Padding(
+      padding: const EdgeInsets.only(bottom: 16, top: 4),
+      child: Tooltip(
+        message: workspaceName == null
+            ? 'workspaces'.tr()
+            : '${'workspace'.tr()}: $workspaceName',
+        child: Material(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onOpenDrawer,
+            child: SizedBox(
+              width: 64,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 10,
+                ),
+                child: Column(
+                  children: [
+                    CloudFileAvatar(
+                      file: workspace?.picture,
+                      workspaceId: workspace?.id,
+                      fallbackIcon: Symbols.workspaces,
+                      size: 22,
+                      borderRadius: _workspaceAvatarBorderRadius(workspace),
+                      assumeImage: true,
                     ),
-                    child: Column(
-                      children: [
-                        CloudFileAvatar(
-                          file: workspace?.picture,
-                          workspaceId: workspace?.id,
-                          fallbackIcon: Symbols.workspaces,
-                          size: 22,
-                          borderRadius: _workspaceAvatarBorderRadius(workspace),
-                          assumeImage: true,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          workspaceName ?? 'workspace'.tr(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: text.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 6),
+                    Text(
+                      workspaceName ?? 'workspace'.tr(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: text.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
-        trailingAtBottom: true,
-        trailing: Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const NotificationBellButton(),
-              const SizedBox(height: 4),
-              _RailIconButton(
-                tooltip: 'more'.tr(),
-                onPressed: onOpenDrawer,
-                child: const Icon(Symbols.menu),
-              ),
-            ],
+      ),
+    );
+
+    final trailing = Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const NotificationBellButton(),
+          const SizedBox(height: 4),
+          _RailIconButton(
+            tooltip: 'more'.tr(),
+            onPressed: onOpenDrawer,
+            child: const Icon(Symbols.menu),
           ),
-        ),
-        destinations: [
-          if (isMail)
-            for (final folder in _folders)
-              NavigationRailDestination(
-                icon: folder == 'inbox'
-                    ? _InboxRailIcon(unread: inboxUnread)
-                    : Icon(_folderIcon(folder)),
-                selectedIcon: folder == 'inbox'
-                    ? _InboxRailIcon(unread: inboxUnread, selected: true)
-                    : Icon(_folderIcon(folder), fill: 1),
-                label: Text(mailFolderLabel(folder)),
-              )
-          else
-            for (final feature in _features)
-              NavigationRailDestination(
-                icon: feature.index == _mailTabIndex
-                    ? _InboxRailIcon(unread: inboxUnread)
-                    : Icon(feature.icon),
-                selectedIcon: feature.index == _mailTabIndex
-                    ? _InboxRailIcon(unread: inboxUnread, selected: true)
-                    : Icon(feature.icon, fill: 1),
-                label: Text(feature.label.tr()),
-              ),
         ],
+      ),
+    );
+
+    return SizedBox(
+      width: 88,
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          leading,
+          const SizedBox(height: 8),
+          // The rail hosts two destination sets — the mail folders while in
+          // Mail, the feature destinations otherwise. AnimatedSwitcher
+          // cross-fades between them; the outgoing rail is ignored so it
+          // cannot steal taps mid-transition.
+          Expanded(
+            child: AnimatedSwitcher(
+              key: const ValueKey('rail-switcher'),
+              duration: const Duration(milliseconds: 240),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.02),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                fit: StackFit.expand,
+                children: [
+                  for (final child in previousChildren)
+                    IgnorePointer(ignoring: true, child: child),
+                  ?currentChild,
+                ],
+              ),
+              child: isMail
+                  ? _buildRail(
+                      key: const ValueKey('mail-folders'),
+                      selectedIndex: folderIndex >= 0 ? folderIndex : null,
+                      destinations: [
+                        for (final folder in _folders)
+                          NavigationRailDestination(
+                            icon: folder == 'inbox'
+                                ? _InboxRailIcon(unread: inboxUnread)
+                                : Icon(_folderIcon(folder)),
+                            selectedIcon: folder == 'inbox'
+                                ? _InboxRailIcon(
+                                    unread: inboxUnread,
+                                    selected: true,
+                                  )
+                                : Icon(_folderIcon(folder), fill: 1),
+                            label: Text(mailFolderLabel(folder)),
+                          ),
+                      ],
+                      onDestinationSelected: (index) {
+                        ref
+                            .read(selectedFolderProvider.notifier)
+                            .select(_folders[index]);
+                        onSelected(_mailTabIndex);
+                      },
+                    )
+                  : _buildRail(
+                      key: const ValueKey('feature-destinations'),
+                      selectedIndex:
+                          featureIndex >= 0 ? featureIndex : null,
+                      destinations: [
+                        for (final feature in _features)
+                          NavigationRailDestination(
+                            icon: feature.index == _mailTabIndex
+                                ? _InboxRailIcon(unread: inboxUnread)
+                                : Icon(feature.icon),
+                            selectedIcon: feature.index == _mailTabIndex
+                                ? _InboxRailIcon(
+                                    unread: inboxUnread,
+                                    selected: true,
+                                  )
+                                : Icon(feature.icon, fill: 1),
+                            label: Text(feature.label.tr()),
+                          ),
+                      ],
+                      onDestinationSelected: (index) =>
+                          onSelected(_features[index].index),
+                    ),
+            ),
+          ),
+          trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRail({
+    required Key key,
+    required int? selectedIndex,
+    required List<NavigationRailDestination> destinations,
+    required ValueChanged<int> onDestinationSelected,
+  }) {
+    return Transform.translate(
+      key: key,
+      // NavigationRail always reserves an 8px spacer above its destination
+      // group, so a rail stripped of `leading`/`trailing` centers the group
+      // 4px lower than one that owns them. Shift back up to keep the group
+      // vertically centered in the rail.
+      offset: const Offset(0, -4),
+      child: NavigationRail(
+        backgroundColor: Colors.transparent,
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onDestinationSelected,
+        labelType: NavigationRailLabelType.all,
+        groupAlignment: 0,
+        destinations: destinations,
       ),
     );
   }
@@ -958,77 +1064,14 @@ class _WebSocketIndicator extends ConsumerWidget {
 }
 
 @RoutePage()
-class SettingsPage extends ConsumerWidget {
-  const SettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(authSessionProvider);
-    final user = ref.watch(userInfoProvider).value;
-    final scheme = Theme.of(context).colorScheme;
-
-    return PageScaffold(
-      title: 'settings'.tr(),
-      subtitle: 'accountAndConnection'.tr(),
-      child: ListView(
-        children: [
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: IconBadge(
-                    icon: session.value == null
-                        ? Symbols.lock
-                        : Symbols.verified_user,
-                    selected: session.value != null,
-                  ),
-                  title: Text(
-                    session.value == null
-                        ? 'notSignedIn'.tr()
-                        : 'connectedToSolarNetwork'.tr(),
-                  ),
-                  subtitle: Text(
-                    user == null ? 'oauthDescription'.tr() : '@${user.name}',
-                  ),
-                ),
-                Divider(
-                  height: 1,
-                  indent: 16,
-                  endIndent: 16,
-                  color: scheme.outlineVariant,
-                ),
-                ListTile(
-                  leading: const IconBadge(icon: Symbols.logout),
-                  title: Text('signOutAction'.tr()),
-                  subtitle: Text('signOutDescription'.tr()),
-                  onTap: () async {
-                    await ref.read(authenticatorProvider).clear();
-                    await clearSelectedWorkspace(
-                      ref.read(secureStorageProvider),
-                    );
-                    invalidateSessionScope(ref);
-                    if (!context.mounted) return;
-                    context.router.replaceAll([
-                      const PageRouteInfo(gateRouteName),
-                    ]);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-@RoutePage()
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
+    final session = ref.watch(authSessionProvider);
+    final user = ref.watch(userInfoProvider).value;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -1099,6 +1142,55 @@ class ProfilePage extends ConsumerWidget {
                         ),
                       );
                     },
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Connection status and sign-out, merged in from the former
+                // Settings page.
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: IconBadge(
+                          icon: session.value == null
+                              ? Symbols.lock
+                              : Symbols.verified_user,
+                          selected: session.value != null,
+                        ),
+                        title: Text(
+                          session.value == null
+                              ? 'notSignedIn'.tr()
+                              : 'connectedToSolarNetwork'.tr(),
+                        ),
+                        subtitle: Text(
+                          user == null
+                              ? 'oauthDescription'.tr()
+                              : '@${user.name}',
+                        ),
+                      ),
+                      Divider(
+                        height: 1,
+                        indent: 16,
+                        endIndent: 16,
+                        color: scheme.outlineVariant,
+                      ),
+                      ListTile(
+                        leading: const IconBadge(icon: Symbols.logout),
+                        title: Text('signOutAction'.tr()),
+                        subtitle: Text('signOutDescription'.tr()),
+                        onTap: () async {
+                          await ref.read(authenticatorProvider).clear();
+                          await clearSelectedWorkspace(
+                            ref.read(secureStorageProvider),
+                          );
+                          invalidateSessionScope(ref);
+                          if (!context.mounted) return;
+                          context.router.replaceAll([
+                            const PageRouteInfo(gateRouteName),
+                          ]);
+                        },
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 24),

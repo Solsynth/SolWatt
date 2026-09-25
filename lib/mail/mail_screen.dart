@@ -2,17 +2,20 @@ import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:super_context_menu/super_context_menu.dart';
 import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
@@ -480,6 +483,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                     selectedEmail: _selectedEmail,
                     onOpen: (email) => _openEmail(context, email),
                     onToggleStar: _toggleStar,
+                    onDelete: (context, ref, email) =>
+                        _deleteEmail(context, ref, email, closeDetail: false),
+                    onMove: (ref, email, folder) =>
+                        _moveEmailFromList(ref, email, folder),
                     onRefresh: () => _refreshEmails(ref),
                     onLoadMore: () => _loadMoreEmails(ref),
                   ),
@@ -752,6 +759,7 @@ class MailDetailPage extends ConsumerWidget {
         onToggleRead: () => _toggleEmailRead(ref, value),
         onToggleStar: () => _toggleEmailStar(ref, value),
         onMove: (folder) => _moveEmail(context, ref, value, folder),
+        onDownloadEml: () => _downloadEmailEml(context, ref, value),
         onDelete: () => _deleteEmail(context, ref, value),
         onClose: () => context.router.pop(),
       ),
@@ -771,6 +779,34 @@ Future<void> _toggleEmailStar(WidgetRef ref, MailEmail email) async {
   }
 }
 
+/// Fetches a freshly serialized `.eml` and opens the platform save dialog.
+Future<void> _downloadEmailEml(
+  BuildContext context,
+  WidgetRef ref,
+  MailEmail email,
+) async {
+  try {
+    final bytes = await ref
+        .read(wattEngineClientProvider)
+        .downloadEmailEml(email.id);
+    final subject = email.subject.trim();
+    final name = subject.isEmpty
+        ? 'email-${email.id}'
+        : subject.replaceAll(RegExp(r'[/\\:*?"<>|\s]+'), ' ');
+
+    await FileSaver.instance.saveAs(
+      name: name,
+      bytes: bytes,
+      fileExtension: 'eml',
+      mimeType: MimeType.custom,
+      customMimeType: 'message/rfc822',
+      dialogTitle: 'downloadEml'.tr(),
+    );
+  } catch (error) {
+    showSnackBar(error.toString());
+  }
+}
+
 Future<void> _moveEmail(
   BuildContext context,
   WidgetRef ref,
@@ -781,6 +817,24 @@ Future<void> _moveEmail(
     await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
     ref.invalidate(emailsProvider);
     if (context.mounted) context.router.pop();
+    showSnackBar(
+      'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
+    );
+  } catch (error) {
+    showSnackBar(error.toString());
+  }
+}
+
+/// Moves a message from the list context menu, which has no detail route to
+/// pop after the move.
+Future<void> _moveEmailFromList(
+  WidgetRef ref,
+  MailEmail email,
+  String folder,
+) async {
+  try {
+    await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
+    ref.invalidate(emailsProvider);
     showSnackBar(
       'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
     );
@@ -839,8 +893,9 @@ Future<void> _toggleEmailRead(WidgetRef ref, MailEmail email) async {
 Future<void> _deleteEmail(
   BuildContext context,
   WidgetRef ref,
-  MailEmail email,
-) async {
+  MailEmail email, {
+  bool closeDetail = true,
+}) async {
   final confirmed = await showConfirmAlert(
     'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
     'deleteEmail'.tr(),
@@ -852,7 +907,7 @@ Future<void> _deleteEmail(
   try {
     await ref.read(wattEngineClientProvider).deleteEmail(email.id);
     ref.invalidate(emailsProvider);
-    if (context.mounted) context.router.pop();
+    if (closeDetail && context.mounted) context.router.pop();
     showSnackBar('emailDeleted'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -1349,6 +1404,8 @@ class _EmailList extends ConsumerWidget {
     required this.selectedEmail,
     required this.onOpen,
     required this.onToggleStar,
+    required this.onDelete,
+    required this.onMove,
     required this.onRefresh,
     required this.onLoadMore,
   });
@@ -1360,6 +1417,8 @@ class _EmailList extends ConsumerWidget {
   final MailEmail? selectedEmail;
   final ValueChanged<MailEmail> onOpen;
   final ValueChanged<MailEmail> onToggleStar;
+  final Future<void> Function(BuildContext, WidgetRef, MailEmail) onDelete;
+  final Future<void> Function(WidgetRef, MailEmail, String) onMove;
   final VoidCallback onRefresh;
   final VoidCallback onLoadMore;
 
@@ -1403,6 +1462,9 @@ class _EmailList extends ConsumerWidget {
                 selected: email.id == selectedEmail?.id,
                 onTap: () => onOpen(email),
                 onToggleStar: () => onToggleStar(email),
+                onToggleRead: () => _toggleEmailRead(ref, email),
+                onDelete: () => onDelete(context, ref, email),
+                onMove: (folder) => onMove(ref, email, folder),
               );
             },
           ),
@@ -1418,6 +1480,9 @@ class _EmailTile extends StatelessWidget {
     required this.mailHost,
     required this.onTap,
     required this.onToggleStar,
+    required this.onToggleRead,
+    required this.onDelete,
+    required this.onMove,
     this.selected = false,
   });
 
@@ -1425,6 +1490,9 @@ class _EmailTile extends StatelessWidget {
   final String? mailHost;
   final VoidCallback onTap;
   final VoidCallback onToggleStar;
+  final VoidCallback onToggleRead;
+  final VoidCallback onDelete;
+  final ValueChanged<String> onMove;
   final bool selected;
 
   @override
@@ -1436,73 +1504,74 @@ class _EmailTile extends StatelessWidget {
     final from = fromName.isNotEmpty ? fromName : fromAddress;
     final date = email.createdAt;
 
-    return ListTile(
-      selected: selected,
-      selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
-      shape: const RoundedRectangleBorder(),
-      leading: Icon(
-        email.isRead ? Symbols.mail_outline : Symbols.mail,
-        size: 20,
-        color: email.isRead ? scheme.onSurfaceVariant : scheme.primary,
-        fill: email.isRead ? 0 : 1,
+    return ContextMenuWidget(
+      menuProvider: (_) => Menu(
+        children: emailContextMenuItems(
+          email: email,
+          onToggleRead: onToggleRead,
+          onToggleStar: onToggleStar,
+          onMove: onMove,
+          onDelete: onDelete,
+        ),
       ),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              from,
+      child: ListTile(
+        selected: selected,
+        selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
+        shape: const RoundedRectangleBorder(),
+        leading: Icon(
+          email.isRead ? Symbols.mail_outline : Symbols.mail,
+          size: 20,
+          color: email.isRead ? scheme.onSurfaceVariant : scheme.primary,
+          fill: email.isRead ? 0 : 1,
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                from,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodyMedium?.copyWith(
+                  fontWeight: email.isRead
+                      ? FontWeight.normal
+                      : FontWeight.w600,
+                ),
+              ),
+            ),
+            if (date != null)
+              Text(
+                _formatDate(date),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              email.displaySubject,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: text.bodyMedium?.copyWith(
                 fontWeight: email.isRead ? FontWeight.normal : FontWeight.w600,
               ),
             ),
-          ),
-          if (date != null)
-            Text(
-              _formatDate(date),
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-        ],
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            email.displaySubject,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: text.bodyMedium?.copyWith(
-              fontWeight: email.isRead ? FontWeight.normal : FontWeight.w600,
-            ),
-          ),
-          if (email.previewText.isNotEmpty)
-            Text(
-              email.previewText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          if (email.hasDeliveryStatus && !email.isDraft) ...[
-            const SizedBox(height: 6),
-            _DeliveryStatusChip(status: email.deliveryStatus!),
+            if (email.previewText.isNotEmpty)
+              Text(
+                email.previewText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            if (email.hasDeliveryStatus && !email.isDraft) ...[
+              const SizedBox(height: 6),
+              _DeliveryStatusChip(status: email.deliveryStatus!),
+            ],
           ],
-        ],
-      ),
-      isThreeLine: false,
-      trailing: IconButton(
-        tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
-        onPressed: onToggleStar,
-        icon: Icon(
-          email.isStarred ? Symbols.star : Symbols.star_outline,
-          size: 20,
-          color: email.isStarred
-              ? Colors.amber.shade600
-              : scheme.onSurfaceVariant,
-          fill: email.isStarred ? 1 : 0,
         ),
+        isThreeLine: false,
+        onTap: onTap,
       ),
-      onTap: onTap,
     );
   }
 
@@ -1516,6 +1585,57 @@ class _EmailTile extends StatelessWidget {
     return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
   }
 }
+
+/// Menu items shown when a message tile or its detail view is right-clicked.
+///
+/// Kept as a plain function so the menu contract (destructive delete, star
+/// check state, folder moves) is unit-testable without a native menu.
+List<MenuElement> emailContextMenuItems({
+  required MailEmail email,
+  required VoidCallback onToggleRead,
+  required VoidCallback onToggleStar,
+  required ValueChanged<String> onMove,
+  required VoidCallback onDelete,
+}) => [
+  MenuAction(
+    title: (email.isRead ? 'markUnread' : 'markRead').tr(),
+    image: MenuImage.icon(
+      email.isRead ? Symbols.mark_email_unread : Symbols.mark_email_read,
+    ),
+    callback: onToggleRead,
+  ),
+  MenuAction(
+    title: (email.isStarred ? 'unstar' : 'star').tr(),
+    image: MenuImage.icon(
+      email.isStarred ? Symbols.star : Symbols.star_outline,
+    ),
+    state: email.isStarred ? MenuActionState.checkOn : MenuActionState.none,
+    callback: onToggleStar,
+  ),
+  MenuSeparator(),
+  MenuAction(
+    title: 'folderArchive'.tr(),
+    image: MenuImage.icon(Symbols.archive),
+    callback: () => onMove('archive'),
+  ),
+  MenuAction(
+    title: 'folderSpam'.tr(),
+    image: MenuImage.icon(Symbols.report),
+    callback: () => onMove('spam'),
+  ),
+  MenuAction(
+    title: 'folderTrash'.tr(),
+    image: MenuImage.icon(Symbols.delete_outline),
+    callback: () => onMove('trash'),
+  ),
+  MenuSeparator(),
+  MenuAction(
+    title: 'delete'.tr(),
+    image: MenuImage.icon(Symbols.delete),
+    attributes: const MenuActionAttributes(destructive: true),
+    callback: onDelete,
+  ),
+];
 
 class _DeliveryStatusChip extends StatelessWidget {
   const _DeliveryStatusChip({required this.status});
@@ -1557,6 +1677,7 @@ class _EmailDetailPanel extends StatefulWidget {
     required this.onToggleStar,
     required this.onMove,
     required this.onDelete,
+    required this.onDownloadEml,
     required this.onClose,
   });
 
@@ -1571,6 +1692,7 @@ class _EmailDetailPanel extends StatefulWidget {
   final VoidCallback onToggleStar;
   final ValueChanged<String> onMove;
   final VoidCallback onDelete;
+  final VoidCallback onDownloadEml;
   final VoidCallback onClose;
 
   @override
@@ -1657,6 +1779,7 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                         if (value == 'archive') widget.onMove('archive');
                         if (value == 'spam') widget.onMove('spam');
                         if (value == 'trash') widget.onMove('trash');
+                        if (value == 'download-eml') widget.onDownloadEml();
                       },
                       itemBuilder: (_) => [
                         if (email.folder != 'archive')
@@ -1674,6 +1797,11 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                             value: 'trash',
                             child: Text('folderTrash'.tr()),
                           ),
+                        const PopupMenuDivider(),
+                        PopupMenuItem(
+                          value: 'download-eml',
+                          child: Text('downloadEml'.tr()),
+                        ),
                       ],
                     ),
                     IconButton(
@@ -2071,7 +2199,23 @@ class _InlineEmailImage extends StatelessWidget {
   }
 }
 
-class _HtmlBodyViewer extends StatelessWidget {
+/// Whether a web-view navigation should leave the app for the system browser
+/// (or mail app) instead of loading inside the message pane.
+///
+/// Only user-activated links qualify. The initial document load, server
+/// redirects and meta refreshes report their own navigation types (the
+/// document load's URL is the webview base URL) and must stay in the pane —
+/// cancelling those leaves the message blank.
+bool shouldOpenEmailLinkExternally(NavigationAction navigationAction) {
+  if (!navigationAction.isForMainFrame) return false;
+  if (navigationAction.navigationType != NavigationType.LINK_ACTIVATED) {
+    return false;
+  }
+  final scheme = navigationAction.request.url?.scheme;
+  return scheme == 'http' || scheme == 'https' || scheme == 'mailto';
+}
+
+class _HtmlBodyViewer extends ConsumerStatefulWidget {
   const _HtmlBodyViewer({
     required this.html,
     required this.attachments,
@@ -2085,51 +2229,266 @@ class _HtmlBodyViewer extends StatelessWidget {
   final String? workspaceId;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+  ConsumerState<_HtmlBodyViewer> createState() => _HtmlBodyViewerState();
+}
 
-    // Render the email HTML as plain Flutter widgets instead of a platform
-    // webview. A webview captures scroll-wheel events over its surface and
-    // reports its content height wrong on macOS, forcing a nested scrollable
-    // section inside the detail pane. Native rendering scrolls as one with
-    // the CustomScrollView and runs no JavaScript from the message. The
-    // content spans the full pane width, edge to edge.
-    return SelectionArea(
-      child: HtmlWidget(
+class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
+  /// Fallback height before the first measurement and for an empty body, so an
+  /// empty message does not collapse the pane.
+  static const _placeholderHeight = 120.0;
+
+  double? _contentHeight;
+  String? _preparedHtml;
+
+  /// macOS never reports content-size changes (the plugin only implements the
+  /// JavaScript `document.body.scrollHeight` query), and that query can run
+  /// before inline images have decoded, so the height is polled until two
+  /// consecutive probes agree.
+  Timer? _settleTimer;
+  double _lastProbe = -1;
+  int _stableProbes = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prepareHtml();
+  }
+
+  @override
+  void dispose() {
+    _settleTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_HtmlBodyViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.html != widget.html ||
+        oldWidget.inlineAttachments != widget.inlineAttachments ||
+        oldWidget.workspaceId != widget.workspaceId) {
+      _settleTimer?.cancel();
+      _contentHeight = null;
+      _preparedHtml = null;
+      _lastProbe = -1;
+      _stableProbes = 0;
+      _prepareHtml();
+    }
+  }
+
+  Future<void> _prepareHtml() async {
+    final imageFiles = <String, SnCloudFileReference>{
+      for (final attachment in widget.attachments)
+        if (attachment.mimeType.startsWith('image/')) attachment.id: attachment,
+      for (final attachment in widget.inlineAttachments.values)
+        if (attachment.mimeType.startsWith('image/')) attachment.id: attachment,
+    };
+    final urls = <String, String>{};
+    await Future.wait(
+      imageFiles.values.map((attachment) async {
+        try {
+          urls[attachment.id] = await ref
+              .read(wattEngineClientProvider)
+              .resolveCloudFileUrl(
+                attachment.id,
+                workspaceId: widget.workspaceId,
+              );
+        } catch (_) {
+          // Keep a usable fallback URL if a signed redirect cannot be resolved.
+          urls[attachment.id] = _cloudFileUri(
+            attachment,
+            widget.workspaceId,
+          ).toString();
+        }
+      }),
+    );
+    if (!mounted) return;
+    setState(() {
+      _preparedHtml = sanitizeEmailHtml(
         _replaceInlineImageReferences(
-          html,
-          attachments,
-          inlineAttachments,
-          workspaceId,
+          widget.html,
+          widget.attachments,
+          widget.inlineAttachments,
+          widget.workspaceId,
+          resolvedImageUrls: urls,
         ),
-        textStyle: TextStyle(
-          fontSize: 15,
-          height: 1.6,
-          color: scheme.onSurface,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final html = _preparedHtml;
+    if (html == null) {
+      return const SizedBox(
+        height: _HtmlBodyViewerState._placeholderHeight,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return SizedBox(
+      width: double.infinity,
+      height: _contentHeight ?? _HtmlBodyViewerState._placeholderHeight,
+      child: InAppWebView(
+        initialData: InAppWebViewInitialData(
+          // Render the server's HTML body directly. The .eml endpoint is only
+          // for downloading a serialized message, never for the reading view.
+          data: html,
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+          baseUrl: WebUri(kSolarNetworkApiBase),
         ),
-        onTapUrl: (url) async {
-          // Launch in the default browser; email links must never navigate
-          // inside the reading pane.
-          try {
-            return await launchUrl(
-              Uri.parse(url),
-              mode: LaunchMode.externalApplication,
-            );
-          } catch (_) {
-            return false;
+        initialSettings: InAppWebViewSettings(
+          // Required: on macOS the platform's only way to measure the document
+          // is `document.body.scrollHeight` through JavaScript. Message
+          // scripts are stripped in [_sanitizeEmailHtml] so nothing of the
+          // sender's executes.
+          javaScriptEnabled: true,
+          transparentBackground: true,
+          verticalScrollBarEnabled: false,
+          horizontalScrollBarEnabled: false,
+          disableVerticalScroll: true,
+          disableHorizontalScroll: true,
+          supportZoom: false,
+          mediaPlaybackRequiresUserGesture: true,
+          useShouldOverrideUrlLoading: true,
+        ),
+        onLoadStop: (controller, url) => _settleContentHeight(controller),
+        onProgressChanged: (controller, progress) {
+          if (progress == 100) _settleContentHeight(controller);
+        },
+        onContentSizeChanged: (controller, oldSize, newSize) {
+          _applyContentHeight(newSize.height);
+        },
+        shouldOverrideUrlLoading: (controller, navigationAction) async {
+          if (!shouldOpenEmailLinkExternally(navigationAction)) {
+            return NavigationActionPolicy.ALLOW;
           }
+          final url = navigationAction.request.url!;
+          try {
+            await launchUrl(url, mode: LaunchMode.externalApplication);
+          } catch (_) {}
+          return NavigationActionPolicy.CANCEL;
         },
       ),
     );
   }
+
+  /// Full document height, including the body's own margins and anything
+  /// overflowing `<html>` — the platform helper only reads
+  /// `document.body.scrollHeight`, which clips both.
+  static const _contentHeightScript =
+      'Math.max(document.body.scrollHeight, '
+      'document.documentElement.scrollHeight)';
+
+  Future<double?> _probeContentHeight(InAppWebViewController controller) async {
+    try {
+      final raw = await controller.evaluateJavascript(
+        source: _contentHeightScript,
+      );
+      final height = raw is num ? raw.toDouble() : double.tryParse('$raw');
+      if (height != null && height > 0) return height;
+    } catch (_) {
+      // Fall through to the platform helper.
+    }
+    return (await controller.getContentHeight())?.toDouble();
+  }
+
+  /// Polls the document height until two consecutive probes agree, which
+  /// covers images that decode after `onLoadStop`.
+  void _settleContentHeight(InAppWebViewController controller) {
+    _settleTimer?.cancel();
+    _lastProbe = -1;
+    _stableProbes = 0;
+    var ticks = 0;
+    _settleTimer = Timer.periodic(const Duration(milliseconds: 150), (
+      timer,
+    ) async {
+      if (!mounted || ++ticks > 20) {
+        timer.cancel();
+        return;
+      }
+      final height = await _probeContentHeight(controller);
+      if (height == null || height <= 0) return;
+      if ((height - _lastProbe).abs() < 1) {
+        if (++_stableProbes >= 2) timer.cancel();
+      } else {
+        _lastProbe = height;
+        _stableProbes = 0;
+      }
+      _applyContentHeight(height);
+    });
+  }
+
+  void _applyContentHeight(double? height) {
+    if (!mounted || height == null || height <= 0) return;
+    if ((height - (_contentHeight ?? 0)).abs() < 1) return;
+    setState(() => _contentHeight = height);
+  }
+}
+
+/// Strips active content from untrusted message HTML.
+///
+/// The message pane runs with JavaScript enabled because the macOS webview
+/// measures the document through `document.body.scrollHeight`; without this the
+/// sender's scripts would run. Links and styling are untouched — inline event
+/// handlers, `<script>` bodies and `javascript:` URLs are removed.
+String sanitizeEmailHtml(String html) {
+  // Paired active elements, contents included.
+  var sanitized = html.replaceAll(
+    RegExp(
+      r'''<\s*(script|iframe|object|embed)\b[^>]*>.*?<\s*/\s*\1\s*>''',
+      caseSensitive: false,
+      dotAll: true,
+    ),
+    '',
+  );
+  // Unpaired or self-closing forms of the same elements.
+  sanitized = sanitized.replaceAll(
+    RegExp(
+      r'''<\s*/?\s*(script|iframe|object|embed)\b[^>]*>''',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  // Inline handlers: onclick="…", onerror='…', onload=foo().
+  sanitized = sanitized.replaceAll(
+    RegExp(
+      r'''\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  // javascript: URLs. The attribute value is replaced whole — non-greedily up
+  // to its own closing quote — so removing it cannot eat that quote or leave a
+  // stray one behind.
+  sanitized = sanitized.replaceAllMapped(
+    RegExp(
+      r'''\b(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*javascript:[^>]*?\2''',
+      caseSensitive: false,
+    ),
+    (match) => '${match[1]}=${match[2]}about:blank#blocked${match[2]}',
+  );
+  // Unquoted javascript: URLs and anything the first pass missed. Quotes are
+  // excluded so an attribute's delimiter is never swallowed.
+  sanitized = sanitized.replaceAll(
+    RegExp(r'''javascript\s*:[^\s"'>]*''', caseSensitive: false),
+    'about:blank#blocked',
+  );
+  return sanitized;
 }
 
 String _replaceInlineImageReferences(
   String body,
   List<SnCloudFileReference> attachments,
   Map<String, SnCloudFileReference> inlineAttachments,
-  String? workspaceId,
-) {
+  String? workspaceId, {
+  Map<String, String> resolvedImageUrls = const {},
+}) {
+  String imageUrl(SnCloudFileReference attachment) =>
+      (resolvedImageUrls[attachment.id] ??
+              _cloudFileUri(attachment, workspaceId).toString())
+          .replaceAll('&', '&amp;')
+          .replaceAll('"', '&quot;');
+
   final imageMarker = RegExp(
     r'\[image:\s*([^\]\r\n]+)\]',
     caseSensitive: false,
@@ -2137,14 +2496,8 @@ String _replaceInlineImageReferences(
   final withMarkers = body.replaceAllMapped(imageMarker, (match) {
     final filename = match.group(1)!.trim().toLowerCase();
     final attachment = _imageAttachmentForFilename(attachments, filename);
-    // Drop markers with no matching attachment instead of showing the raw
-    // preview-generation syntax in the message.
     if (attachment == null) return '';
-    final url = _cloudFileUri(
-      attachment,
-      workspaceId,
-    ).toString().replaceAll('&', '&amp;').replaceAll('"', '&quot;');
-    return '<img src="$url" alt="$filename">';
+    return '<img src="${imageUrl(attachment)}" alt="$filename">';
   });
   return withMarkers.replaceAllMapped(
     RegExp(r'''cid:([^"'\s>]+)''', caseSensitive: false),
@@ -2156,9 +2509,7 @@ String _replaceInlineImageReferences(
               .where((entry) => entry.key.toLowerCase() == contentId)
               .firstOrNull
               ?.value;
-      return attachment == null
-          ? ''
-          : _cloudFileUri(attachment, workspaceId).toString();
+      return attachment == null ? '' : imageUrl(attachment);
     },
   );
 }
@@ -2338,7 +2689,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   var _pickingAttachment = false;
   final _shortcutFocusNode = FocusNode();
   final _bodyFocusNode = FocusNode();
-
+  final Map<TextEditingController, FocusNode> _addressFocusNodes = {};
   MailMailbox? get _selectedMailbox =>
       widget.mailboxes.where((m) => m.id == _mailboxId).firstOrNull;
 
@@ -2402,6 +2753,9 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     _quillController.dispose();
     _shortcutFocusNode.dispose();
     _bodyFocusNode.dispose();
+    for (final focusNode in _addressFocusNodes.values) {
+      focusNode.dispose();
+    }
     super.dispose();
   }
 
@@ -2434,6 +2788,91 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
       if (mounted) setState(() => _pickingAttachment = false);
     }
   }
+
+  Widget _addressField(TextEditingController controller) =>
+      Autocomplete<MailAddressSuggestion>(
+        textEditingController: controller,
+        focusNode: _addressFocusNodes.putIfAbsent(controller, FocusNode.new),
+        optionsBuilder: (value) async {
+          final query = value.text.split(',').last.trim();
+          if (query.isEmpty) return const [];
+          try {
+            final suggestions = <String, MailAddressSuggestion>{};
+            for (final senders in [false, true]) {
+              final items = await ref.read(
+                mailAddressSuggestionsProvider((
+                  query: query,
+                  senders: senders,
+                )).future,
+              );
+              for (final item in items) {
+                suggestions.putIfAbsent(item.address.toLowerCase(), () => item);
+              }
+            }
+            return suggestions.values.toList(growable: false);
+          } catch (_) {
+            return const [];
+          }
+        },
+        onSelected: (option) {
+          final text = controller.text;
+          final comma = text.lastIndexOf(',');
+          final prefix = comma < 0 ? '' : text.substring(0, comma + 1);
+          final replacement = '$prefix${option.address}, ';
+          controller.value = TextEditingValue(
+            text: replacement,
+            selection: TextSelection.collapsed(offset: replacement.length),
+          );
+        },
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(8),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280, maxWidth: 420),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final option = options.elementAt(index);
+                  return ListTile(
+                    dense: true,
+                    leading: CircleAvatar(
+                      radius: 17,
+                      child: ClipOval(
+                        child: option.avatarUrl.isEmpty
+                            ? const Icon(Icons.person_outline, size: 18)
+                            : Image.network(
+                                option.avatarUrl,
+                                width: 34,
+                                height: 34,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) =>
+                                    const Icon(Icons.person_outline, size: 18),
+                              ),
+                      ),
+                    ),
+                    title: Text(
+                      option.name ?? option.address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      option.address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => onSelected(option),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
 
   Future<void> _submit({bool draft = false}) async {
     final to = _parseRecipients(_toController.text);
@@ -2620,9 +3059,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                     const SizedBox(height: 8),
                     _CompactLabeledField(
                       label: 'to'.tr(),
-                      controller: _toController,
-                      autofocus: true,
-                      onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                      field: _addressField(_toController),
                       suffix: IconButton(
                         tooltip: 'ccBcc'.tr(),
                         onPressed: () =>
@@ -2652,14 +3089,14 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                                 const SizedBox(height: 8),
                                 _CompactLabeledField(
                                   label: 'cc'.tr(),
-                                  controller: _ccController,
+                                  field: _addressField(_ccController),
                                   onSubmitted: (_) =>
                                       FocusScope.of(context).nextFocus(),
                                 ),
                                 const SizedBox(height: 8),
                                 _CompactLabeledField(
                                   label: 'bcc'.tr(),
-                                  controller: _bccController,
+                                  field: _addressField(_bccController),
                                   onSubmitted: (_) =>
                                       FocusScope.of(context).nextFocus(),
                                 ),
@@ -2907,7 +3344,6 @@ class _CompactLabeledField extends StatelessWidget {
     required this.label,
     this.controller,
     this.field,
-    this.autofocus = false,
     this.style,
     this.onSubmitted,
     this.suffix,
@@ -2916,7 +3352,6 @@ class _CompactLabeledField extends StatelessWidget {
   final String label;
   final TextEditingController? controller;
   final Widget? field;
-  final bool autofocus;
   final TextStyle? style;
   final ValueChanged<String>? onSubmitted;
   final Widget? suffix;
@@ -2943,7 +3378,6 @@ class _CompactLabeledField extends StatelessWidget {
                 field ??
                 TextField(
                   controller: controller,
-                  autofocus: autofocus,
                   style: style,
                   decoration: const InputDecoration(
                     border: InputBorder.none,

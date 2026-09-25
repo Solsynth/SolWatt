@@ -74,10 +74,12 @@ dependencies:
   web_socket_channel: ^3.0.3
   easy_localization: ^3.0.8
   flutter_native_splash: ^2.4.8
-  flutter_widget_from_html_core: ^0.17.4
   flutter_quill: ^11.6.0
   flutter_quill_delta_from_html: ^1.5.3
   vsc_quill_delta_to_html: ^1.0.5
+  flutter_inappwebview: ^6.1.5
+  super_context_menu: ^0.10.0-dev.2
+  file_saver: ^0.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

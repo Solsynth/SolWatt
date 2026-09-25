@@ -4,9 +4,13 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
+  file_saver
   file_selector_windows
+  flutter_inappwebview_windows
   flutter_secure_storage_windows
+  irondash_engine_context
   screen_retriever_windows
+  super_native_extensions
   url_launcher_windows
   window_manager
   window_to_front

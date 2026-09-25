@@ -268,6 +268,7 @@
   "deleteWorkspaceTitle": "删除 {name}？",
   "deleteWorkspaceConfirm": "此操作将永久删除工作区及其数据。",
   "delete": "删除",
+  "downloadEml": "下载 .eml 文件",
   "workspaceNowActive": "{name} 现已激活。",
 
   "notifications": "通知",

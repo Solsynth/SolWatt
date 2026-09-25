@@ -268,6 +268,7 @@
   "deleteWorkspaceTitle": "Delete {name}?",
   "deleteWorkspaceConfirm": "This permanently deletes the workspace and its data.",
   "delete": "Delete",
+  "downloadEml": "Download .eml file",
   "workspaceNowActive": "{name} is now active.",
 
   "notifications": "Notifications",

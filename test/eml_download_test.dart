@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
@@ -33,22 +37,37 @@ final _email = MailEmail(
   id: 'e-1',
   mailboxId: 'mb-1',
   subject: 'MiMo-V2.6 preview',
-  body:
-      '<p><a href="https://example.com/article">Open the article</a></p>'
-      '<p>Image: [image: missing.png] and cid:missing@example.com</p>',
-  contentType: 'text/html',
+  // Plain text so the detail pane renders without a webview (webviews can't
+  // run under the widget-test harness); the download flow is webview-agnostic.
+  body: 'Hello from the test message.',
+  contentType: 'text/plain',
   isDraft: false,
   from: MailRecipient(address: 'alice@example.com', name: 'Alice'),
   isRead: false,
   createdAt: DateTime(2026, 9, 25, 10, 30),
 );
 
+/// Captures the client-side half of the EML download: the endpoint call must
+/// happen before the save dialog is offered.
+class _FakeMailClient extends WattEngineClient {
+  _FakeMailClient() : super(SolarNetworkAuthenticator(FlutterSecureStorage()));
+
+  bool emlDownloaded = false;
+
+  @override
+  Future<Uint8List> downloadEmailEml(String emailId) async {
+    emlDownloaded = true;
+    return Uint8List.fromList(
+      utf8.encode('From: alice@example.com\r\nSubject: $emailId\r\n\r\nbody'),
+    );
+  }
+}
+
 void main() {
   testWidgets(
-    'detail: email links launch externally; preview markers are stripped',
+    'detail: more menu downloads the .eml stream from /emails/{id}/eml',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-
       SharedPreferences.setMockInitialValues({});
       await EasyLocalization.ensureInitialized();
       tester.binding.platformDispatcher.platformBrightnessTestValue =
@@ -61,19 +80,7 @@ void main() {
         },
       );
 
-      final launched = <String>[];
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('plugins.flutter.io/url_launcher'),
-        (call) async {
-          if (call.method == 'launch') {
-            launched.add((call.arguments as Map)['url'] as String);
-            return true;
-          }
-          if (call.method == 'canLaunch') return true;
-          if (call.method == 'supportsMode') return true;
-          return null;
-        },
-      );
+      final fakeClient = _FakeMailClient();
 
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -96,6 +103,7 @@ void main() {
                   PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
             ),
             emailProvider.overrideWith((ref, id) async => _email),
+            wattEngineClientProvider.overrideWith((ref) => fakeClient),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
             websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
           ],
@@ -114,6 +122,7 @@ void main() {
         const Duration(seconds: 10),
       );
 
+      // Open the detail pane.
       await tester.tap(find.text('Alice'));
       await tester.pumpAndSettle(
         const Duration(milliseconds: 100),
@@ -121,32 +130,20 @@ void main() {
         const Duration(seconds: 10),
       );
 
-      // The link renders as tappable text in the body.
-      final bodyLink = find.descendant(
-        of: find.byType(CustomScrollView),
-        matching: find.textContaining('Open the article', findRichText: true),
-      );
-      expect(bodyLink, findsWidgets);
-
-      // Preview-generation markers with no matching attachment are dropped.
-      expect(
-        find.textContaining('[image:', findRichText: true),
-        findsNothing,
-        reason: 'unmatched [image:] markers must not render as literal text',
-      );
-      expect(
-        find.textContaining('cid:missing', findRichText: true),
-        findsNothing,
-        reason: 'unmatched cid: refs must not render as literal text',
-      );
-
-      // Tapping the link launches it in the default browser (never inside
-      // the reading pane), even with text selection enabled on desktop.
-      final linkTopLeft = tester.getTopLeft(bodyLink);
-      await tester.tapAt(linkTopLeft + const Offset(10, 10));
+      // The "more" menu carries the download action.
+      await tester.tap(find.byIcon(Symbols.more_vert));
       await tester.pumpAndSettle();
-      expect(launched, contains('https://example.com/article'));
+      expect(find.text('Download .eml file'), findsOneWidget);
+
+      // Selecting it hits the client's EML endpoint. The save dialog itself
+      // is a platform channel that does not exist under the test harness, so
+      // the save step fails into the error snackbar — the endpoint call is
+      // what this test pins.
+      await tester.tap(find.text('Download .eml file'));
+      await tester.pumpAndSettle();
+      expect(fakeClient.emlDownloaded, isTrue);
       expect(tester.takeException(), isNull);
+
       debugDefaultTargetPlatformOverride = null;
     },
   );

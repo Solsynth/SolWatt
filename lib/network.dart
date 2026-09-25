@@ -12,6 +12,7 @@ import 'package:logging/logging.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/mail/import/mail_import_service.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _issuer = 'https://api.solian.app';
 const _callbackScheme = 'solwatt';
@@ -1101,6 +1102,98 @@ class WattEngineClient {
       '$kElecPostalBase/emails/$emailId',
     );
     return MailEmail.fromJson(response.data ?? const {});
+  }
+
+  /// Downloads a freshly serialized `.eml` (message/rfc822) for an email.
+  /// The endpoint streams it from stored metadata and DysonFS attachment
+  /// bytes rather than relying on saved original message bytes.
+  Future<Uint8List> downloadEmailEml(String emailId) async {
+    final session = await _authenticator.validSession();
+    if (session == null) {
+      throw const OAuthException(
+        'Sign in is required to access Solar Network.',
+      );
+    }
+    final response = await _dio.request<List<int>>(
+      '$kElecPostalBase/emails/$emailId/eml',
+      options: Options(
+        method: 'GET',
+        responseType: ResponseType.bytes,
+        headers: {
+          'Authorization': 'Bearer ${session.accessToken}',
+          'Accept': 'message/rfc822',
+        },
+      ),
+    );
+    final data = response.data;
+    if (data == null || data.isEmpty) {
+      throw StateError('Empty EML response for email $emailId.');
+    }
+    return Uint8List.fromList(data);
+  }
+
+  /// Resolves the authenticated Drive URL to its storage redirect. HTML
+  /// webviews cannot attach the app's bearer token to image subrequests, so
+  /// inline email images use the returned signed URL instead.
+  Future<String> resolveCloudFileUrl(
+    String fileId, {
+    String? workspaceId,
+  }) async {
+    final session = await _authenticator.validSession();
+    if (session == null) {
+      throw const OAuthException(
+        'Sign in is required to access Solar Network.',
+      );
+    }
+    final response = await _dio.get<String>(
+      '/drive/files/${Uri.encodeComponent(fileId)}',
+      queryParameters: {
+        if (workspaceId != null && workspaceId.trim().isNotEmpty)
+          'workspace_id': workspaceId.trim(),
+      },
+      options: Options(
+        followRedirects: false,
+        responseType: ResponseType.plain,
+        validateStatus: (status) => status != null && status < 400,
+        headers: {
+          'Authorization': 'Bearer ${session.accessToken}',
+          'Accept': '*/*',
+        },
+      ),
+    );
+    final location = response.headers.value('location');
+    if (location == null || location.isEmpty) {
+      throw StateError('Drive did not return a storage redirect for $fileId.');
+    }
+    return response.requestOptions.uri.resolve(location).toString();
+  }
+
+  Future<List<MailAddressSuggestion>> listSenders({
+    String query = '',
+    int take = 20,
+  }) => _listAddressSuggestions('senders', query: query, take: take);
+
+  Future<List<MailAddressSuggestion>> listContacts({
+    String query = '',
+    int take = 20,
+  }) => _listAddressSuggestions('contacts', query: query, take: take);
+
+  Future<List<MailAddressSuggestion>> _listAddressSuggestions(
+    String kind, {
+    required String query,
+    required int take,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/addresses/$kind',
+      queryParameters: {'q': query, 'take': take},
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              MailAddressSuggestion.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
   }
 
   Future<MailEmail> sendEmail({
@@ -3562,6 +3655,15 @@ final mailboxUnreadCountsProvider = FutureProvider<Map<String, int>>((
   }
   return counts;
 });
+final mailAddressSuggestionsProvider =
+    FutureProvider.family<
+      List<MailAddressSuggestion>,
+      ({String query, bool senders})
+    >((ref, request) async {
+      final client = ref.watch(wattEngineClientProvider);
+      if (request.senders) return client.listSenders(query: request.query);
+      return client.listContacts(query: request.query);
+    });
 
 final emailsProvider =
     FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((

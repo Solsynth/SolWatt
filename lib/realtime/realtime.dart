@@ -35,12 +35,15 @@ final realtimeBridgeProvider = Provider<RealtimeBridge>((ref) {
 });
 
 class RealtimeBridge {
-  RealtimeBridge(this._ref) {
-    final ws = _ref.read(websocketServiceProvider);
-    _packetSub = ws.dataStream.listen(_onPacket);
+  RealtimeBridge(this._ref) : _ws = _ref.read(websocketServiceProvider) {
+    _packetSub = _ws.dataStream.listen(_onPacket);
   }
 
   final Ref _ref;
+
+  /// Captured up-front: [dispose] must not touch the container, which is
+  /// already torn down when the provider is disposed.
+  final WebSocketService _ws;
   StreamSubscription<WebSocketPacket>? _packetSub;
   final Map<String, Timer> _taskDebounce = {};
   Timer? _boardsDebounce;
@@ -50,7 +53,7 @@ class RealtimeBridge {
   Future<void> ensureConnected() async {
     final session = await _ref.read(authSessionProvider.future);
     if (session == null) return;
-    final ws = _ref.read(websocketServiceProvider);
+    final ws = _ws;
     if (ws.currentState == WebSocketConnectionState.connected ||
         ws.currentState == WebSocketConnectionState.connecting) {
       return;
@@ -66,7 +69,7 @@ class RealtimeBridge {
     _boardsDebounce?.cancel();
     _notificationDebounce?.cancel();
     _mailDebounce?.cancel();
-    await _ref.read(websocketServiceProvider).disconnect();
+    await _ws.disconnect();
   }
 
   void dispose() {
