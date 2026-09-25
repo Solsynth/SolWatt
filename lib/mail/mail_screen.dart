@@ -1441,10 +1441,9 @@ class _EmailList extends ConsumerWidget {
         }
         return RefreshIndicator(
           onRefresh: () async => onRefresh(),
-          child: ListView.separated(
+          child: ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: items.length + (items.length < page.totalCount ? 1 : 0),
-            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, index) {
               if (index == items.length) {
                 onLoadMore();
@@ -1817,7 +1816,11 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                     summaryKey: _summaryKey,
                   ),
                 ),
-                SliverToBoxAdapter(
+                // hasScrollBody: false hands the child a tight height, which is
+                // what lets the message body expand to the remaining pane and
+                // scroll inside the web view instead of the outer viewport.
+                SliverFillRemaining(
+                  hasScrollBody: false,
                   child: _EmailDetailContent(
                     email: email,
                     workspaceId: widget.workspaceId,
@@ -1931,28 +1934,10 @@ class _EmailDetailContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Divider(height: 1),
-        // The HTML body spans the full pane width; plain text keeps padding.
-        if (email.isHtml)
-          _HtmlBodyViewer(
-            html: email.body,
-            attachments: email.attachments,
-            inlineAttachments: email.inlineAttachments,
-            workspaceId: attachmentWorkspaceId,
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-            child: _PlainTextEmailBody(
-              body: email.body,
-              attachments: email.attachments,
-              workspaceId: attachmentWorkspaceId,
-              style: text.bodyLarge,
-            ),
-          ),
         if (email.attachments.isNotEmpty ||
             (email.hasDeliveryStatus && !email.isDraft))
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -2028,9 +2013,28 @@ class _EmailDetailContent extends StatelessWidget {
                 ],
               ],
             ),
-          )
-        else
-          const SizedBox(height: 32),
+          ),
+        // The message body fills the remaining pane and scrolls itself: the
+        // web view is a platform view that owns the mouse wheel over its whole
+        // area, so nothing can sit below it and still be reachable by wheel.
+        Expanded(
+          child: email.isHtml
+              ? _HtmlBodyViewer(
+                  html: email.body,
+                  attachments: email.attachments,
+                  inlineAttachments: email.inlineAttachments,
+                  workspaceId: attachmentWorkspaceId,
+                )
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                  child: _PlainTextEmailBody(
+                    body: email.body,
+                    attachments: email.attachments,
+                    workspaceId: attachmentWorkspaceId,
+                    style: text.bodyLarge,
+                  ),
+                ),
+        ),
       ],
     );
   }
@@ -2233,20 +2237,7 @@ class _HtmlBodyViewer extends ConsumerStatefulWidget {
 }
 
 class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
-  /// Fallback height before the first measurement and for an empty body, so an
-  /// empty message does not collapse the pane.
-  static const _placeholderHeight = 120.0;
-
-  double? _contentHeight;
   String? _preparedHtml;
-
-  /// macOS never reports content-size changes (the plugin only implements the
-  /// JavaScript `document.body.scrollHeight` query), and that query can run
-  /// before inline images have decoded, so the height is polled until two
-  /// consecutive probes agree.
-  Timer? _settleTimer;
-  double _lastProbe = -1;
-  int _stableProbes = 0;
 
   @override
   void initState() {
@@ -2255,22 +2246,12 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   }
 
   @override
-  void dispose() {
-    _settleTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
   void didUpdateWidget(_HtmlBodyViewer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.html != widget.html ||
         oldWidget.inlineAttachments != widget.inlineAttachments ||
         oldWidget.workspaceId != widget.workspaceId) {
-      _settleTimer?.cancel();
-      _contentHeight = null;
       _preparedHtml = null;
-      _lastProbe = -1;
-      _stableProbes = 0;
       _prepareHtml();
     }
   }
@@ -2303,14 +2284,12 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     );
     if (!mounted) return;
     setState(() {
-      _preparedHtml = sanitizeEmailHtml(
-        _replaceInlineImageReferences(
-          widget.html,
-          widget.attachments,
-          widget.inlineAttachments,
-          widget.workspaceId,
-          resolvedImageUrls: urls,
-        ),
+      _preparedHtml = _replaceInlineImageReferences(
+        widget.html,
+        widget.attachments,
+        widget.inlineAttachments,
+        widget.workspaceId,
+        resolvedImageUrls: urls,
       );
     });
   }
@@ -2319,161 +2298,41 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   Widget build(BuildContext context) {
     final html = _preparedHtml;
     if (html == null) {
-      return const SizedBox(
-        height: _HtmlBodyViewerState._placeholderHeight,
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
-    return SizedBox(
-      width: double.infinity,
-      height: _contentHeight ?? _HtmlBodyViewerState._placeholderHeight,
-      child: InAppWebView(
-        initialData: InAppWebViewInitialData(
-          // Render the server's HTML body directly. The .eml endpoint is only
-          // for downloading a serialized message, never for the reading view.
-          data: html,
-          mimeType: 'text/html',
-          encoding: 'utf-8',
-          baseUrl: WebUri(kSolarNetworkApiBase),
-        ),
-        initialSettings: InAppWebViewSettings(
-          // Required: on macOS the platform's only way to measure the document
-          // is `document.body.scrollHeight` through JavaScript. Message
-          // scripts are stripped in [_sanitizeEmailHtml] so nothing of the
-          // sender's executes.
-          javaScriptEnabled: true,
-          transparentBackground: true,
-          verticalScrollBarEnabled: false,
-          horizontalScrollBarEnabled: false,
-          disableVerticalScroll: true,
-          disableHorizontalScroll: true,
-          supportZoom: false,
-          mediaPlaybackRequiresUserGesture: true,
-          useShouldOverrideUrlLoading: true,
-        ),
-        onLoadStop: (controller, url) => _settleContentHeight(controller),
-        onProgressChanged: (controller, progress) {
-          if (progress == 100) _settleContentHeight(controller);
-        },
-        onContentSizeChanged: (controller, oldSize, newSize) {
-          _applyContentHeight(newSize.height);
-        },
-        shouldOverrideUrlLoading: (controller, navigationAction) async {
-          if (!shouldOpenEmailLinkExternally(navigationAction)) {
-            return NavigationActionPolicy.ALLOW;
-          }
-          final url = navigationAction.request.url!;
-          try {
-            await launchUrl(url, mode: LaunchMode.externalApplication);
-          } catch (_) {}
-          return NavigationActionPolicy.CANCEL;
-        },
+    // Fills the pane handed down by _EmailDetailContent; the web view scrolls
+    // its own document, because a platform view swallows the mouse wheel over
+    // its whole area — an outer scroll view can never be scrolled there.
+    return InAppWebView(
+      initialData: InAppWebViewInitialData(
+        // Render the server's HTML body directly. The .eml endpoint is only
+        // for downloading a serialized message, never for the reading view.
+        data: html,
+        mimeType: 'text/html',
+        encoding: 'utf-8',
+        baseUrl: WebUri(kSolarNetworkApiBase),
       ),
+      initialSettings: InAppWebViewSettings(
+        // The body scrolls itself below; nothing measures the document, so
+        // the sender's scripts stay disabled.
+        javaScriptEnabled: false,
+        transparentBackground: true,
+        supportZoom: false,
+        mediaPlaybackRequiresUserGesture: true,
+        useShouldOverrideUrlLoading: true,
+      ),
+      shouldOverrideUrlLoading: (controller, navigationAction) async {
+        if (!shouldOpenEmailLinkExternally(navigationAction)) {
+          return NavigationActionPolicy.ALLOW;
+        }
+        final url = navigationAction.request.url!;
+        try {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+        } catch (_) {}
+        return NavigationActionPolicy.CANCEL;
+      },
     );
   }
-
-  /// Full document height, including the body's own margins and anything
-  /// overflowing `<html>` — the platform helper only reads
-  /// `document.body.scrollHeight`, which clips both.
-  static const _contentHeightScript =
-      'Math.max(document.body.scrollHeight, '
-      'document.documentElement.scrollHeight)';
-
-  Future<double?> _probeContentHeight(InAppWebViewController controller) async {
-    try {
-      final raw = await controller.evaluateJavascript(
-        source: _contentHeightScript,
-      );
-      final height = raw is num ? raw.toDouble() : double.tryParse('$raw');
-      if (height != null && height > 0) return height;
-    } catch (_) {
-      // Fall through to the platform helper.
-    }
-    return (await controller.getContentHeight())?.toDouble();
-  }
-
-  /// Polls the document height until two consecutive probes agree, which
-  /// covers images that decode after `onLoadStop`.
-  void _settleContentHeight(InAppWebViewController controller) {
-    _settleTimer?.cancel();
-    _lastProbe = -1;
-    _stableProbes = 0;
-    var ticks = 0;
-    _settleTimer = Timer.periodic(const Duration(milliseconds: 150), (
-      timer,
-    ) async {
-      if (!mounted || ++ticks > 20) {
-        timer.cancel();
-        return;
-      }
-      final height = await _probeContentHeight(controller);
-      if (height == null || height <= 0) return;
-      if ((height - _lastProbe).abs() < 1) {
-        if (++_stableProbes >= 2) timer.cancel();
-      } else {
-        _lastProbe = height;
-        _stableProbes = 0;
-      }
-      _applyContentHeight(height);
-    });
-  }
-
-  void _applyContentHeight(double? height) {
-    if (!mounted || height == null || height <= 0) return;
-    if ((height - (_contentHeight ?? 0)).abs() < 1) return;
-    setState(() => _contentHeight = height);
-  }
-}
-
-/// Strips active content from untrusted message HTML.
-///
-/// The message pane runs with JavaScript enabled because the macOS webview
-/// measures the document through `document.body.scrollHeight`; without this the
-/// sender's scripts would run. Links and styling are untouched — inline event
-/// handlers, `<script>` bodies and `javascript:` URLs are removed.
-String sanitizeEmailHtml(String html) {
-  // Paired active elements, contents included.
-  var sanitized = html.replaceAll(
-    RegExp(
-      r'''<\s*(script|iframe|object|embed)\b[^>]*>.*?<\s*/\s*\1\s*>''',
-      caseSensitive: false,
-      dotAll: true,
-    ),
-    '',
-  );
-  // Unpaired or self-closing forms of the same elements.
-  sanitized = sanitized.replaceAll(
-    RegExp(
-      r'''<\s*/?\s*(script|iframe|object|embed)\b[^>]*>''',
-      caseSensitive: false,
-    ),
-    '',
-  );
-  // Inline handlers: onclick="…", onerror='…', onload=foo().
-  sanitized = sanitized.replaceAll(
-    RegExp(
-      r'''\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''',
-      caseSensitive: false,
-    ),
-    '',
-  );
-  // javascript: URLs. The attribute value is replaced whole — non-greedily up
-  // to its own closing quote — so removing it cannot eat that quote or leave a
-  // stray one behind.
-  sanitized = sanitized.replaceAllMapped(
-    RegExp(
-      r'''\b(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*javascript:[^>]*?\2''',
-      caseSensitive: false,
-    ),
-    (match) => '${match[1]}=${match[2]}about:blank#blocked${match[2]}',
-  );
-  // Unquoted javascript: URLs and anything the first pass missed. Quotes are
-  // excluded so an attribute's delimiter is never swallowed.
-  sanitized = sanitized.replaceAll(
-    RegExp(r'''javascript\s*:[^\s"'>]*''', caseSensitive: false),
-    'about:blank#blocked',
-  );
-  return sanitized;
 }
 
 String _replaceInlineImageReferences(
