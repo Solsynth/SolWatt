@@ -1704,8 +1704,48 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   /// hugs the summary with no dead space.
   static const _estimateSummaryHeight = 180.0;
 
+  /// Window after the pane resizes itself during which the body's offset is
+  /// only re-based, never read as a scroll direction.
+  static const _layoutSettleWindow = Duration(milliseconds: 250);
+
   final _summaryKey = GlobalKey();
   double? _summaryHeight;
+  DateTime? _layoutChangedAt;
+
+  /// The message body is its own scroll surface, so the header follows the
+  /// direction of that scroll: down hides it, up (or reaching the top) brings
+  /// it back.
+  final _header = HeaderCollapseController();
+
+  /// Attachments are revealed once the reader reaches the end of the message.
+  final _footer = BodyFooterRevealController();
+
+  @override
+  void didUpdateWidget(_EmailDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.email.id != widget.email.id) {
+      _header.reset();
+      _footer.reset();
+    }
+  }
+
+  void _onBodyScroll(EmailBodyScroll sample) {
+    final changedAt = _layoutChangedAt;
+    if (changedAt != null &&
+        DateTime.now().difference(changedAt) < _layoutSettleWindow) {
+      // We just resized the pane, so WebKit may have clamped the offset. Re-base
+      // both controllers instead of reading that jump as reader input.
+      _header.adoptOrigin(sample.y);
+      _footer.adoptOrigin(sample.y);
+      return;
+    }
+    final headerChanged = _header.update(sample.y);
+    final footerChanged = _footer.update(sample);
+    if (headerChanged || footerChanged) {
+      _layoutChangedAt = DateTime.now();
+      setState(() {});
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -1727,10 +1767,7 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   @override
   Widget build(BuildContext context) {
     final email = widget.email;
-    final scheme = Theme.of(context).colorScheme;
-    final expandedHeight =
-        _EmailHeaderSpace.toolbarHeight +
-        (_summaryHeight ?? _estimateSummaryHeight);
+    final summaryHeight = _summaryHeight ?? _estimateSummaryHeight;
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -1739,94 +1776,43 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          _EmailToolbar(
+            email: email,
+            onClose: widget.onClose,
+            onToggleStar: widget.onToggleStar,
+            onToggleRead: widget.onToggleRead,
+            onMove: widget.onMove,
+            onDelete: widget.onDelete,
+            onDownloadEml: widget.onDownloadEml,
+          ),
+          // The summary slides up under the toolbar as the body is scrolled
+          // down and back out when it is scrolled up. OverflowBox keeps the
+          // summary laid out at its own height while the clip animates, so it
+          // is cropped instead of squeezed into a RenderFlex overflow — and
+          // the height stays measurable for the next toggle.
+          ClipRect(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              height: _header.expanded ? summaryHeight : 0,
+              child: OverflowBox(
+                alignment: Alignment.bottomCenter,
+                minHeight: 0,
+                maxHeight: double.infinity,
+                child: _EmailSummary(
+                  key: _summaryKey,
+                  email: email,
+                  mailHost: widget.mailHost,
+                ),
+              ),
+            ),
+          ),
           Expanded(
-            child: CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  pinned: true,
-                  backgroundColor: scheme.surfaceContainerLow,
-                  surfaceTintColor: Colors.transparent,
-                  scrolledUnderElevation: 1,
-                  leading: IconButton(
-                    tooltip: 'close'.tr(),
-                    onPressed: widget.onClose,
-                    icon: const Icon(Symbols.close),
-                  ),
-                  actions: [
-                    IconButton(
-                      tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
-                      onPressed: widget.onToggleStar,
-                      icon: Icon(
-                        email.isStarred ? Symbols.star : Symbols.star_outline,
-                        color: email.isStarred
-                            ? Colors.amber.shade600
-                            : scheme.onSurfaceVariant,
-                        fill: email.isStarred ? 1 : 0,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: email.isRead
-                          ? 'markUnread'.tr()
-                          : 'markRead'.tr(),
-                      onPressed: widget.onToggleRead,
-                      icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: 'more'.tr(),
-                      icon: const Icon(Symbols.more_vert),
-                      onSelected: (value) {
-                        if (value == 'archive') widget.onMove('archive');
-                        if (value == 'spam') widget.onMove('spam');
-                        if (value == 'trash') widget.onMove('trash');
-                        if (value == 'download-eml') widget.onDownloadEml();
-                      },
-                      itemBuilder: (_) => [
-                        if (email.folder != 'archive')
-                          PopupMenuItem(
-                            value: 'archive',
-                            child: Text('folderArchive'.tr()),
-                          ),
-                        if (email.folder != 'spam')
-                          PopupMenuItem(
-                            value: 'spam',
-                            child: Text('folderSpam'.tr()),
-                          ),
-                        if (email.folder != 'trash')
-                          PopupMenuItem(
-                            value: 'trash',
-                            child: Text('folderTrash'.tr()),
-                          ),
-                        const PopupMenuDivider(),
-                        PopupMenuItem(
-                          value: 'download-eml',
-                          child: Text('downloadEml'.tr()),
-                        ),
-                      ],
-                    ),
-                    IconButton(
-                      tooltip: 'delete'.tr(),
-                      onPressed: widget.onDelete,
-                      icon: Icon(Symbols.delete, color: scheme.error),
-                    ),
-                  ],
-                  expandedHeight: expandedHeight,
-                  flexibleSpace: _EmailHeaderSpace(
-                    email: email,
-                    mailHost: widget.mailHost,
-                    summaryKey: _summaryKey,
-                  ),
-                ),
-                // hasScrollBody: false hands the child a tight height, which is
-                // what lets the message body expand to the remaining pane and
-                // scroll inside the web view instead of the outer viewport.
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _EmailDetailContent(
-                    email: email,
-                    workspaceId: widget.workspaceId,
-                  ),
-                ),
-              ],
+            child: _EmailDetailContent(
+              email: email,
+              workspaceId: widget.workspaceId,
+              onBodyScroll: _onBodyScroll,
+              showFooter: _footer.visible,
             ),
           ),
           _EmailActionBar(
@@ -1843,90 +1829,302 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   }
 }
 
-/// Collapsible email summary in the detail header: subject and recipient
-/// metadata live above the scroll content and fade out as the pinned
-/// [SliverAppBar] collapses to just the action toolbar.
-class _EmailHeaderSpace extends StatelessWidget {
-  const _EmailHeaderSpace({
+/// Decides when the message header hides or comes back from the vertical
+/// offset of the message body's own scroll surface.
+///
+/// Scrolling down past [threshold] hides it, scrolling up past the threshold
+/// brings it back, and returning to the very top always restores it. Only the
+/// movement in the current direction counts, so a trackpad jitter — or the
+/// body reflowing because the header changed size — cannot flap the header.
+class HeaderCollapseController {
+  HeaderCollapseController({this.threshold = 24});
+
+  /// Scroll distance in one direction before the header flips.
+  final double threshold;
+
+  double _lastY = 0;
+  double _run = 0;
+  bool _expanded = true;
+
+  /// False right after [reset]: the next offset is adopted as the origin
+  /// instead of being measured against a stale document position.
+  bool _hasOrigin = true;
+
+  bool get expanded => _expanded;
+
+  /// Feeds the body's scroll offset; returns true when [expanded] changed.
+  bool update(double y) {
+    if (!_hasOrigin) {
+      _hasOrigin = true;
+      _lastY = y;
+      return false;
+    }
+    final delta = y - _lastY;
+    _lastY = y;
+    if (delta == 0) return false;
+    if (y <= 0) {
+      _run = 0;
+      if (!_expanded) {
+        _expanded = true;
+        return true;
+      }
+      return false;
+    }
+    // Accumulate only while the direction holds; a reversal starts over.
+    _run = _run.sign == delta.sign ? _run + delta : delta;
+    if (_run > threshold && _expanded) {
+      _expanded = false;
+      return true;
+    }
+    if (_run < -threshold && !_expanded) {
+      _expanded = true;
+      return true;
+    }
+    return false;
+  }
+
+  void reset() {
+    _lastY = 0;
+    _run = 0;
+    _expanded = true;
+    _hasOrigin = false;
+  }
+
+  /// Re-bases the scroll origin without changing [expanded]. Used when the pane
+  /// resizes and WebKit clamps the offset — that jump is not the reader
+  /// scrolling.
+  void adoptOrigin(double y) {
+    _hasOrigin = true;
+    _lastY = y;
+    _run = 0;
+  }
+}
+
+/// One sample of the message body's own scroll position.
+class EmailBodyScroll {
+  const EmailBodyScroll({required this.y, this.maxY});
+
+  /// How far the document has scrolled, in CSS pixels.
+  final double y;
+
+  /// Scrollable extent, `scrollHeight - innerHeight` — 0 means the message
+  /// already fits the pane. Null until the first measurement lands.
+  final double? maxY;
+
+  /// Slack, so a body resting a pixel short of its end still counts as the end.
+  static const _slack = 8.0;
+
+  bool get atBottom => maxY != null && y >= maxY! - _slack;
+}
+
+/// Decides when the attachment footer is shown, from the body's scroll
+/// position: it appears once the reader reaches the end of the message and goes
+/// away again when the body is scrolled back up.
+///
+/// Only a *downward* arrival at the end reveals it. Revealing shrinks the body,
+/// which moves the document's end back under the viewport — without the
+/// direction check the footer would re-reveal itself the instant it hid.
+class BodyFooterRevealController {
+  BodyFooterRevealController({this.threshold = 24});
+
+  /// Upward scroll distance before the footer goes away again.
+  final double threshold;
+
+  bool _visible = false;
+  double _lastY = 0;
+  double _run = 0;
+  int _lastDirection = 0;
+
+  bool get visible => _visible;
+
+  /// Feeds a scroll sample; returns true when [visible] changed.
+  bool update(EmailBodyScroll sample) {
+    final delta = sample.y - _lastY;
+    _lastY = sample.y;
+    if (delta > 0) {
+      _lastDirection = 1;
+    } else if (delta < 0) {
+      _lastDirection = -1;
+    }
+
+    if (sample.atBottom) {
+      _run = 0;
+      if (!_visible && _lastDirection >= 0) {
+        _visible = true;
+        return true;
+      }
+      return false;
+    }
+
+    _run = _run.sign == delta.sign ? _run + delta : delta;
+    if (_run < -threshold && _visible) {
+      _visible = false;
+      return true;
+    }
+    return false;
+  }
+
+  void reset() {
+    _visible = false;
+    _lastY = 0;
+    _run = 0;
+    _lastDirection = 0;
+  }
+
+  /// Re-bases the scroll origin without changing [visible] or the remembered
+  /// direction, for offset jumps caused by the pane resizing.
+  void adoptOrigin(double y) {
+    _lastY = y;
+    _run = 0;
+  }
+}
+
+/// Always-visible action row of the message pane. It stays put while
+/// [_EmailSummary] slides away underneath it.
+class _EmailToolbar extends StatelessWidget {
+  const _EmailToolbar({
     required this.email,
-    required this.mailHost,
-    required this.summaryKey,
+    required this.onClose,
+    required this.onToggleStar,
+    required this.onToggleRead,
+    required this.onMove,
+    required this.onDelete,
+    required this.onDownloadEml,
   });
 
-  /// Height of the pinned toolbar row (close + actions).
-  static const toolbarHeight = 56.0;
+  static const height = 56.0;
+
+  final MailEmail email;
+  final VoidCallback onClose;
+  final VoidCallback onToggleStar;
+  final VoidCallback onToggleRead;
+  final ValueChanged<String> onMove;
+  final VoidCallback onDelete;
+  final VoidCallback onDownloadEml;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return SizedBox(
+      height: height,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'close'.tr(),
+            onPressed: onClose,
+            icon: const Icon(Symbols.close),
+          ),
+          const Spacer(),
+          IconButton(
+            tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+            onPressed: onToggleStar,
+            icon: Icon(
+              email.isStarred ? Symbols.star : Symbols.star_outline,
+              color: email.isStarred
+                  ? Colors.amber.shade600
+                  : scheme.onSurfaceVariant,
+              fill: email.isStarred ? 1 : 0,
+            ),
+          ),
+          IconButton(
+            tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+            onPressed: onToggleRead,
+            icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'more'.tr(),
+            icon: const Icon(Symbols.more_vert),
+            onSelected: (value) {
+              if (value == 'archive') onMove('archive');
+              if (value == 'spam') onMove('spam');
+              if (value == 'trash') onMove('trash');
+              if (value == 'download-eml') onDownloadEml();
+            },
+            itemBuilder: (_) => [
+              if (email.folder != 'archive')
+                PopupMenuItem(
+                  value: 'archive',
+                  child: Text('folderArchive'.tr()),
+                ),
+              if (email.folder != 'spam')
+                PopupMenuItem(value: 'spam', child: Text('folderSpam'.tr())),
+              if (email.folder != 'trash')
+                PopupMenuItem(value: 'trash', child: Text('folderTrash'.tr())),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'download-eml',
+                child: Text('downloadEml'.tr()),
+              ),
+            ],
+          ),
+          IconButton(
+            tooltip: 'delete'.tr(),
+            onPressed: onDelete,
+            icon: Icon(Symbols.delete, color: scheme.error),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Subject and recipient metadata, collapsed away as the body scrolls down.
+class _EmailSummary extends StatelessWidget {
+  const _EmailSummary({super.key, required this.email, required this.mailHost});
 
   final MailEmail email;
   final String? mailHost;
-  final GlobalKey summaryKey;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final remaining = constraints.maxHeight;
-        // Fade out over the first ~80px of collapse so the summary never
-        // shows through the transparent toolbar as it slides under it.
-        final opacity = ((remaining - toolbarHeight) / 80).clamp(0.0, 1.0);
-        return Opacity(
-          opacity: opacity,
-          // Align fills the flexible space and pins the summary to the
-          // bottom; the inner UnconstrainedBox keeps the Column at its
-          // natural height (no tight max → no RenderFlex overflow) while
-          // hardEdge clips the part that rises above the toolbar.
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: UnconstrainedBox(
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: constraints.maxWidth,
-                child: Padding(
-                  key: summaryKey,
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        email.displaySubject,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _EmailMetadata(
-                        email: email,
-                        mailHost: mailHost,
-                        dateStyle: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            email.displaySubject,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
           ),
-        );
-      },
+          const SizedBox(height: 12),
+          _EmailMetadata(
+            email: email,
+            mailHost: mailHost,
+            dateStyle: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _EmailDetailContent extends StatelessWidget {
-  const _EmailDetailContent({required this.email, required this.workspaceId});
+  const _EmailDetailContent({
+    required this.email,
+    required this.workspaceId,
+    this.onBodyScroll,
+    this.showFooter = false,
+  });
 
   final MailEmail email;
   final String? workspaceId;
 
+  /// Scroll samples from the HTML body, used to collapse the header and to
+  /// reveal the footer at the end of the message.
+  final ValueChanged<EmailBodyScroll>? onBodyScroll;
+
+  /// Whether the attachment footer is revealed below the body.
+  final bool showFooter;
+
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final attachmentWorkspaceId = email.mailbox?.workspaceId ?? workspaceId;
 
@@ -1934,86 +2132,6 @@ class _EmailDetailContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Divider(height: 1),
-        if (email.attachments.isNotEmpty ||
-            (email.hasDeliveryStatus && !email.isDraft))
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (email.attachments.isNotEmpty) ...[
-                  Text('attachments'.tr(), style: text.titleSmall),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final attachment in email.attachments)
-                        CloudFileChip(
-                          file: attachment,
-                          displayUrl: _cloudFileUri(
-                            attachment,
-                            attachmentWorkspaceId,
-                          ).toString(),
-                          onPressed: () => _openAttachment(
-                            context,
-                            attachment,
-                            attachmentWorkspaceId,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-                if (email.hasDeliveryStatus && !email.isDraft) ...[
-                  if (email.attachments.isNotEmpty) const SizedBox(height: 24),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      _DeliveryStatusChip(status: email.deliveryStatus!),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'deliveryAttempts'.tr(
-                            namedArgs: {
-                              'count': email.deliveryAttempts.toString(),
-                            },
-                          ),
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (email.lastDeliveryAttemptAt != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        'lastDeliveryAttempt'.tr(
-                          namedArgs: {
-                            'date': email.lastDeliveryAttemptAt!
-                                .toLocal()
-                                .toString(),
-                          },
-                        ),
-                        style: text.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  if (email.deliveryError?.isNotEmpty == true)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: SelectableText(
-                        email.deliveryError!,
-                        style: text.bodySmall?.copyWith(color: scheme.error),
-                      ),
-                    ),
-                ],
-              ],
-            ),
-          ),
         // The message body fills the remaining pane and scrolls itself: the
         // web view is a platform view that owns the mouse wheel over its whole
         // area, so nothing can sit below it and still be reachable by wheel.
@@ -2024,6 +2142,7 @@ class _EmailDetailContent extends StatelessWidget {
                   attachments: email.attachments,
                   inlineAttachments: email.inlineAttachments,
                   workspaceId: attachmentWorkspaceId,
+                  onScroll: onBodyScroll,
                 )
               : SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
@@ -2035,20 +2154,20 @@ class _EmailDetailContent extends StatelessWidget {
                   ),
                 ),
         ),
+        // Attachments and delivery state live below the body: nothing under a
+        // platform view can be reached by wheel, so they are revealed once the
+        // reader reaches the end of the message — or straight away when it
+        // already fits.
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.bottomCenter,
+          child: showFooter
+              ? _EmailFooter(email: email, workspaceId: attachmentWorkspaceId)
+              : const SizedBox(width: double.infinity),
+        ),
       ],
     );
-  }
-
-  Future<void> _openAttachment(
-    BuildContext context,
-    IDisplayableCloudFile attachment,
-    String? workspaceId,
-  ) async {
-    final uri = _cloudFileUri(attachment, workspaceId);
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && context.mounted) {
-      showSnackBar('Unable to open ${attachment.name}.');
-    }
   }
 }
 
@@ -2124,6 +2243,104 @@ Uri _cloudFileUri(IDisplayableCloudFile file, String? workspaceId) {
   return baseUri.replace(
     queryParameters: {...baseUri.queryParameters, 'workspace_id': workspace},
   );
+}
+
+/// Attachments and delivery state for the open message, shown below the body.
+class _EmailFooter extends StatelessWidget {
+  const _EmailFooter({required this.email, required this.workspaceId});
+
+  final MailEmail email;
+  final String? workspaceId;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (email.attachments.isNotEmpty) ...[
+            Text('attachments'.tr(), style: text.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final attachment in email.attachments)
+                  CloudFileChip(
+                    file: attachment,
+                    displayUrl: _cloudFileUri(
+                      attachment,
+                      workspaceId,
+                    ).toString(),
+                    onPressed: () =>
+                        _openAttachment(context, attachment, workspaceId),
+                  ),
+              ],
+            ),
+          ],
+          if (email.hasDeliveryStatus && !email.isDraft) ...[
+            if (email.attachments.isNotEmpty) const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _DeliveryStatusChip(status: email.deliveryStatus!),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'deliveryAttempts'.tr(
+                      namedArgs: {'count': email.deliveryAttempts.toString()},
+                    ),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (email.lastDeliveryAttemptAt != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'lastDeliveryAttempt'.tr(
+                    namedArgs: {
+                      'date': email.lastDeliveryAttemptAt!.toLocal().toString(),
+                    },
+                  ),
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            if (email.deliveryError?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SelectableText(
+                  email.deliveryError!,
+                  style: text.bodySmall?.copyWith(color: scheme.error),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openAttachment(
+    BuildContext context,
+    IDisplayableCloudFile attachment,
+    String? workspaceId,
+  ) async {
+    final uri = _cloudFileUri(attachment, workspaceId);
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      showSnackBar('Unable to open ${attachment.name}.');
+    }
+  }
 }
 
 class _PlainTextEmailBody extends StatelessWidget {
@@ -2225,6 +2442,7 @@ class _HtmlBodyViewer extends ConsumerStatefulWidget {
     required this.attachments,
     required this.inlineAttachments,
     required this.workspaceId,
+    this.onScroll,
   });
 
   final String html;
@@ -2232,12 +2450,27 @@ class _HtmlBodyViewer extends ConsumerStatefulWidget {
   final Map<String, SnCloudFileReference> inlineAttachments;
   final String? workspaceId;
 
+  /// Reports the body's own scroll position as it moves.
+  final ValueChanged<EmailBodyScroll>? onScroll;
+
   @override
   ConsumerState<_HtmlBodyViewer> createState() => _HtmlBodyViewerState();
 }
 
 class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
+  /// How often the scrollable extent may be re-read while scrolling.
+  static const _metricsInterval = Duration(milliseconds: 200);
+
+  /// `scrollHeight - innerHeight` is only reachable through JavaScript.
+  static const _maxScrollScript =
+      'Math.max(document.documentElement.scrollHeight - window.innerHeight, 0)';
+
   String? _preparedHtml;
+  InAppWebViewController? _controller;
+  double? _maxScrollY;
+  bool _atBottom = false;
+  double? _viewportHeight;
+  DateTime? _lastMetricsAt;
 
   @override
   void initState() {
@@ -2252,6 +2485,9 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         oldWidget.inlineAttachments != widget.inlineAttachments ||
         oldWidget.workspaceId != widget.workspaceId) {
       _preparedHtml = null;
+      _maxScrollY = null;
+      _atBottom = false;
+      _lastMetricsAt = null;
       _prepareHtml();
     }
   }
@@ -2284,14 +2520,61 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     );
     if (!mounted) return;
     setState(() {
-      _preparedHtml = _replaceInlineImageReferences(
-        widget.html,
-        widget.attachments,
-        widget.inlineAttachments,
-        widget.workspaceId,
-        resolvedImageUrls: urls,
+      _preparedHtml = sanitizeEmailHtml(
+        _replaceInlineImageReferences(
+          widget.html,
+          widget.attachments,
+          widget.inlineAttachments,
+          widget.workspaceId,
+          resolvedImageUrls: urls,
+        ),
       );
     });
+  }
+
+  void _onScrollChanged(InAppWebViewController controller, int x, int y) {
+    final sample = EmailBodyScroll(y: y.toDouble(), maxY: _maxScrollY);
+    _atBottom = sample.atBottom;
+    widget.onScroll?.call(sample);
+    _refreshScrollMetrics(controller);
+  }
+
+  /// The extent changes as images decode and as the pane resizes, so it is
+  /// re-read while scrolling rather than once per document.
+  void _refreshScrollMetrics(
+    InAppWebViewController controller, {
+    bool force = false,
+  }) {
+    final now = DateTime.now();
+    if (!force &&
+        _lastMetricsAt != null &&
+        now.difference(_lastMetricsAt!) < _metricsInterval) {
+      return;
+    }
+    _lastMetricsAt = now;
+    unawaited(_readScrollMetrics(controller));
+  }
+
+  Future<void> _readScrollMetrics(InAppWebViewController controller) async {
+    try {
+      final raw = await controller.evaluateJavascript(source: _maxScrollScript);
+      final max = raw is num ? raw.toDouble() : double.tryParse('$raw');
+      if (max == null || !mounted) return;
+      _maxScrollY = max;
+    } catch (_) {
+      // Leave the previous extent in place.
+    }
+  }
+
+  Future<void> _stickToBottom() async {
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.evaluateJavascript(
+        source: 'window.scrollTo(0, document.documentElement.scrollHeight)',
+      );
+    } catch (_) {}
+    if (mounted) _refreshScrollMetrics(controller, force: true);
   }
 
   @override
@@ -2303,6 +2586,22 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     // Fills the pane handed down by _EmailDetailContent; the web view scrolls
     // its own document, because a platform view swallows the mouse wheel over
     // its whole area — an outer scroll view can never be scrolled there.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (_viewportHeight != constraints.maxHeight) {
+          // The pane resized around the body — the header collapsed or the
+          // footer was revealed. Follow the end of the message if that is where
+          // the reader is, instead of letting WebKit clamp the offset and jump
+          // the body under them.
+          _viewportHeight = constraints.maxHeight;
+          if (_atBottom) unawaited(_stickToBottom());
+        }
+        return _buildWebView(html);
+      },
+    );
+  }
+
+  Widget _buildWebView(String html) {
     return InAppWebView(
       initialData: InAppWebViewInitialData(
         // Render the server's HTML body directly. The .eml endpoint is only
@@ -2313,14 +2612,25 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         baseUrl: WebUri(kSolarNetworkApiBase),
       ),
       initialSettings: InAppWebViewSettings(
-        // The body scrolls itself below; nothing measures the document, so
-        // the sender's scripts stay disabled.
-        javaScriptEnabled: false,
+        // Required: the plugin reports [onScrollChanged] from a script it
+        // injects into the document, so the pane needs JavaScript. The
+        // sender's scripts are stripped in [sanitizeEmailHtml] — the only
+        // script that runs is the plugin's own scroll listener.
+        javaScriptEnabled: true,
         transparentBackground: true,
         supportZoom: false,
         mediaPlaybackRequiresUserGesture: true,
         useShouldOverrideUrlLoading: true,
       ),
+      onWebViewCreated: (controller) => _controller = controller,
+      onScrollChanged: _onScrollChanged,
+      onLoadStop: (controller, url) async {
+        _controller = controller;
+        await _readScrollMetrics(controller);
+        // A message that already fits never scrolls, so it never reports; seed
+        // the footer decision from the document as loaded.
+        _onScrollChanged(controller, 0, 0);
+      },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
         if (!shouldOpenEmailLinkExternally(navigationAction)) {
           return NavigationActionPolicy.ALLOW;
@@ -2333,6 +2643,58 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
       },
     );
   }
+}
+
+/// Strips active content from untrusted message HTML.
+///
+/// The message pane needs JavaScript because the plugin reports scroll
+/// positions from a script it injects into the document; without this the
+/// sender's own scripts would run. Styling and links are untouched — `<script>`
+/// bodies, embedded objects, inline event handlers and `javascript:` URLs are
+/// removed.
+String sanitizeEmailHtml(String html) {
+  // Paired active elements, contents included.
+  var sanitized = html.replaceAll(
+    RegExp(
+      r'''<\s*(script|iframe|object|embed)\b[^>]*>.*?<\s*/\s*\1\s*>''',
+      caseSensitive: false,
+      dotAll: true,
+    ),
+    '',
+  );
+  // Unpaired or self-closing forms of the same elements.
+  sanitized = sanitized.replaceAll(
+    RegExp(
+      r'''<\s*/?\s*(script|iframe|object|embed)\b[^>]*>''',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  // Inline handlers: onclick="…", onerror='…', onload=foo().
+  sanitized = sanitized.replaceAll(
+    RegExp(
+      r'''\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  // javascript: URLs. The attribute value is replaced whole — non-greedily up
+  // to its own closing quote — so removing it cannot eat that quote or leave a
+  // stray one behind.
+  sanitized = sanitized.replaceAllMapped(
+    RegExp(
+      r'''\b(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*javascript:[^>]*?\2''',
+      caseSensitive: false,
+    ),
+    (match) => '${match[1]}=${match[2]}about:blank#blocked${match[2]}',
+  );
+  // Unquoted javascript: URLs and anything the first pass missed. Quotes are
+  // excluded so an attribute's delimiter is never swallowed.
+  sanitized = sanitized.replaceAll(
+    RegExp(r'''javascript\s*:[^\s"'>]*''', caseSensitive: false),
+    'about:blank#blocked',
+  );
+  return sanitized;
 }
 
 String _replaceInlineImageReferences(
