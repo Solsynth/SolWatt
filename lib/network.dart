@@ -11,6 +11,8 @@ import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'mail/import/mail_import_service.dart';
+
 const _issuer = 'https://api.solian.app';
 const _callbackScheme = 'solwatt';
 const _redirectUri = '$_callbackScheme://oauth/callback';
@@ -1131,6 +1133,25 @@ class WattEngineClient {
       },
     );
     return MailEmail.fromJson(response.data!);
+  }
+
+  /// Imports one batch (≤500 items) of parsed mail into the per-item
+  /// mailboxes' INBOXes. Items mirror the ElecPostal import contract; see
+  /// `MailImportService` for parsing and chunking. With [dedupe] (default),
+  /// repeated `message_id` values within a mailbox are skipped by the server.
+  Future<MailImportResult> importEmails({
+    required List<Map<String, dynamic>> items,
+    bool dedupe = true,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/import',
+      data: {
+        'emails': items,
+        'dedupe': dedupe ? 'message_id' : 'off',
+      },
+    );
+    return MailImportResult.fromJson(response.data ?? const {});
   }
 
   Future<void> deleteEmail(String emailId) =>
@@ -2723,7 +2744,17 @@ class MailEmail {
               .replaceAll(RegExp(r'<[^>]*>'), ' ')
               .replaceAll(RegExp(r'&[^;]+;'), ' ')
         : body;
-    return stripped.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // Inline-image markers and content-id refs are internal plumbing, not
+    // message copy: drop them (with or without a matching attachment) so
+    // preview-generation markup never shows up in the list preview.
+    return stripped
+        .replaceAll(
+          RegExp(r'\[image:\s*[^\]\r\n]+\]', caseSensitive: false),
+          ' ',
+        )
+        .replaceAll(RegExp(r'''cid:[^"'\s>]+''', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   factory MailEmail.fromJson(Map<String, dynamic> json) {
@@ -2888,6 +2919,76 @@ class MailCredentialCreated {
       secret: json['secret']?.toString() ?? '',
     );
   }
+}
+
+/// Outcome of one message in an import batch, mirroring the ElecPostal
+/// `POST /postal/import` item result. [source] is a client-side enrichment
+/// naming the origin file/message (`.eml` path, or `file.mbox#3`).
+class MailImportItemResult {
+  const MailImportItemResult({
+    required this.index,
+    required this.status,
+    this.emailId,
+    this.error,
+    this.source,
+  });
+
+  /// Position of the message in the whole import (not per request).
+  final int index;
+
+  /// `imported`, `duplicate`, or `failed`.
+  final String status;
+  final String? emailId;
+  final String? error;
+  final String? source;
+
+  factory MailImportItemResult.fromJson(Map<String, dynamic> json) =>
+      MailImportItemResult(
+        index: (json['index'] as num?)?.toInt() ?? 0,
+        status: json['status']?.toString() ?? '',
+        emailId: nonEmptyString(json['email_id']?.toString()),
+        error: nonEmptyString(json['error']?.toString()),
+      );
+
+  MailImportItemResult withPosition(int globalIndex, String? sourceLabel) =>
+      MailImportItemResult(
+        index: globalIndex,
+        status: status,
+        emailId: emailId,
+        error: error,
+        source: sourceLabel ?? source,
+      );
+}
+
+/// Aggregate of one or more `POST /postal/import` batches.
+class MailImportResult {
+  MailImportResult({
+    this.imported = 0,
+    this.duplicates = 0,
+    this.failed = 0,
+    List<MailImportItemResult>? items,
+  }) : items = items ?? [];
+
+  int imported;
+  int duplicates;
+  int failed;
+  final List<MailImportItemResult> items;
+
+  factory MailImportResult.fromJson(Map<String, dynamic> json) =>
+      MailImportResult(
+        imported: (json['imported'] as num?)?.toInt() ?? 0,
+        duplicates: (json['duplicates'] as num?)?.toInt() ?? 0,
+        failed: (json['failed'] as num?)?.toInt() ?? 0,
+        items: (json['items'] as List?)
+                ?.whereType<Map>()
+                .map(
+                  (item) => MailImportItemResult.fromJson(
+                    Map<String, dynamic>.from(item),
+                  ),
+                )
+                .toList(growable: false) ??
+            const [],
+      );
 }
 
 class TaskComment {
@@ -3501,6 +3602,13 @@ final mailCredentialsProvider = FutureProvider<List<MailCredential>>(
 /// Configured canonical mail domain from ElecPostal (e.g. "example.com").
 final mailHostProvider = FutureProvider<String>(
   (ref) async => ref.watch(wattEngineClientProvider).getMailHost(),
+);
+
+/// Logic layer for `.eml`/`.mbox` mail import: parsing, attachment upload to
+/// workspace Drive, chunking, and `POST /postal/import` calls. Consumed by
+/// the import UI; see `MailImportService` for the API.
+final mailImportServiceProvider = Provider(
+  (ref) => MailImportService(client: ref.watch(wattEngineClientProvider)),
 );
 
 /// Authenticated Solar Network SDK client (Ring, Drive helpers, etc.).

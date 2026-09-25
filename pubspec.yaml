@@ -73,9 +73,8 @@ dependencies:
   qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.3
   easy_localization: ^3.0.8
-  flutter_inappwebview: ^6.1.5
   flutter_native_splash: ^2.4.8
-
+  flutter_widget_from_html_core: ^0.17.4
 dev_dependencies:
   flutter_test:
     sdk: flutter

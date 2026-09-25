@@ -4,7 +4,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -1529,7 +1529,7 @@ class _DeliveryStatusChip extends StatelessWidget {
   }
 }
 
-class _EmailDetailPanel extends StatelessWidget {
+class _EmailDetailPanel extends StatefulWidget {
   const _EmailDetailPanel({
     super.key,
     required this.email,
@@ -1560,8 +1560,42 @@ class _EmailDetailPanel extends StatelessWidget {
   final VoidCallback onClose;
 
   @override
+  State<_EmailDetailPanel> createState() => _EmailDetailPanelState();
+}
+
+class _EmailDetailPanelState extends State<_EmailDetailPanel> {
+  /// Initial header height before the summary is measured; replaced by the
+  /// exact content height after the first layout so the expanded header
+  /// hugs the summary with no dead space.
+  static const _estimateSummaryHeight = 180.0;
+
+  final _summaryKey = GlobalKey();
+  double? _summaryHeight;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _remeasureSummary();
+  }
+
+  void _remeasureSummary() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final size = _summaryKey.currentContext?.size;
+      if (size == null || size.height <= 0) return;
+      if (size.height != _summaryHeight) {
+        setState(() => _summaryHeight = size.height);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final email = widget.email;
     final scheme = Theme.of(context).colorScheme;
+    final expandedHeight =
+        _EmailHeaderSpace.toolbarHeight +
+        (_summaryHeight ?? _estimateSummaryHeight);
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -1570,83 +1604,91 @@ class _EmailDetailPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 56,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  IconButton(
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  pinned: true,
+                  backgroundColor: scheme.surfaceContainerLow,
+                  surfaceTintColor: Colors.transparent,
+                  scrolledUnderElevation: 1,
+                  leading: IconButton(
                     tooltip: 'close'.tr(),
-                    onPressed: onClose,
+                    onPressed: widget.onClose,
                     icon: const Icon(Symbols.close),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
-                    onPressed: onToggleStar,
-                    icon: Icon(
-                      email.isStarred ? Symbols.star : Symbols.star_outline,
-                      color: email.isStarred
-                          ? Colors.amber.shade600
-                          : scheme.onSurfaceVariant,
-                      fill: email.isStarred ? 1 : 0,
+                  actions: [
+                    IconButton(
+                      tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+                      onPressed: widget.onToggleStar,
+                      icon: Icon(
+                        email.isStarred ? Symbols.star : Symbols.star_outline,
+                        color: email.isStarred
+                            ? Colors.amber.shade600
+                            : scheme.onSurfaceVariant,
+                        fill: email.isStarred ? 1 : 0,
+                      ),
                     ),
+                    IconButton(
+                      tooltip:
+                          email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+                      onPressed: widget.onToggleRead,
+                      icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: 'more'.tr(),
+                      icon: const Icon(Symbols.more_vert),
+                      onSelected: (value) {
+                        if (value == 'archive') widget.onMove('archive');
+                        if (value == 'spam') widget.onMove('spam');
+                        if (value == 'trash') widget.onMove('trash');
+                      },
+                      itemBuilder: (_) => [
+                        if (email.folder != 'archive')
+                          PopupMenuItem(
+                            value: 'archive',
+                            child: Text('folderArchive'.tr()),
+                          ),
+                        if (email.folder != 'spam')
+                          PopupMenuItem(
+                            value: 'spam',
+                            child: Text('folderSpam'.tr()),
+                          ),
+                        if (email.folder != 'trash')
+                          PopupMenuItem(
+                            value: 'trash',
+                            child: Text('folderTrash'.tr()),
+                          ),
+                      ],
+                    ),
+                    IconButton(
+                      tooltip: 'delete'.tr(),
+                      onPressed: widget.onDelete,
+                      icon: Icon(Symbols.delete, color: scheme.error),
+                    ),
+                  ],
+                  expandedHeight: expandedHeight,
+                  flexibleSpace: _EmailHeaderSpace(
+                    email: email,
+                    mailHost: widget.mailHost,
+                    summaryKey: _summaryKey,
                   ),
-                  IconButton(
-                    tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
-                    onPressed: onToggleRead,
-                    icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+                ),
+                SliverToBoxAdapter(
+                  child: _EmailDetailContent(
+                    email: email,
+                    workspaceId: widget.workspaceId,
                   ),
-                  PopupMenuButton<String>(
-                    tooltip: 'more'.tr(),
-                    icon: const Icon(Symbols.more_vert),
-                    onSelected: (value) {
-                      if (value == 'archive') onMove('archive');
-                      if (value == 'spam') onMove('spam');
-                      if (value == 'trash') onMove('trash');
-                    },
-                    itemBuilder: (_) => [
-                      if (email.folder != 'archive')
-                        PopupMenuItem(
-                          value: 'archive',
-                          child: Text('folderArchive'.tr()),
-                        ),
-                      if (email.folder != 'spam')
-                        PopupMenuItem(
-                          value: 'spam',
-                          child: Text('folderSpam'.tr()),
-                        ),
-                      if (email.folder != 'trash')
-                        PopupMenuItem(
-                          value: 'trash',
-                          child: Text('folderTrash'.tr()),
-                        ),
-                    ],
-                  ),
-                  IconButton(
-                    tooltip: 'delete'.tr(),
-                    onPressed: onDelete,
-                    icon: Icon(Symbols.delete, color: scheme.error),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const Divider(),
-          Expanded(
-            child: _EmailDetailContent(
-              email: email,
-              mailHost: mailHost,
-              workspaceId: workspaceId,
+                ),
+              ],
             ),
           ),
           _EmailActionBar(
-            onReply: onReply,
-            onReplyAll: onReplyAll,
-            onForward: onForward,
+            onReply: widget.onReply,
+            onReplyAll: widget.onReplyAll,
+            onForward: widget.onForward,
             onResend: email.deliveryStatus?.toLowerCase() == 'failed'
-                ? onResend
+                ? widget.onResend
                 : null,
           ),
         ],
@@ -1655,15 +1697,88 @@ class _EmailDetailPanel extends StatelessWidget {
   }
 }
 
+/// Collapsible email summary in the detail header: subject and recipient
+/// metadata live above the scroll content and fade out as the pinned
+/// [SliverAppBar] collapses to just the action toolbar.
+class _EmailHeaderSpace extends StatelessWidget {
+  const _EmailHeaderSpace({
+    required this.email,
+    required this.mailHost,
+    required this.summaryKey,
+  });
+
+  /// Height of the pinned toolbar row (close + actions).
+  static const toolbarHeight = 56.0;
+
+  final MailEmail email;
+  final String? mailHost;
+  final GlobalKey summaryKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final remaining = constraints.maxHeight;
+        // Fade out over the first ~80px of collapse so the summary never
+        // shows through the transparent toolbar as it slides under it.
+        final opacity = ((remaining - toolbarHeight) / 80).clamp(0.0, 1.0);
+        return Opacity(
+          opacity: opacity,
+          // Align fills the flexible space and pins the summary to the
+          // bottom; the inner UnconstrainedBox keeps the Column at its
+          // natural height (no tight max → no RenderFlex overflow) while
+          // hardEdge clips the part that rises above the toolbar.
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: UnconstrainedBox(
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: constraints.maxWidth,
+                child: Padding(
+                  key: summaryKey,
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        email.displaySubject,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _EmailMetadata(
+                        email: email,
+                        mailHost: mailHost,
+                        dateStyle: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _EmailDetailContent extends StatelessWidget {
   const _EmailDetailContent({
     required this.email,
-    required this.mailHost,
     required this.workspaceId,
   });
 
   final MailEmail email;
-  final String? mailHost;
   final String? workspaceId;
 
   @override
@@ -1675,132 +1790,109 @@ class _EmailDetailContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: SingleChildScrollView(
+        const Divider(height: 1),
+        // The HTML body spans the full pane width; plain text keeps padding.
+        if (email.isHtml)
+          _HtmlBodyViewer(
+            html: email.body,
+            attachments: email.attachments,
+            inlineAttachments: email.inlineAttachments,
+            workspaceId: attachmentWorkspaceId,
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            child: _PlainTextEmailBody(
+              body: email.body,
+              attachments: email.attachments,
+              workspaceId: attachmentWorkspaceId,
+              style: text.bodyLarge,
+            ),
+          ),
+        if (email.attachments.isNotEmpty ||
+            (email.hasDeliveryStatus && !email.isDraft))
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                if (email.attachments.isNotEmpty) ...[
+                  Text('attachments'.tr(), style: text.titleSmall),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Text(
-                        email.displaySubject,
-                        style: text.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      for (final attachment in email.attachments)
+                        CloudFileChip(
+                          file: attachment,
+                          displayUrl: _cloudFileUri(
+                            attachment,
+                            attachmentWorkspaceId,
+                          ).toString(),
+                          onPressed: () => _openAttachment(
+                            context,
+                            attachment,
+                            attachmentWorkspaceId,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                if (email.hasDeliveryStatus && !email.isDraft) ...[
+                  if (email.attachments.isNotEmpty) const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _DeliveryStatusChip(status: email.deliveryStatus!),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'deliveryAttempts'.tr(
+                            namedArgs: {
+                              'count': email.deliveryAttempts.toString(),
+                            },
+                          ),
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      _EmailMetadata(
-                        email: email,
-                        mailHost: mailHost,
-                        dateStyle: text.bodySmall?.copyWith(
+                    ],
+                  ),
+                  if (email.lastDeliveryAttemptAt != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'lastDeliveryAttempt'.tr(
+                          namedArgs: {
+                            'date': email.lastDeliveryAttemptAt!
+                                .toLocal()
+                                .toString(),
+                          },
+                        ),
+                        style: text.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      email.isHtml
-                          ? _HtmlBodyViewer(
-                              html: email.body,
-                              attachments: email.attachments,
-                              inlineAttachments: email.inlineAttachments,
-                              workspaceId: attachmentWorkspaceId,
-                            )
-                          : _PlainTextEmailBody(
-                              body: email.body,
-                              attachments: email.attachments,
-                              workspaceId: attachmentWorkspaceId,
-                              style: text.bodyLarge,
-                            ),
-                      if (email.attachments.isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        Text('attachments'.tr(), style: text.titleSmall),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final attachment in email.attachments)
-                              CloudFileChip(
-                                file: attachment,
-                                displayUrl: _cloudFileUri(
-                                  attachment,
-                                  attachmentWorkspaceId,
-                                ).toString(),
-                                onPressed: () => _openAttachment(
-                                  context,
-                                  attachment,
-                                  attachmentWorkspaceId,
-                                ),
-                              ),
-                          ],
+                    ),
+                  if (email.deliveryError?.isNotEmpty == true)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SelectableText(
+                        email.deliveryError!,
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.error,
                         ),
-                      ],
-                      if (email.hasDeliveryStatus && !email.isDraft) ...[
-                        const SizedBox(height: 24),
-                        const Divider(),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            _DeliveryStatusChip(status: email.deliveryStatus!),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'deliveryAttempts'.tr(
-                                  namedArgs: {
-                                    'count': email.deliveryAttempts.toString(),
-                                  },
-                                ),
-                                style: text.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (email.lastDeliveryAttemptAt != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'lastDeliveryAttempt'.tr(
-                                namedArgs: {
-                                  'date': email.lastDeliveryAttemptAt!
-                                      .toLocal()
-                                      .toString(),
-                                },
-                              ),
-                              style: text.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        if (email.deliveryError?.isNotEmpty == true)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: SelectableText(
-                              email.deliveryError!,
-                              style: text.bodySmall?.copyWith(
-                                color: scheme.error,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ],
-                  ),
-                ),
+                      ),
+                    ),
+                ],
               ],
             ),
-          ),
-        ),
+          )
+        else
+          const SizedBox(height: 32),
       ],
     );
   }
@@ -1924,11 +2016,13 @@ class _PlainTextEmailBody extends StatelessWidget {
       }
       final filename = match.group(1)!.trim().toLowerCase();
       final attachment = _imageAttachmentForFilename(attachments, filename);
-      children.add(
-        attachment == null
-            ? SelectableText(match.group(0)!, style: style)
-            : _InlineEmailImage(file: attachment, workspaceId: workspaceId),
-      );
+      // Drop markers with no matching attachment instead of showing the raw
+      // preview-generation syntax in the message.
+      if (attachment != null) {
+        children.add(
+          _InlineEmailImage(file: attachment, workspaceId: workspaceId),
+        );
+      }
       cursor = match.end;
     }
     if (cursor < body.length) {
@@ -1967,7 +2061,7 @@ class _InlineEmailImage extends StatelessWidget {
   }
 }
 
-class _HtmlBodyViewer extends StatefulWidget {
+class _HtmlBodyViewer extends StatelessWidget {
   const _HtmlBodyViewer({
     required this.html,
     required this.attachments,
@@ -1981,68 +2075,40 @@ class _HtmlBodyViewer extends StatefulWidget {
   final String? workspaceId;
 
   @override
-  State<_HtmlBodyViewer> createState() => _HtmlBodyViewerState();
-}
-
-String _colorHex(Color color) {
-  final argb = color.toARGB32();
-  return argb.toRadixString(16).padLeft(8, '0').substring(2);
-}
-
-class _HtmlBodyViewerState extends State<_HtmlBodyViewer> {
-  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bgColor = scheme.surface;
-    final textColor = scheme.onSurface;
 
-    final styledHtml =
-        '''
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 15px;
-            line-height: 1.6;
-            color: #${_colorHex(textColor)};
-            background: #${_colorHex(bgColor)};
-            margin: 0;
-            padding: 0;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-          }
-          img { max-width: 100%; height: auto; }
-          a { color: #${_colorHex(scheme.primary)}; }
-          pre, code { white-space: pre-wrap; word-wrap: break-word; }
-          table { max-width: 100%; border-collapse: collapse; }
-          blockquote { margin: 0; padding-left: 1em; border-left: 3px solid #${_colorHex(scheme.outlineVariant)}; }
-        </style>
-      </head>
-      <body>${_replaceInlineImageReferences(widget.html, widget.attachments, widget.inlineAttachments, widget.workspaceId)}</body>
-      </html>
-    ''';
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        height: 600,
-        child: InAppWebView(
-          initialSettings: InAppWebViewSettings(
-            transparentBackground: true,
-            supportZoom: false,
-            useWideViewPort: true,
-            javaScriptEnabled: false,
-            cacheEnabled: false,
-          ),
-          initialData: InAppWebViewInitialData(
-            data: styledHtml,
-            mimeType: 'text/html',
-            encoding: 'utf-8',
-          ),
+    // Render the email HTML as plain Flutter widgets instead of a platform
+    // webview. A webview captures scroll-wheel events over its surface and
+    // reports its content height wrong on macOS, forcing a nested scrollable
+    // section inside the detail pane. Native rendering scrolls as one with
+    // the CustomScrollView and runs no JavaScript from the message. The
+    // content spans the full pane width, edge to edge.
+    return SelectionArea(
+      child: HtmlWidget(
+        _replaceInlineImageReferences(
+          html,
+          attachments,
+          inlineAttachments,
+          workspaceId,
         ),
+        textStyle: TextStyle(
+          fontSize: 15,
+          height: 1.6,
+          color: scheme.onSurface,
+        ),
+        onTapUrl: (url) async {
+          // Launch in the default browser; email links must never navigate
+          // inside the reading pane.
+          try {
+            return await launchUrl(
+              Uri.parse(url),
+              mode: LaunchMode.externalApplication,
+            );
+          } catch (_) {
+            return false;
+          }
+        },
       ),
     );
   }
@@ -2061,7 +2127,9 @@ String _replaceInlineImageReferences(
   final withMarkers = body.replaceAllMapped(imageMarker, (match) {
     final filename = match.group(1)!.trim().toLowerCase();
     final attachment = _imageAttachmentForFilename(attachments, filename);
-    if (attachment == null) return match.group(0)!;
+    // Drop markers with no matching attachment instead of showing the raw
+    // preview-generation syntax in the message.
+    if (attachment == null) return '';
     final url = _cloudFileUri(
       attachment,
       workspaceId,
@@ -2079,7 +2147,7 @@ String _replaceInlineImageReferences(
               .firstOrNull
               ?.value;
       return attachment == null
-          ? match.group(0)!
+          ? ''
           : _cloudFileUri(attachment, workspaceId).toString();
     },
   );
@@ -2175,9 +2243,9 @@ class _RecipientRow extends StatelessWidget {
         .join(', ');
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 4),
       child: RichText(
-        maxLines: 2,
+        maxLines: 1,
         overflow: TextOverflow.ellipsis,
         text: TextSpan(
           style: text.bodyMedium,
