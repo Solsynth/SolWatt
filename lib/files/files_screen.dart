@@ -1794,7 +1794,7 @@ class _FileDetailTabState extends State<_FileDetailTab> {
       sidebarWidth: 360,
       minWideSidebarWidth: 320,
       maxWideSidebarWidth: 480,
-      sidebarBackgroundColor: scheme.surfaceContainer,
+      sidebarBackgroundColor: scheme.surfaceContainerLow,
       drawerBuilder: (_) => SafeArea(
         child: _FileDetailInspector(
           entry: entry,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -55,20 +57,28 @@ class MailListPage extends StatelessWidget {
 
 @RoutePage()
 class MailComposePage extends ConsumerWidget {
-  const MailComposePage({super.key, @QueryParam('replyTo') this.replyToId});
+  const MailComposePage({
+    super.key,
+    @QueryParam('replyTo') this.replyToId,
+    @QueryParam('replyAll') this.replyAll = false,
+    @QueryParam('forward') this.forwardId,
+  });
 
   final String? replyToId;
+  final bool replyAll;
+  final String? forwardId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider).value;
-    final replyEmail = replyToId == null
+    final sourceEmail = replyToId ?? forwardId;
+    final source = sourceEmail == null
         ? null
-        : ref.watch(emailProvider(replyToId!));
+        : ref.watch(emailProvider(sourceEmail));
 
-    if (replyEmail != null) {
-      return replyEmail.when(
+    if (source != null) {
+      return source.when(
         loading: () => _composeLoading(context),
         error: (error, _) => _composeError(context, error, ref),
         data: (email) => _buildComposer(
@@ -76,7 +86,9 @@ class MailComposePage extends ConsumerWidget {
           ref,
           mailboxes,
           mailHost,
-          replyingTo: email,
+          source: email,
+          isReply: replyToId != null,
+          replyAll: replyAll,
         ),
       );
     }
@@ -88,7 +100,9 @@ class MailComposePage extends ConsumerWidget {
     WidgetRef ref,
     AsyncValue<List<MailMailbox>> mailboxes,
     String? mailHost, {
-    MailEmail? replyingTo,
+    MailEmail? source,
+    bool isReply = false,
+    bool replyAll = false,
   }) {
     return mailboxes.when(
       loading: () => _composeLoading(context),
@@ -106,7 +120,7 @@ class MailComposePage extends ConsumerWidget {
           );
         }
         final mailbox = items.firstWhere(
-          (item) => item.id == replyingTo?.mailboxId,
+          (item) => item.id == source?.mailboxId,
           orElse: () => items.firstWhere(
             (item) => item.isDefault,
             orElse: () => items.first,
@@ -120,7 +134,9 @@ class MailComposePage extends ConsumerWidget {
             mailbox: mailbox,
             mailboxes: items,
             mailHost: mailHost,
-            replyingTo: replyingTo,
+            replyingTo: isReply ? source : null,
+            replyAll: replyAll,
+            forwarding: isReply ? null : source,
             onSubmitted: (draft) => _sendDraft(context, ref, draft),
             onClose: () => context.router.pop(),
           ),
@@ -143,7 +159,8 @@ class MailComposePage extends ConsumerWidget {
           message: error.toString(),
           onRetry: () {
             ref.invalidate(mailboxesProvider);
-            if (replyToId != null) ref.invalidate(emailProvider(replyToId!));
+            final source = replyToId ?? forwardId;
+            if (source != null) ref.invalidate(emailProvider(source));
           },
         ),
       );
@@ -163,8 +180,10 @@ class MailComposePage extends ConsumerWidget {
             bcc: draft.bcc,
             subject: draft.subject,
             body: draft.body,
+            attachmentIds: draft.attachmentIds,
             isDraft: draft.isDraft,
             contentType: draft.contentType,
+            replyToId: draft.replyToId,
           );
       ref.invalidate(emailsProvider);
       if (context.mounted) {
@@ -185,7 +204,6 @@ class _MailListWidget extends ConsumerStatefulWidget {
 }
 
 class _MailListWidgetState extends ConsumerState<_MailListWidget> {
-  String? _selectedMailboxId;
   String? _deliveryStatus;
   bool? _isFlagged;
   String? _from;
@@ -197,22 +215,91 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   final List<MailEmail> _emails = [];
   int _total = 0;
   bool _isLoadingMore = false;
+  final _searchController = TextEditingController();
+  bool _searchOpen = false;
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Resets the paged list state when the mailbox, folder, or query changes.
+  void _resetList() {
+    setState(() {
+      _selectedEmail = null;
+      _offset = 0;
+      _emails.clear();
+      _total = 0;
+    });
+  }
+
+  void _selectMailbox(String id) {
+    if (ref.read(selectedMailboxIdProvider) == id) return;
+    ref.read(selectedMailboxIdProvider.notifier).select(id);
+    _resetList();
+    ref.invalidate(emailsProvider);
+  }
+
+  void _selectFolder(String folder) {
+    if (ref.read(selectedFolderProvider) == folder) return;
+    ref.read(selectedFolderProvider.notifier).select(folder);
+    _resetList();
+    ref.invalidate(emailsProvider);
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      _resetList();
+      ref.invalidate(emailsProvider);
+    });
+  }
+
+  Future<void> _toggleStar(MailEmail email) async {
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .starEmail(email.id, starred: !email.isStarred);
+      ref.invalidate(emailsProvider);
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(selectedMailboxIdProvider, (previous, next) {
+      if (previous == next || !mounted) return;
+      _resetList();
+    });
+    ref.listen(selectedFolderProvider, (previous, next) {
+      if (previous == next || !mounted) return;
+      _resetList();
+      ref.invalidate(emailsProvider);
+    });
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider);
     final workspaceId = ref.watch(selectedWorkspaceProvider).value?.id;
-    final mailboxId = _effectiveMailboxId(mailboxes.value);
+    final selectedMailboxId = ref.watch(selectedMailboxIdProvider);
+    final folder = ref.watch(selectedFolderProvider);
+    final mailboxId = _effectiveMailboxId(mailboxes.value, selectedMailboxId);
+    final unreadCounts =
+        ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{};
     return _buildEmailList(
       mailHost.value,
       workspaceId: workspaceId,
       mailboxId: mailboxId,
+      folder: folder,
       mailboxSelector: _buildMailboxSelector(
         mailboxes,
         mailHost: mailHost.value,
         mailboxId: mailboxId,
       ),
+      inboxUnread: mailboxId == null ? 0 : (unreadCounts[mailboxId] ?? 0),
     );
   }
 
@@ -235,30 +322,41 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
         message: error.toString(),
         onRetry: () => ref.invalidate(mailboxesProvider),
       ),
-      data: (items) => _MailboxSelector(
-        mailboxes: items,
-        mailHost: mailHost,
-        selectedId: mailboxId,
-        onSelected: (id) {
-          setState(() {
-            _selectedMailboxId = id;
-            _selectedEmail = null;
-            _offset = 0;
-            _emails.clear();
-            _total = 0;
-          });
-          ref.invalidate(emailsProvider);
-        },
-        onCreate: () => _createMailbox(context),
-      ),
+      data: (items) {
+        // Narrow screens switch inboxes from the bottom navigation bar, so
+        // the header only shows the current inbox title.
+        if (items.isNotEmpty && !isWideScreen(context)) {
+          final current =
+              items.where((m) => m.id == mailboxId).firstOrNull ??
+              items.firstWhere((m) => m.isDefault, orElse: () => items.first);
+          return Text(
+            current.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          );
+        }
+        return _MailboxSelector(
+          mailboxes: items,
+          mailHost: mailHost,
+          selectedId: mailboxId,
+          onSelected: (id) {
+            if (id != null) _selectMailbox(id);
+          },
+          onCreate: () => _createMailbox(context),
+        );
+      },
     );
   }
 
-  String? _effectiveMailboxId([List<MailMailbox>? mailboxes]) {
+  String? _effectiveMailboxId([
+    List<MailMailbox>? mailboxes,
+    String? selectedId,
+  ]) {
     final items = mailboxes ?? ref.read(mailboxesProvider).value;
     if (items == null || items.isEmpty) return null;
-    if (items.any((mailbox) => mailbox.id == _selectedMailboxId)) {
-      return _selectedMailboxId;
+    if (items.any((mailbox) => mailbox.id == selectedId)) {
+      return selectedId;
     }
     return items
         .firstWhere((mailbox) => mailbox.isDefault, orElse: () => items.first)
@@ -272,11 +370,22 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       _to != null ||
       _hasAttachments != null;
 
-  EmailListFilter _emailFilter({String? mailboxId, String? workspaceId}) => (
+  EmailListFilter _emailFilter({
+    String? mailboxId,
+    String? workspaceId,
+    required String folder,
+  }) => (
     mailboxId: mailboxId,
     workspaceId: workspaceId,
+    folder: folder,
+    q: _searchController.text.trim().isEmpty
+        ? null
+        : _searchController.text.trim(),
     status: _deliveryStatus,
     isFlagged: _isFlagged,
+    isRead: null,
+    isStarred: null,
+    labelId: null,
     from: _from,
     to: _to,
     hasAttachments: _hasAttachments,
@@ -314,7 +423,9 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     String? mailHost, {
     String? workspaceId,
     String? mailboxId,
+    required String folder,
     required Widget mailboxSelector,
+    required int inboxUnread,
   }) {
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -326,6 +437,20 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
             children: [
               _MailListHeader(
                 mailboxSelector: mailboxSelector,
+                searchController: _searchController,
+                searchOpen: _searchOpen,
+                onToggleSearch: () {
+                  setState(() {
+                    _searchOpen = !_searchOpen;
+                    if (!_searchOpen) _searchController.clear();
+                  });
+                  if (!_searchOpen) _resetList();
+                  ref.invalidate(emailsProvider);
+                },
+                onSearchChanged: _onSearchChanged,
+                folder: folder,
+                inboxUnread: inboxUnread,
+                onSelectFolder: _selectFolder,
                 hasDiscoveryFilters: _hasDiscoveryFilters,
                 onShowCredentials: () => _showCredentials(context),
                 onShowFilters: () => _showEmailFilters(context),
@@ -338,10 +463,12 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                   filter: _emailFilter(
                     mailboxId: mailboxId,
                     workspaceId: workspaceId,
+                    folder: folder,
                   ),
                   mailHost: mailHost,
                   selectedEmail: _selectedEmail,
                   onOpen: (email) => _openEmail(context, email),
+                  onToggleStar: _toggleStar,
                   onRefresh: () => _refreshEmails(ref),
                   onLoadMore: () => _loadMoreEmails(ref),
                 ),
@@ -381,6 +508,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
           .listEmails(
             mailboxId: _effectiveMailboxId(),
             workspaceId: ref.read(selectedWorkspaceProvider).value?.id,
+            folder: ref.read(selectedFolderProvider),
+            q: _searchController.text.trim().isEmpty
+                ? null
+                : _searchController.text.trim(),
             status: _deliveryStatus,
             isFlagged: _isFlagged,
             from: _from,
@@ -435,40 +566,137 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     }
   }
 
-  Future<void> _createMailbox(BuildContext context) async {
-    final workspace = await ref.read(selectedWorkspaceProvider.future);
-    if (!context.mounted) return;
-    if (workspace == null) {
-      showSnackBar('selectAWorkspaceFirst'.tr());
-      return;
-    }
-    final draft = await showModalBottomSheet<_MailboxDraft>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _CreateMailboxSheet(),
-    );
-    if (draft == null) return;
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .createMailbox(
-            address: draft.address,
-            name: draft.name,
-            workspaceId: workspace.id,
-            isDefault: draft.isDefault,
-          );
-      ref.invalidate(mailboxesProvider);
-      if (mounted) showSnackBar('mailboxCreated'.tr());
-    } catch (error) {
-      showSnackBar(error.toString());
-    }
-  }
+  Future<void> _createMailbox(BuildContext context) =>
+      createMailboxAction(context, ref);
 
   Future<void> _showCredentials(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const _CredentialsSheet(),
+    );
+  }
+}
+
+/// Result of the inbox picker sheet: either a mailbox to switch to, or a
+/// request to create a new mailbox.
+class MailboxPickerResult {
+  const MailboxPickerResult.mailbox(this.mailboxId) : createNew = false;
+
+  const MailboxPickerResult.createNew()
+    : mailboxId = null,
+      createNew = true;
+
+  final String? mailboxId;
+  final bool createNew;
+}
+
+/// Creates a new ElecPostal mailbox in the active workspace.
+Future<void> createMailboxAction(BuildContext context, WidgetRef ref) async {
+  final workspace = await ref.read(selectedWorkspaceProvider.future);
+  if (!context.mounted) return;
+  if (workspace == null) {
+    showSnackBar('selectAWorkspaceFirst'.tr());
+    return;
+  }
+  final draft = await showModalBottomSheet<_MailboxDraft>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _CreateMailboxSheet(),
+  );
+  if (draft == null) return;
+  try {
+    await ref
+        .read(wattEngineClientProvider)
+        .createMailbox(
+          address: draft.address,
+          name: draft.name,
+          workspaceId: workspace.id,
+          isDefault: draft.isDefault,
+        );
+    ref.invalidate(mailboxesProvider);
+    if (context.mounted) showSnackBar('mailboxCreated'.tr());
+  } catch (error) {
+    showSnackBar(error.toString());
+  }
+}
+
+/// Shows a bottom sheet listing every mailbox so the user can switch inboxes
+/// when they do not all fit in the bottom navigation bar.
+Future<MailboxPickerResult?> showMailboxPickerSheet(
+  BuildContext context, {
+  required List<MailMailbox> mailboxes,
+  required String? mailHost,
+  required String? selectedId,
+}) {
+  return showModalBottomSheet<MailboxPickerResult>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _MailboxPickerSheet(
+      mailboxes: mailboxes,
+      mailHost: mailHost,
+      selectedId: selectedId,
+    ),
+  );
+}
+
+class _MailboxPickerSheet extends StatelessWidget {
+  const _MailboxPickerSheet({
+    required this.mailboxes,
+    required this.mailHost,
+    required this.selectedId,
+  });
+
+  final List<MailMailbox> mailboxes;
+  final String? mailHost;
+  final String? selectedId;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SheetScaffold(
+      titleText: 'allInboxes'.tr(),
+      heightFactor: 0.7,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 16),
+        children: [
+          for (final mailbox in mailboxes)
+            ListTile(
+              leading: Icon(
+                mailbox.id == selectedId
+                    ? Symbols.mail
+                    : Symbols.mail_outline,
+                color: mailbox.id == selectedId
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant,
+                fill: mailbox.id == selectedId ? 1 : 0,
+              ),
+              title: Text(
+                mailbox.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                mailbox.fullAddress(mailHost),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: mailbox.id == selectedId
+                  ? Icon(Symbols.check, color: scheme.primary)
+                  : null,
+              onTap: () => Navigator.of(
+                context,
+              ).pop(MailboxPickerResult.mailbox(mailbox.id)),
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Symbols.add),
+            title: Text('newMailbox'.tr()),
+            onTap: () =>
+                Navigator.of(context).pop(const MailboxPickerResult.createNew()),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -508,8 +736,12 @@ class MailDetailPage extends ConsumerWidget {
             value.mailbox?.workspaceId ??
             ref.watch(selectedWorkspaceProvider).value?.id,
         onReply: () => _composeEmail(context, value),
+        onReplyAll: () => _composeEmail(context, value, replyAll: true),
+        onForward: () => _forwardEmail(context, value),
         onResend: value.isDraft ? null : () => _resendEmail(ref, value),
         onToggleRead: () => _toggleEmailRead(ref, value),
+        onToggleStar: () => _toggleEmailStar(ref, value),
+        onMove: (folder) => _moveEmail(context, ref, value, folder),
         onDelete: () => _deleteEmail(context, ref, value),
         onClose: () => context.router.pop(),
       ),
@@ -517,8 +749,50 @@ class MailDetailPage extends ConsumerWidget {
   }
 }
 
-void _composeEmail(BuildContext context, MailEmail replyingTo) {
-  final route = MailComposeRoute(replyToId: replyingTo.id);
+Future<void> _toggleEmailStar(WidgetRef ref, MailEmail email) async {
+  try {
+    await ref
+        .read(wattEngineClientProvider)
+        .starEmail(email.id, starred: !email.isStarred);
+    ref.invalidate(emailProvider(email.id));
+    ref.invalidate(emailsProvider);
+  } catch (error) {
+    showSnackBar(error.toString());
+  }
+}
+
+Future<void> _moveEmail(
+  BuildContext context,
+  WidgetRef ref,
+  MailEmail email,
+  String folder,
+) async {
+  try {
+    await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
+    ref.invalidate(emailsProvider);
+    if (context.mounted) context.router.pop();
+    showSnackBar(
+      'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
+    );
+  } catch (error) {
+    showSnackBar(error.toString());
+  }
+}
+
+void _forwardEmail(BuildContext context, MailEmail email) {
+  final route = MailComposeRoute(forwardId: email.id);
+  if (isWideScreen(context)) {
+    context.router.navigate(route);
+  } else {
+    context.router.push(route);
+  }
+}
+
+void _composeEmail(BuildContext context, MailEmail replyingTo, {bool replyAll = false}) {
+  final route = MailComposeRoute(
+    replyToId: replyingTo.id,
+    replyAll: replyAll,
+  );
   if (isWideScreen(context)) {
     context.router.navigate(route);
   } else {
@@ -577,42 +851,155 @@ Future<void> _deleteEmail(
 class _MailListHeader extends StatelessWidget {
   const _MailListHeader({
     required this.mailboxSelector,
+    required this.searchController,
+    required this.searchOpen,
+    required this.onToggleSearch,
+    required this.onSearchChanged,
+    required this.folder,
+    required this.inboxUnread,
+    required this.onSelectFolder,
     required this.hasDiscoveryFilters,
     required this.onShowCredentials,
     required this.onShowFilters,
   });
 
   final Widget mailboxSelector;
+  final TextEditingController searchController;
+  final bool searchOpen;
+  final VoidCallback onToggleSearch;
+  final ValueChanged<String> onSearchChanged;
+  final String folder;
+  final int inboxUnread;
+  final ValueChanged<String> onSelectFolder;
   final bool hasDiscoveryFilters;
   final VoidCallback onShowCredentials;
   final VoidCallback onShowFilters;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-      child: Row(
-        children: [
-          Expanded(child: mailboxSelector),
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'mailCredentials'.tr(),
-            onPressed: onShowCredentials,
-            icon: const Icon(Symbols.key, size: 20),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              Expanded(child: mailboxSelector),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'searchEmails'.tr(),
+                onPressed: onToggleSearch,
+                icon: Icon(
+                  searchOpen ? Symbols.close : Symbols.search,
+                  size: 20,
+                ),
+              ),
+              IconButton(
+                tooltip: 'mailCredentials'.tr(),
+                onPressed: onShowCredentials,
+                icon: const Icon(Symbols.key, size: 20),
+              ),
+              IconButton(
+                tooltip: 'emailFilters'.tr(),
+                onPressed: onShowFilters,
+                icon: Badge(
+                  isLabelVisible: hasDiscoveryFilters,
+                  child: const Icon(Symbols.filter_alt, size: 20),
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'emailFilters'.tr(),
-            onPressed: onShowFilters,
-            icon: Badge(
-              isLabelVisible: hasDiscoveryFilters,
-              child: const Icon(Symbols.filter_alt, size: 20),
+        ),
+        if (searchOpen)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: searchController,
+              onChanged: onSearchChanged,
+              autofocus: true,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'searchEmailsHint'.tr(),
+                prefixIcon: const Icon(Symbols.search, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ),
-        ],
+        _FolderTabs(
+          folder: folder,
+          inboxUnread: inboxUnread,
+          onSelect: onSelectFolder,
+        ),
+      ],
+    );
+  }
+}
+
+/// Horizontal folder switcher (Inbox, Sent, Drafts, Spam, Trash, Archive),
+/// mirroring the folders of a desktop mail client.
+class _FolderTabs extends StatelessWidget {
+  const _FolderTabs({
+    required this.folder,
+    required this.inboxUnread,
+    required this.onSelect,
+  });
+
+  static const _folders = [
+    'inbox',
+    'sent',
+    'drafts',
+    'spam',
+    'trash',
+    'archive',
+  ];
+
+  final String folder;
+  final int inboxUnread;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        itemCount: _folders.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final id = _folders[index];
+          final selected = id == folder;
+          final label = mailFolderLabel(id);
+          return ChoiceChip(
+            selected: selected,
+            showCheckmark: false,
+            onSelected: (_) => onSelect(id),
+            avatar: id == 'inbox' && inboxUnread > 0
+                ? Badge(
+                    label: Text(
+                      inboxUnread > 99 ? '99+' : '$inboxUnread',
+                    ),
+                    child: const Icon(Symbols.mail, size: 16),
+                  )
+                : null,
+            label: Text(label),
+          );
+        },
       ),
     );
   }
 }
+
+/// Localized label for a mail folder id.
+String mailFolderLabel(String folder) => switch (folder) {
+  'sent' => 'folderSent'.tr(),
+  'drafts' => 'folderDrafts'.tr(),
+  'spam' => 'folderSpam'.tr(),
+  'trash' => 'folderTrash'.tr(),
+  'archive' => 'folderArchive'.tr(),
+  _ => 'folderInbox'.tr(),
+};
 
 class _MailboxError extends StatelessWidget {
   const _MailboxError({required this.message, this.onRetry});
@@ -947,6 +1334,7 @@ class _EmailList extends ConsumerWidget {
     required this.mailHost,
     required this.selectedEmail,
     required this.onOpen,
+    required this.onToggleStar,
     required this.onRefresh,
     required this.onLoadMore,
   });
@@ -957,6 +1345,7 @@ class _EmailList extends ConsumerWidget {
   final String? mailHost;
   final MailEmail? selectedEmail;
   final ValueChanged<MailEmail> onOpen;
+  final ValueChanged<MailEmail> onToggleStar;
   final VoidCallback onRefresh;
   final VoidCallback onLoadMore;
 
@@ -999,6 +1388,7 @@ class _EmailList extends ConsumerWidget {
                 mailHost: mailHost,
                 selected: email.id == selectedEmail?.id,
                 onTap: () => onOpen(email),
+                onToggleStar: () => onToggleStar(email),
               );
             },
           ),
@@ -1013,12 +1403,14 @@ class _EmailTile extends StatelessWidget {
     required this.email,
     required this.mailHost,
     required this.onTap,
+    required this.onToggleStar,
     this.selected = false,
   });
 
   final MailEmail email;
   final String? mailHost;
   final VoidCallback onTap;
+  final VoidCallback onToggleStar;
   final bool selected;
 
   @override
@@ -1084,6 +1476,18 @@ class _EmailTile extends StatelessWidget {
         ],
       ),
       isThreeLine: false,
+      trailing: IconButton(
+        tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+        onPressed: onToggleStar,
+        icon: Icon(
+          email.isStarred ? Symbols.star : Symbols.star_outline,
+          size: 20,
+          color: email.isStarred
+              ? Colors.amber.shade600
+              : scheme.onSurfaceVariant,
+          fill: email.isStarred ? 1 : 0,
+        ),
+      ),
       onTap: onTap,
     );
   }
@@ -1132,8 +1536,12 @@ class _EmailDetailPanel extends StatelessWidget {
     required this.mailHost,
     required this.workspaceId,
     required this.onReply,
+    required this.onReplyAll,
+    required this.onForward,
     required this.onResend,
     required this.onToggleRead,
+    required this.onToggleStar,
+    required this.onMove,
     required this.onDelete,
     required this.onClose,
   });
@@ -1142,8 +1550,12 @@ class _EmailDetailPanel extends StatelessWidget {
   final String? mailHost;
   final String? workspaceId;
   final VoidCallback onReply;
+  final VoidCallback onReplyAll;
+  final VoidCallback onForward;
   final VoidCallback? onResend;
   final VoidCallback onToggleRead;
+  final VoidCallback onToggleStar;
+  final ValueChanged<String> onMove;
   final VoidCallback onDelete;
   final VoidCallback onClose;
 
@@ -1171,9 +1583,46 @@ class _EmailDetailPanel extends StatelessWidget {
                   ),
                   const Spacer(),
                   IconButton(
+                    tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+                    onPressed: onToggleStar,
+                    icon: Icon(
+                      email.isStarred ? Symbols.star : Symbols.star_outline,
+                      color: email.isStarred
+                          ? Colors.amber.shade600
+                          : scheme.onSurfaceVariant,
+                      fill: email.isStarred ? 1 : 0,
+                    ),
+                  ),
+                  IconButton(
                     tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
                     onPressed: onToggleRead,
                     icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'more'.tr(),
+                    icon: const Icon(Symbols.more_vert),
+                    onSelected: (value) {
+                      if (value == 'archive') onMove('archive');
+                      if (value == 'spam') onMove('spam');
+                      if (value == 'trash') onMove('trash');
+                    },
+                    itemBuilder: (_) => [
+                      if (email.folder != 'archive')
+                        PopupMenuItem(
+                          value: 'archive',
+                          child: Text('folderArchive'.tr()),
+                        ),
+                      if (email.folder != 'spam')
+                        PopupMenuItem(
+                          value: 'spam',
+                          child: Text('folderSpam'.tr()),
+                        ),
+                      if (email.folder != 'trash')
+                        PopupMenuItem(
+                          value: 'trash',
+                          child: Text('folderTrash'.tr()),
+                        ),
+                    ],
                   ),
                   IconButton(
                     tooltip: 'delete'.tr(),
@@ -1190,9 +1639,15 @@ class _EmailDetailPanel extends StatelessWidget {
               email: email,
               mailHost: mailHost,
               workspaceId: workspaceId,
-              onReply: onReply,
-              onResend: onResend,
             ),
+          ),
+          _EmailActionBar(
+            onReply: onReply,
+            onReplyAll: onReplyAll,
+            onForward: onForward,
+            onResend: email.deliveryStatus?.toLowerCase() == 'failed'
+                ? onResend
+                : null,
           ),
         ],
       ),
@@ -1205,15 +1660,11 @@ class _EmailDetailContent extends StatelessWidget {
     required this.email,
     required this.mailHost,
     required this.workspaceId,
-    required this.onReply,
-    required this.onResend,
   });
 
   final MailEmail email;
   final String? mailHost;
   final String? workspaceId;
-  final VoidCallback onReply;
-  final VoidCallback? onResend;
 
   @override
   Widget build(BuildContext context) {
@@ -1350,12 +1801,6 @@ class _EmailDetailContent extends StatelessWidget {
             ),
           ),
         ),
-        _EmailActionBar(
-          onReply: onReply,
-          onResend: email.deliveryStatus?.toLowerCase() == 'failed'
-              ? onResend
-              : null,
-        ),
       ],
     );
   }
@@ -1374,9 +1819,16 @@ class _EmailDetailContent extends StatelessWidget {
 }
 
 class _EmailActionBar extends StatelessWidget {
-  const _EmailActionBar({required this.onReply, this.onResend});
+  const _EmailActionBar({
+    required this.onReply,
+    required this.onReplyAll,
+    required this.onForward,
+    this.onResend,
+  });
 
   final VoidCallback onReply;
+  final VoidCallback onReplyAll;
+  final VoidCallback onForward;
   final VoidCallback? onResend;
 
   @override
@@ -1388,7 +1840,6 @@ class _EmailActionBar extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
           children: [
             if (onResend != null) ...[
               OutlinedButton.icon(
@@ -1401,8 +1852,19 @@ class _EmailActionBar extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const Spacer(),
             ],
+            IconButton(
+              tooltip: 'replyAll'.tr(),
+              onPressed: onReplyAll,
+              icon: const Icon(Symbols.reply_all),
+            ),
+            IconButton(
+              tooltip: 'forward'.tr(),
+              onPressed: onForward,
+              icon: const Icon(Symbols.forward),
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: onReply,
               icon: const Icon(Symbols.reply, size: 18),
@@ -1743,6 +2205,8 @@ class _MailDraft {
     this.bcc = const [],
     required this.subject,
     required this.body,
+    this.attachmentIds = const [],
+    this.replyToId,
     this.isDraft = false,
     this.contentType = 'text/plain',
   });
@@ -1753,11 +2217,13 @@ class _MailDraft {
   final List<MailRecipient> bcc;
   final String subject;
   final String body;
+  final List<String> attachmentIds;
+  final String? replyToId;
   final bool isDraft;
   final String contentType;
 }
 
-class _ComposeSheet extends StatefulWidget {
+class _ComposeSheet extends ConsumerStatefulWidget {
   const _ComposeSheet({
     required this.mailbox,
     required this.mailboxes,
@@ -1765,6 +2231,8 @@ class _ComposeSheet extends StatefulWidget {
     required this.onClose,
     this.mailHost,
     this.replyingTo,
+    this.replyAll = false,
+    this.forwarding,
   });
 
   final MailMailbox mailbox;
@@ -1773,18 +2241,23 @@ class _ComposeSheet extends StatefulWidget {
   final VoidCallback onClose;
   final String? mailHost;
   final MailEmail? replyingTo;
+  final bool replyAll;
+  final MailEmail? forwarding;
 
   @override
-  State<_ComposeSheet> createState() => _ComposeSheetState();
+  ConsumerState<_ComposeSheet> createState() => _ComposeSheetState();
 }
 
-class _ComposeSheetState extends State<_ComposeSheet> {
+class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   late String _mailboxId;
   final _toController = TextEditingController();
   final _ccController = TextEditingController();
+  final _bccController = TextEditingController();
   final _subjectController = TextEditingController();
   final _bodyController = TextEditingController();
+  final List<({String id, String name})> _attachments = [];
   var _isHtml = false;
+  var _pickingAttachment = false;
 
   MailMailbox? get _selectedMailbox =>
       widget.mailboxes.where((m) => m.id == _mailboxId).firstOrNull;
@@ -1794,21 +2267,55 @@ class _ComposeSheetState extends State<_ComposeSheet> {
     super.initState();
     _mailboxId = widget.mailbox.id;
     final replyingTo = widget.replyingTo;
+    final forwarding = widget.forwarding;
     if (replyingTo != null) {
       final from = replyingTo.from;
-      if (from != null) {
-        _toController.text = from.address;
+      if (from != null) _toController.text = from.address;
+      if (widget.replyAll) {
+        final self = _selectedMailbox
+            ?.fullAddress(widget.mailHost)
+            .toLowerCase();
+        final others = [...replyingTo.to, ...replyingTo.cc]
+            .where(
+              (r) =>
+                  r.address.toLowerCase() != self &&
+                  r.address.toLowerCase() != from?.address.toLowerCase(),
+            )
+            .map((r) => r.address)
+            .where((a) => a.isNotEmpty)
+            .toSet();
+        if (others.isNotEmpty) {
+          _ccController.text = others.join(', ');
+        }
       }
       _subjectController.text = 'Re: ${replyingTo.displaySubject}';
-      _bodyController.text = '\n\n---\n${replyingTo.body}';
       _isHtml = replyingTo.isHtml;
+      _bodyController.text = _quoteBody(replyingTo, forwarded: false);
+    } else if (forwarding != null) {
+      _subjectController.text = 'Fwd: ${forwarding.displaySubject}';
+      _isHtml = forwarding.isHtml;
+      _bodyController.text = _quoteBody(forwarding, forwarded: true);
+      _attachments.addAll(
+        forwarding.attachments.map((file) => (id: file.id, name: file.name)),
+      );
     }
+  }
+
+  String _quoteBody(MailEmail email, {required bool forwarded}) {
+    final quoted = _isHtml
+        ? '\n\n<blockquote>\n${email.body}\n</blockquote>'
+        : '\n\n${forwarded ? '---------- ${'forwardedMessage'.tr()} ----------\n' : '---'}\n'
+              '${email.from?.fullAddress(widget.mailHost) ?? ''}\n'
+              '${email.createdAt?.toLocal() ?? ''}\n'
+              '${'subject'.tr()}: ${email.displaySubject}\n\n${email.body}';
+    return quoted;
   }
 
   @override
   void dispose() {
     _toController.dispose();
     _ccController.dispose();
+    _bccController.dispose();
     _subjectController.dispose();
     _bodyController.dispose();
     super.dispose();
@@ -1823,6 +2330,27 @@ class _ComposeSheetState extends State<_ComposeSheet> {
         .toList();
   }
 
+  Future<void> _pickAttachment() async {
+    if (_pickingAttachment) return;
+    setState(() => _pickingAttachment = true);
+    try {
+      final files = await uploadLocalCloudFiles(
+        ref,
+        allowMultiple: true,
+        workspaceId: widget.mailbox.workspaceId,
+      );
+      if (files != null && files.isNotEmpty && mounted) {
+        setState(
+          () => _attachments.addAll(
+            files.map((file) => (id: file.id, name: file.name)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pickingAttachment = false);
+    }
+  }
+
   Future<void> _submit({bool draft = false}) async {
     final to = _parseRecipients(_toController.text);
     if (to.isEmpty) {
@@ -1834,17 +2362,80 @@ class _ComposeSheetState extends State<_ComposeSheet> {
         mailboxId: _mailboxId,
         to: to,
         cc: _parseRecipients(_ccController.text),
-        bcc: const [],
+        bcc: _parseRecipients(_bccController.text),
         subject: _subjectController.text,
         body: _bodyController.text,
+        attachmentIds: _attachments.map((a) => a.id).toList(growable: false),
+        replyToId: widget.replyingTo?.id,
         isDraft: draft,
         contentType: _isHtml ? 'text/html' : 'text/plain',
       ),
     );
   }
 
+  void _applyInlineFormat(String before, String after) {
+    final controller = _bodyController;
+    final selection = controller.selection;
+    final text = controller.text;
+    String newText;
+    int cursor;
+    if (selection.isValid && !selection.isCollapsed) {
+      final selected = selection.textInside(text);
+      newText = text.replaceRange(
+        selection.start,
+        selection.end,
+        '$before$selected$after',
+      );
+      cursor = selection.start + before.length + selected.length + after.length;
+    } else {
+      final offset = selection.isValid ? selection.start : text.length;
+      newText = text.replaceRange(offset, offset, '$before$after');
+      cursor = offset + before.length;
+    }
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+  }
+
+  Future<void> _insertLink() async {
+    final url = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: Text('insertLink'.tr()),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              hintText: 'https://example.com',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('close'.tr()),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: Text('apply'.tr()),
+            ),
+          ],
+        );
+      },
+    );
+    if (url == null || url.isEmpty) return;
+    _applyInlineFormat('<a href="$url">', '</a>');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1930,6 +2521,18 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  controller: _bccController,
+                  decoration: InputDecoration(
+                    labelText: 'bcc'.tr(),
+                    hintText: 'recipientHint'.tr(),
+                    prefixIcon: const Icon(Symbols.visibility_off),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
                   controller: _subjectController,
                   decoration: InputDecoration(
                     labelText: 'subject'.tr(),
@@ -1940,23 +2543,59 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _bodyController,
-                        decoration: InputDecoration(
-                          labelText: 'body'.tr(),
-                          alignLabelWithHint: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        maxLines: 8,
-                      ),
+                if (_isHtml) ...[
+                  _HtmlFormatToolbar(
+                    onBold: () => _applyInlineFormat('<b>', '</b>'),
+                    onItalic: () => _applyInlineFormat('<i>', '</i>'),
+                    onUnderline: () => _applyInlineFormat('<u>', '</u>'),
+                    onStrikethrough: () => _applyInlineFormat('<s>', '</s>'),
+                    onBulletList: () =>
+                        _applyInlineFormat('<ul><li>', '</li></ul>'),
+                    onNumberedList: () =>
+                        _applyInlineFormat('<ol><li>', '</li></ol>'),
+                    onQuote: () =>
+                        _applyInlineFormat('<blockquote>', '</blockquote>'),
+                    onLink: _insertLink,
+                    onAttach: _pickingAttachment ? null : _pickAttachment,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextField(
+                  controller: _bodyController,
+                  decoration: InputDecoration(
+                    labelText: 'body'.tr(),
+                    alignLabelWithHint: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ],
+                  ),
+                  maxLines: _isHtml ? 10 : 8,
                 ),
+                if (_attachments.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final file in _attachments)
+                        InputChip(
+                          avatar: Icon(
+                            Symbols.attach_file,
+                            size: 18,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          label: Text(
+                            file.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onDeleted: () =>
+                              setState(() => _attachments.remove(file)),
+                          deleteButtonTooltipMessage: 'removeAttachment'.tr(),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 8),
                 SwitchListTile(
                   value: _isHtml,
@@ -1965,6 +2604,17 @@ class _ComposeSheetState extends State<_ComposeSheet> {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
+                if (!_isHtml) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _pickingAttachment ? null : _pickAttachment,
+                      icon: const Icon(Symbols.attach_file, size: 18),
+                      label: Text('addAttachment'.tr()),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -1988,6 +2638,57 @@ class _ComposeSheetState extends State<_ComposeSheet> {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Lightweight HTML formatting toolbar for the compose body.
+class _HtmlFormatToolbar extends StatelessWidget {
+  const _HtmlFormatToolbar({
+    required this.onBold,
+    required this.onItalic,
+    required this.onUnderline,
+    required this.onStrikethrough,
+    required this.onBulletList,
+    required this.onNumberedList,
+    required this.onQuote,
+    required this.onLink,
+    required this.onAttach,
+  });
+
+  final VoidCallback onBold;
+  final VoidCallback onItalic;
+  final VoidCallback onUnderline;
+  final VoidCallback onStrikethrough;
+  final VoidCallback onBulletList;
+  final VoidCallback onNumberedList;
+  final VoidCallback onQuote;
+  final VoidCallback onLink;
+  final VoidCallback? onAttach;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(IconData icon, String tooltip, VoidCallback onPressed) =>
+        IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          visualDensity: VisualDensity.compact,
+        );
+    return Row(
+      children: [
+        button(Symbols.format_bold, 'bold'.tr(), onBold),
+        button(Symbols.format_italic, 'italic'.tr(), onItalic),
+        button(Symbols.format_underlined, 'underline'.tr(), onUnderline),
+        button(Symbols.format_strikethrough, 'strikethrough'.tr(), onStrikethrough),
+        const SizedBox(width: 4),
+        button(Symbols.format_list_bulleted, 'bulletList'.tr(), onBulletList),
+        button(Symbols.format_list_numbered, 'numberedList'.tr(), onNumberedList),
+        button(Symbols.format_quote, 'quote'.tr(), onQuote),
+        button(Symbols.link, 'insertLink'.tr(), onLink),
+        const Spacer(),
+        button(Symbols.attach_file, 'addAttachment'.tr(), onAttach ?? () {}),
       ],
     );
   }

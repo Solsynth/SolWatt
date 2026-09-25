@@ -1048,8 +1048,13 @@ class WattEngineClient {
   Future<PaginatedResult<MailEmail>> listEmails({
     String? mailboxId,
     String? workspaceId,
+    String? folder,
+    String? q,
     String? status,
     bool? isFlagged,
+    bool? isRead,
+    bool? isStarred,
+    String? labelId,
     String? from,
     String? to,
     bool? hasAttachments,
@@ -1064,8 +1069,13 @@ class WattEngineClient {
         if (mailboxId != null && mailboxId.isNotEmpty) 'mailbox_id': mailboxId,
         if (workspaceId != null && workspaceId.isNotEmpty)
           'workspace_id': workspaceId,
+        if (folder != null && folder.isNotEmpty) 'folder': folder,
+        if (q != null && q.isNotEmpty) 'q': q,
         if (status != null && status.isNotEmpty) 'status': status,
         'is_flagged': ?isFlagged,
+        'is_read': ?isRead,
+        'is_starred': ?isStarred,
+        if (labelId != null && labelId.isNotEmpty) 'label_id': labelId,
         if (from != null && from.isNotEmpty) 'from': from,
         if (to != null && to.isNotEmpty) 'to': to,
         'has_attachments': ?hasAttachments,
@@ -1101,6 +1111,7 @@ class WattEngineClient {
     List<String> attachmentIds = const [],
     bool isDraft = false,
     String contentType = 'text/plain',
+    String? replyToId,
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
@@ -1115,6 +1126,8 @@ class WattEngineClient {
         'attachment_ids': attachmentIds,
         'is_draft': isDraft,
         'content_type': contentType,
+        if (replyToId != null && replyToId.isNotEmpty)
+          'reply_to_id': replyToId,
       },
     );
     return MailEmail.fromJson(response.data!);
@@ -1122,6 +1135,41 @@ class WattEngineClient {
 
   Future<void> deleteEmail(String emailId) =>
       _request<void>('DELETE', '$kElecPostalBase/emails/$emailId');
+
+  /// Moves a message to another folder
+  /// (`inbox`, `sent`, `drafts`, `spam`, `trash`, `archive`).
+  Future<void> moveEmail(String emailId, String folder) =>
+      _request<void>(
+        'POST',
+        '$kElecPostalBase/emails/$emailId/move',
+        data: {'folder': folder},
+      );
+
+  Future<void> starEmail(String emailId, {required bool starred}) =>
+      _request<void>(
+        'POST',
+        '$kElecPostalBase/emails/$emailId/${starred ? 'star' : 'unstar'}',
+      );
+
+  /// Unread count of a mailbox's Inbox, read from the `X-Total` header of a
+  /// single-item filtered query (the stats endpoint is not folder-filtered).
+  Future<int> listUnreadInboxCount(String mailboxId) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/emails',
+      queryParameters: {
+        'mailbox_id': mailboxId,
+        'folder': 'inbox',
+        'is_read': 'false',
+        'take': '1',
+      },
+    );
+    return int.tryParse(
+          response.headers.value('x-total') ??
+              response.headers.value('X-Total') ??
+              '',
+        ) ??
+        0;
+  }
 
   Future<MailEmail> resendEmail(String emailId) async {
     final response = await _request<Map<String, dynamic>>(
@@ -2622,6 +2670,8 @@ class MailEmail {
     this.attachments = const [],
     this.inlineAttachments = const {},
     this.isRead = false,
+    this.isStarred = false,
+    this.folder,
     this.createdAt,
     this.mailbox,
     this.deliveryStatus,
@@ -2647,6 +2697,11 @@ class MailEmail {
   /// Inline MIME attachments keyed by their RFC 2392 Content-ID.
   final Map<String, SnCloudFileReference> inlineAttachments;
   final bool isRead;
+  final bool isStarred;
+
+  /// Server-side folder this message lives in
+  /// (`inbox`, `sent`, `drafts`, `spam`, `trash`, `archive`).
+  final String? folder;
   final DateTime? createdAt;
   final String? deliveryStatus;
   final int deliveryAttempts;
@@ -2717,6 +2772,8 @@ class MailEmail {
             attachment.contentId!: attachment.file,
       },
       isRead: json['is_read'] == true,
+      isStarred: json['is_starred'] == true,
+      folder: nonEmptyString(json['folder']?.toString()),
       createdAt: parseInstant(json['created_at']),
       deliveryStatus: nonEmptyString(json['delivery_status']?.toString()),
       deliveryAttempts: (json['delivery_attempts'] as num?)?.toInt() ?? 0,
@@ -3348,17 +3405,67 @@ final mailboxesProvider = FutureProvider<List<MailMailbox>>((ref) async {
       .listMailboxes(workspaceId: workspace?.id);
 });
 
+/// Currently selected mailbox within the active workspace.
+///
+/// Shared between the mail list and the mailbox bottom navigation bar so the
+/// inbox can be switched from either surface. Resolves to the default mailbox
+/// when unset or stale.
+final selectedMailboxIdProvider =
+    NotifierProvider<SelectedMailboxIdNotifier, String?>(
+      SelectedMailboxIdNotifier.new,
+    );
+
+class SelectedMailboxIdNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void select(String? id) => state = id;
+}
+
+/// Currently selected mail folder (`inbox`, `sent`, `drafts`, `spam`,
+/// `trash`, `archive`), shared between the mail folder tabs and the desktop
+/// navigation rail.
+final selectedFolderProvider = NotifierProvider<SelectedFolderNotifier, String>(
+  SelectedFolderNotifier.new,
+);
+
+class SelectedFolderNotifier extends Notifier<String> {
+  @override
+  String build() => 'inbox';
+
+  void select(String folder) => state = folder;
+}
+
+
 typedef EmailListFilter = ({
   String? mailboxId,
   String? workspaceId,
+  String? folder,
+  String? q,
   String? status,
   bool? isFlagged,
+  bool? isRead,
+  bool? isStarred,
+  String? labelId,
   String? from,
   String? to,
   bool? hasAttachments,
 });
 
-/// Emails scoped to the selected mailbox and/or workspace.
+/// Unread Inbox count per mailbox id, driving the Inbox badge.
+final mailboxUnreadCountsProvider =
+    FutureProvider<Map<String, int>>((ref) async {
+      final mailboxes = await ref.watch(mailboxesProvider.future);
+      final client = ref.watch(wattEngineClientProvider);
+      final counts = <String, int>{};
+      for (final mailbox in mailboxes) {
+        counts[mailbox.id] = await client
+            .listUnreadInboxCount(mailbox.id)
+            .catchError((_) => 0);
+      }
+      return counts;
+    });
+
 final emailsProvider =
     FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((
       ref,
@@ -3368,8 +3475,13 @@ final emailsProvider =
       return client.listEmails(
         mailboxId: filter.mailboxId,
         workspaceId: filter.workspaceId,
+        folder: filter.folder,
+        q: filter.q,
         status: filter.status,
         isFlagged: filter.isFlagged,
+        isRead: filter.isRead,
+        isStarred: filter.isStarred,
+        labelId: filter.labelId,
         from: filter.from,
         to: filter.to,
         hasAttachments: filter.hasAttachments,

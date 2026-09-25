@@ -27,10 +27,11 @@ abstract final class SolWattShapes {
 
 /// The application-wide Material theme, following Island's baseline defaults
 /// and Material Design 3 component guidance.
+const kSolWattSeedColor = Color(0xffd97706);
+
 ThemeData createSolWattTheme(Brightness brightness) {
-  const seedColor = Color(0xffd97706);
   final colorScheme = ColorScheme.fromSeed(
-    seedColor: seedColor,
+    seedColor: kSolWattSeedColor,
     brightness: brightness,
   );
 

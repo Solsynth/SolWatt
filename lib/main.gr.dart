@@ -93,13 +93,27 @@ class GateRoute extends PageRouteInfo<void> {
 /// generated route for
 /// [MailComposePage]
 class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
-  MailComposeRoute({Key? key, String? replyToId, List<PageRouteInfo>? children})
-    : super(
-        MailComposeRoute.name,
-        args: MailComposeRouteArgs(key: key, replyToId: replyToId),
-        rawQueryParams: {'replyTo': replyToId},
-        initialChildren: children,
-      );
+  MailComposeRoute({
+    Key? key,
+    String? replyToId,
+    bool replyAll = false,
+    String? forwardId,
+    List<PageRouteInfo>? children,
+  }) : super(
+         MailComposeRoute.name,
+         args: MailComposeRouteArgs(
+           key: key,
+           replyToId: replyToId,
+           replyAll: replyAll,
+           forwardId: forwardId,
+         ),
+         rawQueryParams: {
+           'replyTo': replyToId,
+           'replyAll': replyAll,
+           'forward': forwardId,
+         },
+         initialChildren: children,
+       );
 
   static const String name = 'MailComposeRoute';
 
@@ -108,35 +122,59 @@ class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
     builder: (data) {
       final queryParams = data.queryParams;
       final args = data.argsAs<MailComposeRouteArgs>(
-        orElse: () =>
-            MailComposeRouteArgs(replyToId: queryParams.optString('replyTo')),
+        orElse: () => MailComposeRouteArgs(
+          replyToId: queryParams.optString('replyTo'),
+          replyAll: queryParams.getBool('replyAll', false),
+          forwardId: queryParams.optString('forward'),
+        ),
       );
-      return MailComposePage(key: args.key, replyToId: args.replyToId);
+      return MailComposePage(
+        key: args.key,
+        replyToId: args.replyToId,
+        replyAll: args.replyAll,
+        forwardId: args.forwardId,
+      );
     },
   );
 }
 
 class MailComposeRouteArgs {
-  const MailComposeRouteArgs({this.key, this.replyToId});
+  const MailComposeRouteArgs({
+    this.key,
+    this.replyToId,
+    this.replyAll = false,
+    this.forwardId,
+  });
 
   final Key? key;
 
   final String? replyToId;
 
+  final bool replyAll;
+
+  final String? forwardId;
+
   @override
   String toString() {
-    return 'MailComposeRouteArgs{key: $key, replyToId: $replyToId}';
+    return 'MailComposeRouteArgs{key: $key, replyToId: $replyToId, replyAll: $replyAll, forwardId: $forwardId}';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     if (other is! MailComposeRouteArgs) return false;
-    return key == other.key && replyToId == other.replyToId;
+    return key == other.key &&
+        replyToId == other.replyToId &&
+        replyAll == other.replyAll &&
+        forwardId == other.forwardId;
   }
 
   @override
-  int get hashCode => key.hashCode ^ replyToId.hashCode;
+  int get hashCode =>
+      key.hashCode ^
+      replyToId.hashCode ^
+      replyAll.hashCode ^
+      forwardId.hashCode;
 }
 
 /// generated route for

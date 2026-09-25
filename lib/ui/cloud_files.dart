@@ -201,13 +201,13 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
 }) async {
   List<PlatformFile> selected = const [];
   try {
-    // file_picker 12: static pickFiles / pickFile; load via readAsBytes().
+    // file_picker 13: pickFiles returns a list directly (empty on cancel);
+    // pickFile returns null on cancel. Load bytes via readAsBytes().
     if (allowMultiple) {
-      final result = await FilePicker.pickFiles(
+      selected = await FilePicker.pickFiles(
         type: type,
         allowedExtensions: allowedExtensions,
       );
-      selected = result?.files ?? const [];
     } else {
       final file = await FilePicker.pickFile(
         type: type,

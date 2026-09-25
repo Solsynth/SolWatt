@@ -105,7 +105,7 @@ class _GateFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: scheme.surfaceContainer,
+      backgroundColor: scheme.surface,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

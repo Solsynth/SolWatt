@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -90,22 +91,52 @@ class SolWattApp extends StatelessWidget {
       supportedLocales: context.supportedLocales,
       localizationsDelegates: context.localizationDelegates,
       locale: context.locale,
-      builder: (context, child) => Overlay(
-        key: globalOverlay,
-        initialEntries: [
-          OverlayEntry(
-            builder: (_) => DesktopWindowFrame(
-              isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-              title: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('appName'.tr()),
+      builder: (context, child) {
+        final scheme = Theme.of(context).colorScheme;
+        final brightness = Theme.of(context).brightness;
+        // DesktopWindowFrame (island_ui_foundation) paints with the
+        // `material_ui` fork's Material, which reads a *separate* theme
+        // system from Flutter's. Without a material_ui Theme in scope it
+        // falls back to the fork's default (always-light) scheme, so the
+        // titlebar never followed the app theme. Mirror the app scheme in a
+        // material_ui theme; the window chrome (titlebar) uses the main
+        // surface color.
+        final chromeScheme = mui.ColorScheme.fromSeed(
+          seedColor: kSolWattSeedColor,
+          brightness: brightness,
+        ).copyWith(surfaceContainer: scheme.surface);
+        final chromeTheme = (brightness == Brightness.dark
+                ? mui.ThemeData.dark()
+                : mui.ThemeData.light())
+            .copyWith(colorScheme: chromeScheme);
+        return Overlay(
+          key: globalOverlay,
+          initialEntries: [
+            OverlayEntry(
+              builder: (_) => mui.Theme(
+                data: chromeTheme,
+                child: DesktopWindowFrame(
+                  isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
+                  title: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'appName'.tr(),
+                      // The titlebar sits outside any Scaffold, so the default
+                      // text style would fall back to a light-mode color; pin
+                      // it to the active scheme explicitly.
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
-              child: child ?? const SizedBox.shrink(),
             ),
-          ),
-          OverlayEntry(builder: (_) => const _WebSocketIndicator()),
-        ],
-      ),
+            OverlayEntry(builder: (_) => const _WebSocketIndicator()),
+          ],
+        );
+      },
       routerConfig: _router.config(),
     );
   }
@@ -119,16 +150,17 @@ class AppRouter extends RootStackRouter {
     AutoRoute(
       page: AppShellRoute.page,
       children: [
-        AutoRoute(page: BoardsRoute.page, initial: true),
-        AutoRoute(page: FilesRoute.page),
         AutoRoute(
           page: MailRoute.page,
+          initial: true,
           children: [
             AutoRoute(page: MailListRoute.page, path: '', initial: true),
             AutoRoute(page: MailComposeRoute.page, path: 'compose'),
             AutoRoute(page: MailDetailRoute.page, path: ':id'),
           ],
         ),
+        AutoRoute(page: BoardsRoute.page),
+        AutoRoute(page: FilesRoute.page),
         AutoRoute(page: FlywheelRoute.page),
         AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
@@ -192,9 +224,9 @@ class AppShellPage extends ConsumerWidget {
         }
         return AutoTabsRouter(
           routes: const [
+            MailRoute(),
             BoardsRoute(),
             FilesRoute(),
-            MailRoute(),
             FlywheelRoute(),
             ProfileRoute(),
             SettingsRoute(),
@@ -230,26 +262,18 @@ class _NavigationShell extends ConsumerWidget {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final wide = isWideScreen(context);
     final scheme = Theme.of(context).colorScheme;
-    final mobileSelectedIndex = switch (selectedIndex) {
-      0 => 1,
-      1 => 2,
-      3 => 3,
-      _settingsTabIndex => 4,
-      _ => 0,
-    };
+    final isMail = selectedIndex == _mailTabIndex;
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: scheme.surfaceContainer,
-      drawer: wide
-          ? null
-          : Drawer(
-              child: _MobileNavigationDrawer(
-                workspace: workspace,
-                selectedIndex: selectedIndex,
-                onSelected: onSelected,
-              ),
-            ),
+      backgroundColor: scheme.surface,
+      drawer: Drawer(
+        child: _GlobalNavigationDrawer(
+          workspace: workspace,
+          selectedIndex: selectedIndex,
+          onSelected: onSelected,
+        ),
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -261,6 +285,8 @@ class _NavigationShell extends ConsumerWidget {
                           selectedIndex: selectedIndex,
                           onSelected: onSelected,
                           workspace: workspace,
+                          onOpenDrawer: () =>
+                              _scaffoldKey.currentState?.openDrawer(),
                         ),
                         Expanded(
                           child: Padding(
@@ -285,77 +311,22 @@ class _NavigationShell extends ConsumerWidget {
       ),
       bottomNavigationBar: wide
           ? null
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-              child: NavigationBar(
-                height: 56,
-                selectedIndex: mobileSelectedIndex,
-                labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
-                onDestinationSelected: (index) {
-                  if (index == 0) {
-                    _scaffoldKey.currentState?.openDrawer();
-                    return;
-                  }
-                  onSelected(switch (index) {
-                    1 => 0,
-                    2 => 1,
-                    3 => 3,
-                    4 => _settingsTabIndex,
-                    _ => selectedIndex,
-                  });
-                },
-                destinations: [
-                  NavigationDestination(
-                    icon: CloudFileAvatar(
-                      file: workspace?.picture,
-                      workspaceId: workspace?.id,
-                      fallbackIcon: Symbols.workspaces,
-                      size: 28,
-                      borderRadius: _workspaceAvatarBorderRadius(workspace),
-                      assumeImage: true,
-                    ),
-                    selectedIcon: CloudFileAvatar(
-                      file: workspace?.picture,
-                      workspaceId: workspace?.id,
-                      fallbackIcon: Symbols.workspaces,
-                      size: 28,
-                      selected: true,
-                      borderRadius: _workspaceAvatarBorderRadius(workspace),
-                      assumeImage: true,
-                    ),
-                    label: MaterialLocalizations.of(
-                      context,
-                    ).openAppDrawerTooltip,
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Symbols.view_kanban),
-                    selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
-                    label: 'boards'.tr(),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Symbols.folder),
-                    selectedIcon: const Icon(Symbols.folder, fill: 1),
-                    label: 'files'.tr(),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Symbols.mail),
-                    selectedIcon: const Icon(Symbols.mail, fill: 1),
-                    label: 'mail'.tr(),
-                  ),
-                  NavigationDestination(
-                    icon: const Icon(Symbols.settings),
-                    selectedIcon: const Icon(Symbols.settings, fill: 1),
-                    label: 'settings'.tr(),
-                  ),
-                ],
-              ),
-            ),
+          : isMail
+              ? _MailInboxNavigationBar(
+                  onOpenDrawer: () =>
+                      _scaffoldKey.currentState?.openDrawer(),
+                )
+              : _FeatureNavigationBar(
+                  onOpenDrawer: () =>
+                      _scaffoldKey.currentState?.openDrawer(),
+                  onGoToMail: () => onSelected(_mailTabIndex),
+                ),
     );
   }
 }
 
-class _MobileNavigationDrawer extends StatelessWidget {
-  const _MobileNavigationDrawer({
+class _GlobalNavigationDrawer extends StatelessWidget {
+  const _GlobalNavigationDrawer({
     required this.workspace,
     required this.selectedIndex,
     required this.onSelected,
@@ -367,7 +338,14 @@ class _MobileNavigationDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const drawerRoutes = [0, 1, 2, 3, _profileTabIndex, _settingsTabIndex];
+    const drawerRoutes = [
+      _mailTabIndex,
+      _boardsTabIndex,
+      _filesTabIndex,
+      _flywheelTabIndex,
+      _profileTabIndex,
+      _settingsTabIndex,
+    ];
     final selectedDrawerIndex = drawerRoutes.indexOf(selectedIndex);
     final scheme = Theme.of(context).colorScheme;
 
@@ -428,6 +406,20 @@ class _MobileNavigationDrawer extends StatelessWidget {
             ),
           ),
           NavigationDrawerDestination(
+            icon: const Icon(Symbols.mail),
+            selectedIcon: const Icon(Symbols.mail, fill: 1),
+            label: Text('mail'.tr()),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 12, 16, 4),
+            child: Text(
+              'more'.tr(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          NavigationDrawerDestination(
             icon: const Icon(Symbols.view_kanban),
             selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
             label: Text('boards'.tr()),
@@ -438,15 +430,11 @@ class _MobileNavigationDrawer extends StatelessWidget {
             label: Text('files'.tr()),
           ),
           NavigationDrawerDestination(
-            icon: const Icon(Symbols.mail),
-            selectedIcon: const Icon(Symbols.mail, fill: 1),
-            label: Text('mail'.tr()),
+            icon: const Icon(Symbols.sync),
+            selectedIcon: const Icon(Symbols.sync, fill: 1),
+            label: Text('flywheel'.tr()),
           ),
-          const NavigationDrawerDestination(
-            icon: Icon(Symbols.sync),
-            selectedIcon: Icon(Symbols.sync, fill: 1),
-            label: Text('Flywheel'),
-          ),
+          const Divider(),
           NavigationDrawerDestination(
             icon: const Icon(Symbols.person),
             selectedIcon: const Icon(Symbols.person, fill: 1),
@@ -473,18 +461,209 @@ class _MobileNavigationDrawer extends StatelessWidget {
   }
 }
 
+const _mailTabIndex = 0;
+const _boardsTabIndex = 1;
+const _filesTabIndex = 2;
+const _flywheelTabIndex = 3;
 const _profileTabIndex = 4;
 const _settingsTabIndex = 5;
+
+void _selectMailbox(WidgetRef ref, String id) {
+  if (ref.read(selectedMailboxIdProvider) == id) return;
+  ref.read(selectedMailboxIdProvider.notifier).select(id);
+  ref.invalidate(emailsProvider);
+}
+
+/// Opens the "all inboxes" picker sheet and applies the result. Used by the
+/// mobile bottom navigation bar and the desktop rail when inboxes overflow.
+Future<void> _openMailboxPicker(
+  BuildContext context,
+  WidgetRef ref, {
+  required List<MailMailbox> mailboxes,
+  required String? mailHost,
+  required String? selectedId,
+  VoidCallback? onSelectedMailbox,
+}) async {
+  final result = await showMailboxPickerSheet(
+    context,
+    mailboxes: mailboxes,
+    mailHost: mailHost,
+    selectedId: selectedId,
+  );
+  if (result == null || !context.mounted) return;
+  if (result.createNew) {
+    await createMailboxAction(context, ref);
+  } else if (result.mailboxId != null) {
+    _selectMailbox(ref, result.mailboxId!);
+    onSelectedMailbox?.call();
+  }
+}
+
+/// Bottom navigation shown on mail pages: the app drawer plus one destination
+/// per inbox. When more inboxes exist than fit, the last destination opens a
+/// picker sheet listing them all.
+class _MailInboxNavigationBar extends ConsumerWidget {
+  const _MailInboxNavigationBar({required this.onOpenDrawer});
+
+  static const _maxVisibleMailboxes = 3;
+
+  final VoidCallback onOpenDrawer;
+
+  Future<void> _openPicker(
+    BuildContext context,
+    WidgetRef ref, {
+    required List<MailMailbox> mailboxes,
+    required String? mailHost,
+    required String? selectedId,
+  }) =>
+      _openMailboxPicker(
+        context,
+        ref,
+        mailboxes: mailboxes,
+        mailHost: mailHost,
+        selectedId: selectedId,
+      );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mailboxes =
+        ref.watch(mailboxesProvider).value ?? const <MailMailbox>[];
+    // While inboxes are loading (or none exist yet) fall back to the simple
+    // drawer + Mail bar; NavigationBar requires at least two destinations.
+    if (mailboxes.isEmpty) {
+      return _FeatureNavigationBar(
+        onOpenDrawer: onOpenDrawer,
+        onGoToMail: () {},
+      );
+    }
+    final selectedId = ref.watch(selectedMailboxIdProvider);
+    final mailHost = ref.watch(mailHostProvider).value;
+
+    final selected =
+        mailboxes.where((m) => m.id == selectedId).firstOrNull ??
+        mailboxes.firstWhere((m) => m.isDefault, orElse: () => mailboxes.first);
+    final ordered = [
+      selected,
+      ...mailboxes.where((m) => m != selected),
+    ];
+    final visible = ordered.take(_maxVisibleMailboxes).toList();
+    final hasOverflow = ordered.length > _maxVisibleMailboxes;
+
+    final index = ordered.indexOf(selected);
+    final current = index < _maxVisibleMailboxes
+        ? index + 1 // +1 for the leading drawer destination
+        : _maxVisibleMailboxes + 1; // overflow destination
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      child: NavigationBar(
+        selectedIndex: current,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        onDestinationSelected: (index) {
+          if (index == 0) {
+            onOpenDrawer();
+            return;
+          }
+          if (hasOverflow && index == _maxVisibleMailboxes + 1) {
+            _openPicker(
+              context,
+              ref,
+              mailboxes: mailboxes,
+              mailHost: mailHost,
+              selectedId: selectedId,
+            );
+            return;
+          }
+          final mailbox = visible[index - 1];
+          _selectMailbox(ref, mailbox.id);
+        },
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Symbols.menu),
+            label: MaterialLocalizations.of(context).openAppDrawerTooltip,
+          ),
+          for (final mailbox in visible)
+            NavigationDestination(
+              icon: const Icon(Symbols.mail),
+              selectedIcon: const Icon(Symbols.mail, fill: 1),
+              label: mailbox.displayName,
+              tooltip: mailbox.fullAddress(mailHost),
+            ),
+          if (hasOverflow)
+            NavigationDestination(
+              icon: const Icon(Symbols.more_horiz),
+              label: 'allInboxes'.tr(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom navigation shown on non-mail pages: back to Mail plus the app drawer
+/// that holds every other feature.
+class _FeatureNavigationBar extends StatelessWidget {
+  const _FeatureNavigationBar({
+    required this.onOpenDrawer,
+    required this.onGoToMail,
+  });
+
+  final VoidCallback onOpenDrawer;
+  final VoidCallback onGoToMail;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      child: Material(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          height: 56,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: MaterialLocalizations.of(
+                  context,
+                ).openAppDrawerTooltip,
+                onPressed: onOpenDrawer,
+                icon: const Icon(Symbols.menu),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onGoToMail,
+                icon: const Icon(Symbols.mail),
+                label: Text('mail'.tr()),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _DesktopNavigation extends ConsumerWidget {
   const _DesktopNavigation({
     required this.selectedIndex,
     required this.onSelected,
+    required this.onOpenDrawer,
     this.workspace,
   });
 
+  static const _folders = [
+    'inbox',
+    'sent',
+    'drafts',
+    'spam',
+    'trash',
+    'archive',
+  ];
+
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final VoidCallback onOpenDrawer;
   final Workspace? workspace;
 
   String? get workspaceName => workspace?.name;
@@ -493,13 +672,34 @@ class _DesktopNavigation extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final selectedFolder = ref.watch(selectedFolderProvider);
+    final mailboxes =
+        ref.watch(mailboxesProvider).value ?? const <MailMailbox>[];
+    final selectedMailboxId = ref.watch(selectedMailboxIdProvider);
+    final unreadCounts =
+        ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{};
+
+    // Unread badge on the Inbox folder for the effective mailbox.
+    final effectiveMailbox =
+        mailboxes.where((m) => m.id == selectedMailboxId).firstOrNull ??
+        mailboxes.where((m) => m.isDefault).firstOrNull ??
+        (mailboxes.isEmpty ? null : mailboxes.first);
+    final inboxUnread =
+        effectiveMailbox == null ? 0 : (unreadCounts[effectiveMailbox.id] ?? 0);
+
+    final folderIndex = _folders.indexOf(selectedFolder);
+    final current =
+        selectedIndex == _mailTabIndex && folderIndex >= 0 ? folderIndex : null;
 
     return SizedBox(
       width: 88,
       child: NavigationRail(
         backgroundColor: Colors.transparent,
-        selectedIndex: selectedIndex < _profileTabIndex ? selectedIndex : null,
-        onDestinationSelected: onSelected,
+        selectedIndex: current,
+        onDestinationSelected: (index) {
+          ref.read(selectedFolderProvider.notifier).select(_folders[index]);
+          onSelected(_mailTabIndex);
+        },
         labelType: NavigationRailLabelType.all,
         groupAlignment: 0,
         leading: Padding(
@@ -509,13 +709,11 @@ class _DesktopNavigation extends ConsumerWidget {
                 ? 'workspaces'.tr()
                 : '${'workspace'.tr()}: $workspaceName',
             child: Material(
-              color: selectedIndex == _profileTabIndex
-                  ? scheme.secondaryContainer
-                  : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(16),
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: () => onSelected(_profileTabIndex),
+                onTap: onOpenDrawer,
                 child: SizedBox(
                   width: 64,
                   child: Padding(
@@ -530,7 +728,6 @@ class _DesktopNavigation extends ConsumerWidget {
                           workspaceId: workspace?.id,
                           fallbackIcon: Symbols.workspaces,
                           size: 22,
-                          selected: selectedIndex == _profileTabIndex,
                           borderRadius: _workspaceAvatarBorderRadius(workspace),
                           assumeImage: true,
                         ),
@@ -541,12 +738,8 @@ class _DesktopNavigation extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: text.labelSmall?.copyWith(
-                            color: selectedIndex == _profileTabIndex
-                                ? scheme.onSecondaryContainer
-                                : scheme.onSurfaceVariant,
-                            fontWeight: selectedIndex == _profileTabIndex
-                                ? FontWeight.w600
-                                : FontWeight.w500,
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
@@ -566,42 +759,83 @@ class _DesktopNavigation extends ConsumerWidget {
               const NotificationBellButton(),
               const SizedBox(height: 4),
               _RailIconButton(
-                tooltip: 'settings'.tr(),
-                selected: selectedIndex == _settingsTabIndex,
-                onPressed: () => onSelected(_settingsTabIndex),
-                child: Icon(
-                  Symbols.settings,
-                  fill: selectedIndex == _settingsTabIndex ? 1 : 0,
-                  color: selectedIndex == _settingsTabIndex
-                      ? scheme.onSecondaryContainer
-                      : scheme.onSurfaceVariant,
-                ),
+                tooltip: 'more'.tr(),
+                onPressed: onOpenDrawer,
+                child: const Icon(Symbols.menu),
               ),
             ],
           ),
         ),
         destinations: [
-          NavigationRailDestination(
-            icon: const Icon(Symbols.view_kanban),
-            selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
-            label: Text('boards'.tr()),
-          ),
-          NavigationRailDestination(
-            icon: const Icon(Symbols.folder),
-            selectedIcon: const Icon(Symbols.folder, fill: 1),
-            label: Text('files'.tr()),
-          ),
-          NavigationRailDestination(
-            icon: const Icon(Symbols.mail),
-            selectedIcon: const Icon(Symbols.mail, fill: 1),
-            label: Text('mail'.tr()),
-          ),
-          const NavigationRailDestination(
-            icon: Icon(Symbols.sync),
-            selectedIcon: Icon(Symbols.sync, fill: 1),
-            label: Text('Flywheel'),
-          ),
+          for (final folder in _folders)
+            NavigationRailDestination(
+              icon: folder == 'inbox'
+                  ? _InboxRailIcon(unread: inboxUnread)
+                  : Icon(_folderIcon(folder)),
+              selectedIcon: folder == 'inbox'
+                  ? _InboxRailIcon(unread: inboxUnread, selected: true)
+                  : Icon(_folderIcon(folder), fill: 1),
+              label: Text(mailFolderLabel(folder)),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+IconData _folderIcon(String folder) => switch (folder) {
+  'sent' => Symbols.send,
+  'drafts' => Symbols.drafts,
+  'spam' => Symbols.report,
+  'trash' => Symbols.delete,
+  'archive' => Symbols.archive,
+  _ => Symbols.inbox,
+};
+
+/// Mail icon with an optional unread-count badge for rail/bottom-bar inboxes.
+class _InboxRailIcon extends StatelessWidget {
+  const _InboxRailIcon({required this.unread, this.selected = false});
+
+  final int unread;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Icon(
+      selected ? Symbols.mail : Symbols.mail_outline,
+      fill: selected ? 1 : 0,
+    );
+    if (unread <= 0) return icon;
+    return Badge(
+      label: Text(unread > 99 ? '99+' : '$unread'),
+      child: icon,
+    );
+  }
+}
+
+class _RailIconButton extends StatelessWidget {
+  const _RailIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(width: 48, height: 48, child: Center(child: child)),
+        ),
       ),
     );
   }
@@ -684,37 +918,6 @@ class _WebSocketIndicator extends ConsumerWidget {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RailIconButton extends StatelessWidget {
-  const _RailIconButton({
-    required this.tooltip,
-    required this.selected,
-    required this.onPressed,
-    required this.child,
-  });
-
-  final String tooltip;
-  final bool selected;
-  final VoidCallback onPressed;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: selected ? scheme.secondaryContainer : Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: SizedBox(width: 48, height: 48, child: Center(child: child)),
         ),
       ),
     );
