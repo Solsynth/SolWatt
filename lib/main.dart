@@ -105,20 +105,23 @@ Future<void> main() async {
   );
 }
 
-class SolWattApp extends StatelessWidget {
+class SolWattApp extends ConsumerWidget {
   const SolWattApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(appThemeModeProvider);
+    final accentSeed =
+        Color(ref.watch(appAccentColorProvider) ?? kSolWattSeedColor.toARGB32());
     IslandUIFoundation.configureOverlay(globalOverlay);
     IslandUIFoundation.configureNavigator(appRouter.navigatorKey);
 
     return MaterialApp.router(
       title: 'SolWatt',
       debugShowCheckedModeBanner: false,
-      theme: createSolWattTheme(Brightness.light),
-      darkTheme: createSolWattTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      theme: createSolWattTheme(Brightness.light, seedColor: accentSeed),
+      darkTheme: createSolWattTheme(Brightness.dark, seedColor: accentSeed),
+      themeMode: themeMode,
       supportedLocales: context.supportedLocales,
       localizationsDelegates: [
         ...context.localizationDelegates,
@@ -1045,9 +1048,19 @@ class ProfilePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Nested stack host: settings and about push onto the profile tab instead
+    // of replacing the whole shell (mirrors MailPage hosting its children).
+    return const AutoRouter();
+  }
+}
+
+@RoutePage()
+class ProfileHomePage extends ConsumerWidget {
+  const ProfileHomePage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
-    final session = ref.watch(authSessionProvider);
-    final user = ref.watch(userInfoProvider).value;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -1121,52 +1134,48 @@ class ProfilePage extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Connection status and sign-out, merged in from the former
-                // Settings page.
+                SectionHeader(title: 'appSettingsGroup'.tr()),
+                const SizedBox(height: 8),
                 Card(
                   child: Column(
                     children: [
                       ListTile(
-                        leading: IconBadge(
-                          icon: session.value == null
-                              ? Symbols.lock
-                              : Symbols.verified_user,
-                          selected: session.value != null,
-                        ),
-                        title: Text(
-                          session.value == null
-                              ? 'notSignedIn'.tr()
-                              : 'connectedToSolarNetwork'.tr(),
-                        ),
-                        subtitle: Text(
-                          user == null
-                              ? 'oauthDescription'.tr()
-                              : '@${user.name}',
-                        ),
+                        leading: const IconBadge(icon: Symbols.settings),
+                        title: Text('settings'.tr()),
+                        subtitle: Text('settingsSubtitle'.tr()),
+                        trailing: const Icon(Symbols.chevron_right),
+                        onTap: () =>
+                            context.router.push(const AppSettingsRoute()),
                       ),
-                      Divider(
-                        height: 1,
-                        indent: 16,
-                        endIndent: 16,
-                        color: scheme.outlineVariant,
-                      ),
+                      const Divider(height: 1),
                       ListTile(
-                        leading: const IconBadge(icon: Symbols.logout),
-                        title: Text('signOutAction'.tr()),
-                        subtitle: Text('signOutDescription'.tr()),
-                        onTap: () async {
-                          await ref.read(authenticatorProvider).clear();
-                          await clearSelectedWorkspace(
-                            ref.read(secureStorageProvider),
-                          );
-                          invalidateSessionScope(ref);
-                          if (!context.mounted) return;
-                          context.router.replaceAll([
-                            const PageRouteInfo(gateRouteName),
-                          ]);
-                        },
+                        leading: const IconBadge(icon: Symbols.info),
+                        title: Text('about'.tr()),
+                        subtitle: Text('aboutSubtitle'.tr()),
+                        trailing: const Icon(Symbols.chevron_right),
+                        onTap: () => context.router.push(const AboutRoute()),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Sign-out, merged in from the former Settings page.
+                Card(
+                  child: ListTile(
+                    leading: const IconBadge(icon: Symbols.logout),
+                    title: Text('signOutAction'.tr()),
+                    subtitle: Text('signOutDescription'.tr()),
+                    onTap: () async {
+                      await ref.read(authenticatorProvider).clear();
+                      await clearSelectedWorkspace(
+                        ref.read(secureStorageProvider),
+                      );
+                      invalidateSessionScope(ref);
+                      if (!context.mounted) return;
+                      context.router.replaceAll([
+                        const PageRouteInfo(gateRouteName),
+                      ]);
+                    },
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -1189,28 +1198,6 @@ class ProfilePage extends ConsumerWidget {
               onActivate: (workspace) async {
                 await activateWorkspaceAction(ref, workspace);
               },
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () async {
-                    await clearSelectedWorkspace(
-                      ref.read(secureStorageProvider),
-                    );
-                    invalidateWorkspaceScope(ref);
-                    if (!context.mounted) return;
-                    context.router.replaceAll([
-                      const PageRouteInfo(gateRouteName),
-                    ]);
-                  },
-                  icon: const Icon(Symbols.logout, size: 18),
-                  label: Text('leaveWorkspace'.tr()),
-                ),
-              ),
             ),
           ),
         ],

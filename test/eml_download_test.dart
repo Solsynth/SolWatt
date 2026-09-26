@@ -11,6 +11,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
@@ -92,12 +93,14 @@ void main() {
       );
 
       final fakeClient = _FakeMailClient();
+      final prefs = await SharedPreferences.getInstance();
 
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1.0;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
             appAccessProvider.overrideWith(
               (ref) => const AsyncValue.data(AppAccess.ready),
             ),

@@ -11,6 +11,38 @@
 part of 'route.dart';
 
 /// generated route for
+/// [AboutPage]
+class AboutRoute extends PageRouteInfo<void> {
+  const AboutRoute({List<PageRouteInfo>? children})
+    : super(AboutRoute.name, initialChildren: children);
+
+  static const String name = 'AboutRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const AboutPage();
+    },
+  );
+}
+
+/// generated route for
+/// [AppSettingsPage]
+class AppSettingsRoute extends PageRouteInfo<void> {
+  const AppSettingsRoute({List<PageRouteInfo>? children})
+    : super(AppSettingsRoute.name, initialChildren: children);
+
+  static const String name = 'AppSettingsRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const AppSettingsPage();
+    },
+  );
+}
+
+/// generated route for
 /// [AppShellPage]
 class AppShellRoute extends PageRouteInfo<void> {
   const AppShellRoute({List<PageRouteInfo>? children})
@@ -342,6 +374,22 @@ class MailSettingsRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const MailSettingsPage();
+    },
+  );
+}
+
+/// generated route for
+/// [ProfileHomePage]
+class ProfileHomeRoute extends PageRouteInfo<void> {
+  const ProfileHomeRoute({List<PageRouteInfo>? children})
+    : super(ProfileHomeRoute.name, initialChildren: children);
+
+  static const String name = 'ProfileHomeRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const ProfileHomePage();
     },
   );
 }

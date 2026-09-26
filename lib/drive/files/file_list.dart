@@ -129,9 +129,6 @@ class FileListScreen extends HookConsumerWidget {
       visibleFileIdsStates[id] = ValueNotifier(<String>{});
       recycledStates[id] = ValueNotifier(false);
       queryStates[id] = ValueNotifier(null);
-      ref
-          .read(driveWorkspaceIdProvider(id).notifier)
-          .setWorkspaceId(workspaceId);
     }
 
     void openFileTab(SnCloudFile file) {
@@ -156,9 +153,6 @@ class FileListScreen extends HookConsumerWidget {
           workspaceId: workspaceId,
         ),
       ];
-      ref
-          .read(driveWorkspaceIdProvider(id).notifier)
-          .setWorkspaceId(workspaceId);
       activeTabId.value = id;
     }
 
@@ -198,9 +192,6 @@ class FileListScreen extends HookConsumerWidget {
       visibleFileIdsStates[id] = ValueNotifier(<String>{});
       recycledStates[id] = ValueNotifier(false);
       queryStates[id] = ValueNotifier(null);
-      ref
-          .read(driveWorkspaceIdProvider(id).notifier)
-          .setWorkspaceId(selectedWorkspace);
     }
 
     Future<void> revealParentFolder(SnCloudFile file) async {
@@ -254,7 +245,6 @@ class FileListScreen extends HookConsumerWidget {
       visibleFileIdsStates.remove(tabId)?.dispose();
       recycledStates.remove(tabId)?.dispose();
       queryStates.remove(tabId)?.dispose();
-      ref.invalidate(driveWorkspaceIdProvider(tabId));
       invalidateIndexedDriveViews(ref, tabId);
       ref.invalidate(unindexedFileListFamilyProvider(tabId));
 
@@ -320,7 +310,7 @@ class FileListScreen extends HookConsumerWidget {
     final mode = activeTab == null ? null : modeStates[activeTab.id];
     final activeWorkspaceId = activeTab == null
         ? selectedWorkspaceId.value
-        : ref.watch(driveWorkspaceIdProvider(activeTab.id));
+        : activeTab.workspaceId;
     final activeWorkspaceSlug = activeWorkspaceId == null
         ? null
         : workspaceListAsync.asData?.value
@@ -343,9 +333,6 @@ class FileListScreen extends HookConsumerWidget {
                 : item,
           )
           .toList();
-      ref
-          .read(driveWorkspaceIdProvider(tab.id).notifier)
-          .setWorkspaceId(workspaceId);
       pathStates[tab.id]?.value = '/';
       poolStates[tab.id]?.value = null;
       selectedFileIdsStates[tab.id]?.value = <String>{};
@@ -425,28 +412,34 @@ class FileListScreen extends HookConsumerWidget {
       );
       if (match.isEmpty) return null;
 
-      selectedWorkspaceId.value = solWattSelected.id;
-      final id = DateTime.now().microsecondsSinceEpoch.toString();
-      tabs.value = [
-        _DriveFileTab(
-          id: id,
-          mode: FileListMode.normal,
-          workspaceId: solWattSelected.id,
-        ),
-      ];
-      activeTabId.value = id;
-      pathStates[id] = ValueNotifier('/');
-      modeStates[id] = ValueNotifier(FileListMode.normal);
-      poolStates[id] = ValueNotifier(null);
-      viewModeStates[id] = ValueNotifier(FileListViewMode.columns);
-      selectionModeStates[id] = ValueNotifier(false);
-      selectedFileIdsStates[id] = ValueNotifier(<String>{});
-      visibleFileIdsStates[id] = ValueNotifier(<String>{});
-      recycledStates[id] = ValueNotifier(false);
-      queryStates[id] = ValueNotifier(null);
-      ref
-          .read(driveWorkspaceIdProvider(id).notifier)
-          .setWorkspaceId(solWattSelected.id);
+      // Hooks run inside build: mutating tab state there is dropped (the
+      // element's dirty flag clears when the build ends) and riverpod rejects
+      // provider writes mid-build. Seed the first tab after the frame instead.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        if (tabs.value.isNotEmpty) return;
+        if (selectedWorkspaceId.value != null) return;
+
+        selectedWorkspaceId.value = solWattSelected.id;
+        final id = DateTime.now().microsecondsSinceEpoch.toString();
+        tabs.value = [
+          _DriveFileTab(
+            id: id,
+            mode: FileListMode.normal,
+            workspaceId: solWattSelected.id,
+          ),
+        ];
+        activeTabId.value = id;
+        pathStates[id] = ValueNotifier('/');
+        modeStates[id] = ValueNotifier(FileListMode.normal);
+        poolStates[id] = ValueNotifier(null);
+        viewModeStates[id] = ValueNotifier(FileListViewMode.columns);
+        selectionModeStates[id] = ValueNotifier(false);
+        selectedFileIdsStates[id] = ValueNotifier(<String>{});
+        visibleFileIdsStates[id] = ValueNotifier(<String>{});
+        recycledStates[id] = ValueNotifier(false);
+        queryStates[id] = ValueNotifier(null);
+      });
       return null;
     }, [solWattSelected, workspaceListAsync]);
 
@@ -633,6 +626,7 @@ class FileListScreen extends HookConsumerWidget {
                           : FileListView(
                               key: ValueKey(activeTab.id),
                               tabId: activeTab.id,
+                              workspaceId: activeWorkspaceId,
                               usage: usage,
                               quota: quota,
                               currentPath: currentPath,

@@ -10,6 +10,8 @@ import 'package:solwatt/gate/gate_page.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/settings/about_page.dart';
+import 'package:solwatt/settings/app_settings_page.dart';
 
 part 'route.gr.dart';
 
@@ -51,7 +53,14 @@ class AppRouter extends RootStackRouter {
         ),
         AutoRoute(page: FileListRoute.page),
         AutoRoute(page: FlywheelRoute.page),
-        AutoRoute(page: ProfileRoute.page),
+        AutoRoute(
+          page: ProfileRoute.page,
+          children: [
+            AutoRoute(page: ProfileHomeRoute.page, path: '', initial: true),
+            AutoRoute(page: AppSettingsRoute.page, path: 'settings'),
+            AutoRoute(page: AboutRoute.page, path: 'about'),
+          ],
+        ),
       ],
     ),
   ];

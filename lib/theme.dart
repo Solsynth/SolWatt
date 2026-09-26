@@ -30,9 +30,22 @@ abstract final class SolWattShapes {
 /// and Material Design 3 component guidance.
 const kSolWattSeedColor = Color(0xffd97706);
 
-ThemeData createSolWattTheme(Brightness brightness) {
+/// Selectable accent seed colors for the settings page. The first entry is the
+/// app default; tapping the active dot restores it (stores no override).
+const kAccentColorOptions = <Color>[
+  Color(0xffd97706), // amber (default)
+  Color(0xff0ea5e9), // sky
+  Color(0xff6366f1), // indigo
+  Color(0xff16a34a), // green
+  Color(0xffe11d48), // rose
+  Color(0xff7c3aed), // violet
+  Color(0xff0d9488), // teal
+  Color(0xfff43f5e), // crimson
+];
+
+ThemeData createSolWattTheme(Brightness brightness, {Color seedColor = kSolWattSeedColor}) {
   final colorScheme = ColorScheme.fromSeed(
-    seedColor: kSolWattSeedColor,
+    seedColor: seedColor,
     brightness: brightness,
   );
 

@@ -113,6 +113,8 @@ void main() {
     expect(tester.takeException(), isNull);
     // The bootstrap replaced the empty state with a drive tab.
     expect(find.text('driveNoOpenTabs'.tr()), findsNothing);
+    // The seeded tab's content replaced the workspace placeholder.
+    expect(find.text('driveIndexedEntryLabel'.tr()), findsNothing);
   });
 
   testWidgets('switching the selected workspace re-binds the drive tab', (

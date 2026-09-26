@@ -7,10 +7,12 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -62,6 +64,7 @@ final _conversation = <MailEmail>[
     threadId: 't-1',
     subject: 'Re: Release plan',
     body: 'Newest message body',
+    summary: 'Carol confirms the release ships Friday.',
     contentType: 'text/plain',
     isDraft: false,
     from: MailRecipient(address: 'carol@example.com', name: 'Carol'),
@@ -132,6 +135,7 @@ void main() {
         'thread_id': 't-9',
         'subject': 'Re: Release plan',
         'body': 'Newest body',
+        'summary': 'Carol confirms the release ships Friday.',
         'is_read': false,
         'from': {'address': 'carol@example.com', 'name': 'Carol'},
         'recipients': [
@@ -148,6 +152,7 @@ void main() {
     expect(thread.participants, ['carol@example.com', 'bob@example.com']);
     expect(thread.latestMessage.id, 'e-9');
     expect(thread.latestMessage.threadKey, 't-9');
+    expect(thread.latestMessage.summary, 'Carol confirms the release ships Friday.');
     expect(thread.latestAt?.toUtc(), DateTime.utc(2026, 9, 25, 10));
   });
 
@@ -166,11 +171,13 @@ void main() {
       );
 
       final client = _FakeMailClient();
+      final prefs = await SharedPreferences.getInstance();
       tester.view.physicalSize = const Size(1200, 800);
       tester.view.devicePixelRatio = 1.0;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
             appAccessProvider.overrideWith(
               (ref) => const AsyncValue.data(AppAccess.ready),
             ),
@@ -183,8 +190,8 @@ void main() {
             mailCredentialsProvider.overrideWith(
               (ref) async => const <MailCredential>[],
             ),
-            mailSenderAvatarUrlsProvider.overrideWith(
-              (ref) async => const <String, String>{},
+            mailSenderIndexProvider.overrideWith(
+              (ref) async => const <String, MailAddressSuggestion>{},
             ),
             threadsProvider.overrideWith(
               (ref, query) async =>
@@ -236,6 +243,12 @@ void main() {
       // The row previews the newest message's body, so before the pane
       // switches away that text is on screen twice: row and body.
       expect(find.text('Newest message body'), findsNWidgets(2));
+      // The assistant's summary for the opened message reads in the pane.
+      expect(find.text('AI summary'), findsOneWidget);
+      expect(
+        find.text('Carol confirms the release ships Friday.'),
+        findsOneWidget,
+      );
 
       // The pane lists the whole conversation; switching a chip swaps the body
       // to that message.
@@ -250,6 +263,10 @@ void main() {
       expect(find.text('Oldest message body'), findsOneWidget);
       // Only the row preview is left of the newest message.
       expect(find.text('Newest message body'), findsOneWidget);
+      // The switched-to message carries no summary, so the block goes away
+      // with the message it summarized.
+      expect(find.text('AI summary'), findsNothing);
+      expect(find.text('Carol confirms the release ships Friday.'), findsNothing);
     },
   );
 }

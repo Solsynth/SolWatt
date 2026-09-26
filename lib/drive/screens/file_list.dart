@@ -22,25 +22,6 @@ final indexedCloudFileListProvider = indexedCloudFileListFamilyProvider(
   'default',
 );
 
-/// Workspace selection state for each drive tab.
-class DriveWorkspaceIdNotifier extends Notifier<String?> {
-  DriveWorkspaceIdNotifier(this.tabId);
-  final String tabId;
-
-  @override
-  String? build() => null;
-
-  void setWorkspaceId(String? workspaceId) {
-    if (state == workspaceId) return;
-    state = workspaceId;
-  }
-}
-
-final driveWorkspaceIdProvider =
-    NotifierProvider.family<DriveWorkspaceIdNotifier, String?, String>(
-      DriveWorkspaceIdNotifier.new,
-    );
-
 /// Cache-busting token for the Miller-column browser path providers.
 class DriveBrowserEpoch extends Notifier<int> {
   DriveBrowserEpoch(this.tabId);

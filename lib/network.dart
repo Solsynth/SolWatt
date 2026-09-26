@@ -225,7 +225,7 @@ class SolarNetworkAuthenticator {
     );
     try {
       final response = await dio.get<Map<String, dynamic>>(
-        '/passport/accounts/me',
+        '/stargate/accounts/me',
       );
       final data = response.data;
       if (data == null) return null;
@@ -407,7 +407,7 @@ extension SnAccountUi on SnAccount {
 /// the account's automatically provisioned individual workspace.
 const bundledProRequiredPerkLevel = 3;
 
-/// Signed-in account plus [perkLevel] from `/passport/accounts/me`.
+/// Signed-in account plus [perkLevel] from `/stargate/accounts/me`.
 ///
 /// The SDK [SnAccount] model does not yet surface `perk_level`, so SolWatt
 /// reads it from the raw profile payload (with identifier fallback).
@@ -1318,6 +1318,151 @@ class WattEngineClient {
       '$kElecPostalBase/mail/host',
     );
     return (response.data?['host'] as String?)?.trim() ?? '';
+  }
+
+  // --- Mailbox settings: aliases, forwarding, quota -------------------------
+
+  Future<List<MailAlias>> listMailboxAliases(String mailboxId) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/mailboxes/$mailboxId/aliases',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailAlias.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<MailAlias> createMailboxAlias({
+    required String mailboxId,
+    required String customDomainId,
+    required String localPart,
+    String? name,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/mailboxes/$mailboxId/aliases',
+      data: {
+        'custom_domain_id': customDomainId,
+        'local_part': localPart,
+        if (name != null && name.trim().isNotEmpty) 'name': name,
+      },
+    );
+    return MailAlias.fromJson(response.data!);
+  }
+
+  Future<void> deleteMailboxAlias(String mailboxId, String aliasId) =>
+      _request<void>(
+        'DELETE',
+        '$kElecPostalBase/mailboxes/$mailboxId/aliases/$aliasId',
+      );
+
+  Future<List<MailForwarding>> listMailForwardings(String mailboxId) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/mailboxes/$mailboxId/forwarding',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MailForwarding.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+  }
+
+  Future<MailForwarding> createMailForwarding({
+    required String mailboxId,
+    required String aliasId,
+    required String destination,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/mailboxes/$mailboxId/forwarding',
+      data: {'alias_id': aliasId, 'destination': destination},
+    );
+    return MailForwarding.fromJson(response.data!);
+  }
+
+  Future<void> deleteMailForwarding(String mailboxId, String forwardingId) =>
+      _request<void>(
+        'DELETE',
+        '$kElecPostalBase/mailboxes/$mailboxId/forwarding/$forwardingId',
+      );
+
+  Future<MailboxQuota> getMailboxQuota(String mailboxId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/mailboxes/$mailboxId/quota',
+    );
+    return MailboxQuota.fromJson(response.data ?? const {});
+  }
+
+  // --- Blocklist and notification preferences -------------------------------
+
+  Future<List<MailBlockRule>> listBlockRules() async {
+    final response = await _get<List<dynamic>>('$kElecPostalBase/blocklist');
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailBlockRule.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<MailBlockRule> createBlockRule({
+    required String scope,
+    String? workspaceId,
+    String? mailboxId,
+    required String pattern,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/blocklist',
+      data: {
+        'scope': scope,
+        if (workspaceId != null && workspaceId.isNotEmpty)
+          'workspace_id': workspaceId,
+        if (mailboxId != null && mailboxId.isNotEmpty)
+          'mailbox_id': mailboxId,
+        'pattern': pattern,
+      },
+    );
+    return MailBlockRule.fromJson(response.data!);
+  }
+
+  Future<void> deleteBlockRule(String ruleId) =>
+      _request<void>('DELETE', '$kElecPostalBase/blocklist/$ruleId');
+
+  Future<MailNotificationSettings> getNotificationSettings() async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/settings/notifications',
+    );
+    return MailNotificationSettings.fromJson(response.data ?? const {});
+  }
+
+  Future<MailNotificationSettings> updateNotificationSettings({
+    bool? highlight,
+    bool? summarize,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '$kElecPostalBase/settings/notifications',
+      data: {
+        'highlight': ?highlight,
+        'summarize': ?summarize,
+      },
+    );
+    return MailNotificationSettings.fromJson(response.data ?? const {});
+  }
+
+  Future<List<MailCustomDomain>> listCustomDomains({
+    required String workspaceId,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/custom-domains',
+      queryParameters: {'workspace_id': workspaceId},
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MailCustomDomain.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
   }
 
   PaginatedResult<MailThread> _parseThreadPage(
@@ -2787,6 +2932,7 @@ class MailEmail {
     this.lastDeliveryAttemptAt,
     this.deliveryError,
     this.providerMessageId,
+    this.summary,
   });
 
   final String id;
@@ -2824,6 +2970,15 @@ class MailEmail {
   final DateTime? lastDeliveryAttemptAt;
   final String? deliveryError;
   final String? providerMessageId;
+
+  /// Assistant-generated summary of the message (ElecPostal's `summary`), null
+  /// for messages the account never summarized — the feature is opt-in, and a
+  /// message carrying a verification code or security event is never sent to
+  /// the agent either.
+  ///
+  /// Listings reuse the same text as the message's `body` preview, so a list
+  /// row already shows it while the detail pane has the full body to read.
+  final String? summary;
 
   bool get hasDeliveryStatus =>
       deliveryStatus != null && deliveryStatus!.isNotEmpty;
@@ -2917,6 +3072,7 @@ class MailEmail {
       providerMessageId: nonEmptyString(
         json['provider_message_id']?.toString(),
       ),
+      summary: nonEmptyString(json['summary']?.toString()),
     );
   }
 }
@@ -3089,6 +3245,163 @@ class MailCredentialCreated {
       secret: json['secret']?.toString() ?? '',
     );
   }
+}
+
+/// One address assigned to a mailbox on a verified workspace custom domain.
+class MailAlias {
+  const MailAlias({
+    required this.id,
+    required this.mailboxId,
+    required this.customDomainId,
+    required this.address,
+    this.name,
+    this.createdAt,
+  });
+
+  final String id;
+  final String mailboxId;
+  final String customDomainId;
+  final String address;
+  final String? name;
+  final DateTime? createdAt;
+
+  factory MailAlias.fromJson(Map<String, dynamic> json) => MailAlias(
+    id: json['id']?.toString() ?? '',
+    mailboxId: json['mailbox_id']?.toString() ?? '',
+    customDomainId: json['custom_domain_id']?.toString() ?? '',
+    address: json['address']?.toString() ?? '',
+    name: nonEmptyString(json['name']?.toString()),
+    createdAt: parseInstant(json['created_at']),
+  );
+}
+
+/// Forwards mail received through one alias to an external address.
+class MailForwarding {
+  const MailForwarding({
+    required this.id,
+    required this.mailboxId,
+    required this.aliasId,
+    required this.destination,
+    this.createdAt,
+  });
+
+  final String id;
+  final String mailboxId;
+  final String aliasId;
+  final String destination;
+  final DateTime? createdAt;
+
+  factory MailForwarding.fromJson(Map<String, dynamic> json) =>
+      MailForwarding(
+        id: json['id']?.toString() ?? '',
+        mailboxId: json['mailbox_id']?.toString() ?? '',
+        aliasId: json['alias_id']?.toString() ?? '',
+        destination: json['destination']?.toString() ?? '',
+        createdAt: parseInstant(json['created_at']),
+      );
+}
+
+/// Workspace-shared mail storage usage and its plan limit.
+class MailboxQuota {
+  const MailboxQuota({
+    required this.workspaceId,
+    this.usedBytes = 0,
+    this.limitBytes = 0,
+    this.remainingBytes = 0,
+  });
+
+  final String workspaceId;
+  final int usedBytes;
+  final int limitBytes;
+  final int remainingBytes;
+
+  factory MailboxQuota.fromJson(Map<String, dynamic> json) => MailboxQuota(
+    workspaceId: json['workspace_id']?.toString() ?? '',
+    usedBytes: (json['used_bytes'] as num?)?.toInt() ?? 0,
+    limitBytes: (json['limit_bytes'] as num?)?.toInt() ?? 0,
+    remainingBytes: (json['remaining_bytes'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// Block rule keeping a sender or domain out of a mailbox or workspace.
+class MailBlockRule {
+  const MailBlockRule({
+    required this.id,
+    required this.accountId,
+    this.workspaceId,
+    this.mailboxId,
+    required this.pattern,
+    required this.matchType,
+    this.createdAt,
+  });
+
+  final String id;
+  final String accountId;
+  final String? workspaceId;
+  final String? mailboxId;
+  final String pattern;
+  final String matchType;
+  final DateTime? createdAt;
+
+  factory MailBlockRule.fromJson(Map<String, dynamic> json) => MailBlockRule(
+    id: json['id']?.toString() ?? '',
+    accountId: json['account_id']?.toString() ?? '',
+    workspaceId: json['workspace_id']?.toString(),
+    mailboxId: json['mailbox_id']?.toString(),
+    pattern: json['pattern']?.toString() ?? '',
+    matchType: json['match_type']?.toString() ?? 'address',
+    createdAt: parseInstant(json['created_at']),
+  );
+}
+
+/// Account-level incoming-mail notification preferences.
+class MailNotificationSettings {
+  const MailNotificationSettings({
+    required this.accountId,
+    this.highlight = true,
+    this.summarize = false,
+  });
+
+  final String accountId;
+  final bool highlight;
+  final bool summarize;
+
+  factory MailNotificationSettings.fromJson(Map<String, dynamic> json) =>
+      MailNotificationSettings(
+        accountId: json['account_id']?.toString() ?? '',
+        highlight: json['highlight'] != false,
+        summarize: json['summarize'] == true,
+      );
+}
+
+/// Workspace-owned SES sending domain. The client only reads these to pick a
+/// domain when creating a mailbox alias; domain management stays server-side.
+class MailCustomDomain {
+  const MailCustomDomain({
+    required this.id,
+    required this.workspaceId,
+    required this.domain,
+    this.verificationStatus,
+    this.verifiedForSending = false,
+    this.stage,
+  });
+
+  final String id;
+  final String workspaceId;
+  final String domain;
+  final String? verificationStatus;
+  final bool verifiedForSending;
+  final String? stage;
+
+  factory MailCustomDomain.fromJson(Map<String, dynamic> json) =>
+      MailCustomDomain(
+        id: json['id']?.toString() ?? '',
+        workspaceId: json['workspace_id']?.toString() ?? '',
+        domain: json['domain']?.toString() ?? '',
+        verificationStatus: json['verification_status']?.toString(),
+        verifiedForSending: json['verified_for_sending_status'] == true,
+        stage: json['stage']?.toString(),
+      );
 }
 
 /// Outcome of one message in an import batch, mirroring the ElecPostal
@@ -3753,25 +4066,27 @@ final mailAddressSuggestionsProvider =
       return client.listContacts(query: request.query);
     });
 
-/// Sender-avatar lookup keyed by lowercase address, from the senders index.
+/// The senders index, keyed by lowercase address: everything the server knows
+/// about the addresses a message talks about.
 ///
-/// The emails endpoint does not carry avatar data, so the list joins against
-/// the senders index the same way the compose autocomplete does. Unknown
-/// senders fall back to initials in the tile. A failure degrades to an empty
-/// map so the mail list never depends on avatar resolution.
-final mailSenderAvatarUrlsProvider = FutureProvider<Map<String, String>>(
-  (ref) async {
-    final client = ref.watch(wattEngineClientProvider);
-    final senders = await client
-        .listSenders(query: '', take: 200)
-        .catchError((_) => const <MailAddressSuggestion>[]);
-    return {
-      for (final sender in senders)
-        if (sender.avatarUrl.isNotEmpty)
-          sender.address.trim().toLowerCase(): sender.avatarUrl,
-    };
-  },
-);
+/// The emails endpoint carries no avatar or contact data, so the list, the
+/// conversation strip and the message header all join against this index the
+/// same way compose autocomplete does — which is also how an address that is an
+/// alias of one of the account's own mailboxes is recognised (`alias`), and how
+/// a sender gets a name the message itself did not carry. A failure degrades to
+/// an empty map so mail never depends on it.
+final mailSenderIndexProvider =
+    FutureProvider<Map<String, MailAddressSuggestion>>((ref) async {
+      final client = ref.watch(wattEngineClientProvider);
+      final senders = await client
+          .listSenders(query: '', take: 200)
+          .catchError((_) => const <MailAddressSuggestion>[]);
+      return {
+        for (final sender in senders)
+          if (sender.address.trim().isNotEmpty)
+            sender.address.trim().toLowerCase(): sender,
+      };
+    });
 
 /// Thread page request: the active mail-list filter plus how many
 /// conversations to show. The list grows [take] rather than paging offsets so
@@ -3827,6 +4142,45 @@ final mailCredentialsProvider = FutureProvider<List<MailCredential>>(
 /// Configured canonical mail domain from ElecPostal (e.g. "example.com").
 final mailHostProvider = FutureProvider<String>(
   (ref) async => ref.watch(wattEngineClientProvider).getMailHost(),
+);
+
+/// Per-mailbox alias addresses (`GET /postal/mailboxes/{id}/aliases`).
+final mailboxAliasesProvider = FutureProvider.family<List<MailAlias>, String>(
+  (ref, mailboxId) async =>
+      ref.watch(wattEngineClientProvider).listMailboxAliases(mailboxId),
+);
+
+/// Per-mailbox alias forwarding rules (`GET /postal/mailboxes/{id}/forwarding`).
+final mailboxForwardingsProvider =
+    FutureProvider.family<List<MailForwarding>, String>(
+      (ref, mailboxId) async =>
+          ref.watch(wattEngineClientProvider).listMailForwardings(mailboxId),
+    );
+
+/// Workspace-shared mail storage usage for a mailbox's workspace.
+final mailboxQuotaProvider = FutureProvider.family<MailboxQuota, String>(
+  (ref, mailboxId) async =>
+      ref.watch(wattEngineClientProvider).getMailboxQuota(mailboxId),
+);
+
+/// Sender/domain block rules for the account.
+final mailBlockRulesProvider = FutureProvider<List<MailBlockRule>>(
+  (ref) async => ref.watch(wattEngineClientProvider).listBlockRules(),
+);
+
+/// Account-level incoming-mail notification preferences.
+final mailNotificationSettingsProvider =
+    FutureProvider<MailNotificationSettings>(
+      (ref) async =>
+          ref.watch(wattEngineClientProvider).getNotificationSettings(),
+    );
+
+/// Workspace-owned custom domains, used to pick a domain for new aliases.
+final customDomainsProvider = FutureProvider.family<List<MailCustomDomain>, String>(
+  (ref, workspaceId) async =>
+      ref.watch(wattEngineClientProvider).listCustomDomains(
+        workspaceId: workspaceId,
+      ),
 );
 
 /// Logic layer for `.eml`/`.mbox` mail import: parsing, attachment upload to

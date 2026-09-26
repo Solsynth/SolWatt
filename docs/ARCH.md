@@ -194,8 +194,66 @@ directly, so the mail tab is conversation-first:
   conversation (`GET /postal/threads/{id}`). Only the selected message's body
   is mounted, because the HTML body is a platform web view that owns the wheel
   over its area.
+- Messages ElecPostal's assistant summarized carry the text as `summary`; the
+  listing reuses it as the message's `body` preview, so a row already reads as
+  the summary while the detail pane holds the full body. The pane's header also
+  shows it (`MailEmail.summary` → `_EmailAiSummary`), an "AI summary" block
+  above the recipient metadata, so a reader gets the gist before scrolling into
+  the body. Summarization is opt-in per account, and a message carrying a
+  verification code or security event is never sent to the agent, so `summary`
+  is null for most mail and the header leaves no gap for it.
+- Text-only bodies render as `EmailPlainTextBody` (`lib/mail/mail_screen.dart`)
+  rather than in the web view. `emailPlainTextRuns` recognises the two shapes a
+  plain body can carry —
+  `http(s)://`/`www.` URLs and bare email addresses — and the widget draws them
+  in the theme's link colour with a tap target that goes through
+  `openEmailLink`, the same external launcher the web view uses for a sender's
+  `<a href>`. Punctuation the sentence adds after a URL stays in the copy, and
+  bare hostnames (`notes.md`, `v1.2.3`) stay unlinked: plain text carries no
+  markup saying which dotted word is a host.
+- Sender and recipients read as chips (`EmailRecipientRow` +
+  `EmailRecipientChip`): label, then one chip per contact carrying its avatar
+  and display name. The full address is off the chip — in its tooltip, and in
+  the menu a click opens, next to the copy action — so the header reads as
+  names without hiding the address.
+- Who a contact *is* comes from two sources, in order: the message payload,
+  then the senders index (`mailSenderIndexProvider`, `GET
+  /postal/addresses/senders`, keyed by the lowercase address the chip displays
+  with the mail host appended). That second source is what names an address the
+  message left anonymous — an address that is an alias of one of the account's
+  own mailboxes arrives with `alias` set and carries the name the index knows —
+  and it is where avatars come from (`emailAvatarUrl`): a picture the contact
+  or their server chose, never Gravatar's stand-in for an address without a
+  Gravatar account, which would say nothing about the contact. Failing both,
+  the chip shows the address over the contact's initial.
+- HTML bodies are repaired for dark mode before they render
+  (`withReadableEmailColors`, `lib/mail/email_contrast.dart`). A message with
+  no stylesheet of its own renders on the reading pane, but its inline colours
+  were chosen against a white page: a plain `color:#333` header measured 1.3:1
+  on the dark pane — present, unreadable. The pass rewrites the colour
+  declarations that fail WCAG AA against the surface they actually sit on,
+  lifting them along their own hue until they reach 7:1; everything else is
+  passed through byte for byte. Colours the sender paired with a background of
+  their own, anything under a painted image, unparseable values, and messages
+  that ship a stylesheet (whose cascade cannot be evaluated here) are left
+  alone.
+- The composer's header is one boxed field per row — from, to, (cc/bcc),
+  subject — sharing `_CompactLabeledField`: the app's outlined input box, sized
+  to one line plus the field's own padding so the caret sits centered instead of
+  being squeezed against the top, with the label outside on the left. The
+  cc/bcc toggle rides inside the To box as its suffix icon.
+- Recipients are chips, not a comma-separated string:
+  `_ComposeRecipientField` reuses `EmailRecipientChip` (with `onDeleted` for
+  the composer's remove button) over an inline address field with the senders
+  index behind it. Enter, a typed separator, a pasted list and a picked
+  suggestion all commit a chip; backspace in the empty field takes the last one
+  back; an address left uncommitted still goes out with the message. Each row
+  carries its own role (`to`/`cc`/`bcc`) into the draft.
 - Replies carry `reply_to_id`; ElecPostal resolves the parent's thread, which
-  keeps the reply in the conversation.
+  keeps the reply in the conversation. The quoted body arrives as Quill embeds,
+  and the composer builds what it does not recognise
+  (`_ComposeUnknownEmbed`): a quoted `<img>` renders as an image instead of
+  failing the line that holds it.
 - Row actions (read, star, move, delete) apply to every message of the
   conversation, since the API only mutates one message at a time.
 - Attachments read where they are listed: `CloudFileAttachmentList`

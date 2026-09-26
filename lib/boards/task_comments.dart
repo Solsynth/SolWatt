@@ -114,11 +114,6 @@ class _TaskCommentsSectionState extends ConsumerState<TaskCommentsSection> {
             ),
           ],
         ),
-        Text(
-          'commentsDescription'.tr(),
-          style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
         comments.when(
           loading: () => const Padding(
             padding: EdgeInsets.symmetric(vertical: 16),

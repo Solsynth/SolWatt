@@ -42,3 +42,20 @@ class MailAddressSuggestion {
     return result == null || result.isEmpty ? null : result;
   }
 }
+
+/// The picture to show for [suggestion], or null when the caller's initials
+/// read better.
+///
+/// The index reports where an avatar came from, and an address without a
+/// Gravatar account still gets a URL there — Gravatar's own stand-in. A
+/// stand-in says nothing about the contact, so those fall through to initials;
+/// every picture the contact or their server actually chose is used as is.
+String? emailAvatarUrl(MailAddressSuggestion? suggestion) {
+  if (suggestion == null || suggestion.avatarUrl.isEmpty) return null;
+  return _isGravatarStandIn(suggestion) ? null : suggestion.avatarUrl;
+}
+
+/// Whether the index's avatar is Gravatar's stand-in rather than a picture the
+/// contact chose.
+bool _isGravatarStandIn(MailAddressSuggestion suggestion) =>
+    suggestion.avatarSource.trim().toLowerCase() == 'gravatar';

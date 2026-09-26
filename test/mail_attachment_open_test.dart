@@ -14,10 +14,12 @@ import 'package:solwatt/drive/widgets/cloud_files.dart'
     show CloudImageWidget, CloudVideoWidget;
 import 'package:solwatt/ui/cloud_files.dart' show CloudFileChip;
 import 'package:solwatt/drive/files/file_detail.dart';
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -138,9 +140,11 @@ void main() {
 
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
+    final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
           appAccessProvider.overrideWith(
             (ref) => const AsyncValue.data(AppAccess.ready),
           ),
@@ -153,8 +157,8 @@ void main() {
           mailCredentialsProvider.overrideWith(
             (ref) async => const <MailCredential>[],
           ),
-          mailSenderAvatarUrlsProvider.overrideWith(
-            (ref) async => const <String, String>{},
+          mailSenderIndexProvider.overrideWith(
+            (ref) async => const <String, MailAddressSuggestion>{},
           ),
           threadsProvider.overrideWith(
             (ref, query) async =>

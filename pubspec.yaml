@@ -69,6 +69,9 @@ dependencies:
       path: packages/solar_network_foundation
   file_picker: ^13.1.0
   http_parser: ^4.1.2
+  # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
+  # colours in place, which needs a real parse rather than a regex.
+  html: ^0.15.7
   url_launcher: ^6.3.2
   qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.3
@@ -86,6 +89,7 @@ dependencies:
   firebase_messaging: ^16.7.0
   flutter_local_notifications: ^22.3.1
   device_info_plus: ^13.2.0
+  package_info_plus: ^10.2.1
 
   # --- Drive (ported from Solian lib/drive, workspace-scoped) ---
   animations: ^3.0.0
@@ -152,6 +156,7 @@ flutter:
   assets:
     - assets/flywheel/maidkit.png
     - assets/images/media-offline.webp
+    - assets/icons/icon.png
     - assets/i18n/en-US.json
     - assets/i18n/zh-CN.json
 

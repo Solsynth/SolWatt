@@ -7,10 +7,12 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _workspace = Workspace(
   id: 'ws-1',
@@ -67,10 +69,12 @@ Future<void> _pumpApp(WidgetTester tester, Size size) async {
 
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
+  final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
       key: ValueKey('boards-${size.width}x${size.height}'),
       overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
         appAccessProvider.overrideWith(
           (ref) => const AsyncValue.data(AppAccess.ready),
         ),
@@ -85,8 +89,8 @@ Future<void> _pumpApp(WidgetTester tester, Size size) async {
           (ref, query) async =>
               const PaginatedResult<MailThread>(items: [], totalCount: 0),
         ),
-        mailSenderAvatarUrlsProvider.overrideWith(
-          (ref) async => const <String, String>{},
+        mailSenderIndexProvider.overrideWith(
+          (ref) async => const <String, MailAddressSuggestion>{},
         ),
         broadsProvider.overrideWith((ref) async => const [_roadmap, _chores]),
         tasksProvider.overrideWith((ref, request) async => _tasks),

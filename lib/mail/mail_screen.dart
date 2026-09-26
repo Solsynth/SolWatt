@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_saver/file_saver.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -18,6 +19,7 @@ import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 import 'package:solwatt/core/utils/file_types.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
+import 'package:solwatt/mail/email_contrast.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
@@ -1545,8 +1547,9 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
         message: 'noEmailsDescription'.tr(),
       );
     }
-    final senderAvatars =
-        ref.watch(mailSenderAvatarUrlsProvider).value ?? const <String, String>{};
+    final senders =
+        ref.watch(mailSenderIndexProvider).value ??
+        const <String, MailAddressSuggestion>{};
     final canLoadMore =
         widget.query.take < kMaxThreadTake && items.length < page.totalCount;
 
@@ -1577,7 +1580,7 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
             return _EmailThreadTile(
               thread: thread,
               mailHost: widget.mailHost,
-              senderAvatars: senderAvatars,
+              senders: senders,
               selected: thread.id == widget.selectedThreadId,
               onTap: () => widget.onOpen(thread),
               onToggleStar: () => widget.onToggleStar(thread),
@@ -1633,7 +1636,7 @@ class _EmailThreadTile extends StatelessWidget {
   const _EmailThreadTile({
     required this.thread,
     required this.mailHost,
-    required this.senderAvatars,
+    required this.senders,
     required this.onTap,
     required this.onToggleStar,
     required this.onToggleRead,
@@ -1644,7 +1647,7 @@ class _EmailThreadTile extends StatelessWidget {
 
   final MailThread thread;
   final String? mailHost;
-  final Map<String, String> senderAvatars;
+  final Map<String, MailAddressSuggestion> senders;
   final VoidCallback onTap;
   final VoidCallback onToggleStar;
   final VoidCallback onToggleRead;
@@ -1682,7 +1685,7 @@ class _EmailThreadTile extends StatelessWidget {
         selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
         shape: const RoundedRectangleBorder(),
         leading: _SenderAvatar(
-          url: senderAvatars[fromAddress.trim().toLowerCase()],
+          url: emailAvatarUrl(senders[fromAddress.trim().toLowerCase()]),
           name: from,
           unread: unread,
         ),
@@ -2178,9 +2181,9 @@ class _ThreadMessageStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final senderAvatars =
-        ref.watch(mailSenderAvatarUrlsProvider).value ??
-        const <String, String>{};
+    final senders =
+        ref.watch(mailSenderIndexProvider).value ??
+        const <String, MailAddressSuggestion>{};
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainer,
@@ -2201,7 +2204,7 @@ class _ThreadMessageStrip extends ConsumerWidget {
               selected: message.id == selectedId,
               showCheckmark: false,
               avatar: _SenderAvatar(
-                url: senderAvatars[address.trim().toLowerCase()],
+                url: emailAvatarUrl(senders[address.trim().toLowerCase()]),
                 name: from,
                 unread: !message.isRead,
               ),
@@ -2489,11 +2492,68 @@ class _EmailSummary extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
           ),
+          if (email.summary case final summary?) ...[
+            const SizedBox(height: 12),
+            _EmailAiSummary(summary: summary),
+          ],
           const SizedBox(height: 12),
           _EmailMetadata(
             email: email,
             mailHost: mailHost,
             dateStyle: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The assistant's summary of the message, above the recipient metadata.
+///
+/// ElecPostal generates it with the account's summarizer agent and stores it on
+/// the message; the same text is the message's list preview. It reads here as a
+/// distinct surface rather than as more header copy, so a reader can take in
+/// what the mail says before scrolling into the (uncollapsed) body.
+class _EmailAiSummary extends StatelessWidget {
+  const _EmailAiSummary({required this.summary});
+
+  final String summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Symbols.auto_awesome, size: 15, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                'aiSummary'.tr(),
+                style: text.labelMedium?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            summary,
+            style: text.bodyMedium?.copyWith(
+              color: scheme.onSecondaryContainer,
+              height: 1.35,
+            ),
           ),
         ],
       ),
@@ -2602,7 +2662,7 @@ class _EmailDetailContent extends StatelessWidget {
                 )
               : _PlainTextBodyScroll(
                   onScroll: onBodyScroll,
-                  child: _PlainTextEmailBody(
+                  child: EmailPlainTextBody(
                     body: email.body,
                     attachments: email.attachments,
                     workspaceId: attachmentWorkspaceId,
@@ -2786,12 +2846,138 @@ class _EmailFooter extends StatelessWidget {
 
 }
 
-class _PlainTextEmailBody extends StatelessWidget {
-  const _PlainTextEmailBody({
+/// One run of a plain-text message body: literal copy, or a link.
+///
+/// [text] is what the reader sees verbatim; [uri] is what a tap opens, and is
+/// null for ordinary copy.
+class EmailTextRun {
+  const EmailTextRun.text(this.text) : uri = null;
+
+  const EmailTextRun.link({required this.text, required this.uri});
+
+  final String text;
+  final Uri? uri;
+
+  bool get isLink => uri != null;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EmailTextRun && other.text == text && other.uri == uri;
+
+  @override
+  int get hashCode => Object.hash(text, uri);
+
+  @override
+  String toString() => uri == null ? 'text($text)' : 'link($text -> $uri)';
+}
+
+/// The two link shapes worth recognising in plain-text copy: an explicit
+/// `http(s)://` or `www.` URL, and a bare email address.
+///
+/// Bare hostnames (`notes.md`, `v1.2.3`) are deliberately left alone: a
+/// plain-text body carries no markup saying which dotted word is a host, and a
+/// wrong guess turns a filename into a click target.
+final _plainTextLinkPattern = RegExp(
+  "(?<url>(?:https?://|www\\.)[^\\s<>\"']+)"
+  "|(?<email>[A-Za-z0-9._%+\\-]+@[A-Za-z0-9\\-]+(?:\\.[A-Za-z0-9\\-]+)+)",
+  caseSensitive: false,
+);
+
+/// Splits [text] into the runs a plain-text body renders: literal copy plus
+/// the links and addresses in it.
+///
+/// Concatenating the runs' [EmailTextRun.text] reproduces [text] exactly, so
+/// the sentence punctuation that follows a link stays in the message instead of
+/// being swallowed by it, and no character of the sender's copy is lost.
+List<EmailTextRun> emailPlainTextRuns(String text) {
+  final runs = <EmailTextRun>[];
+  var cursor = 0;
+  for (final match in _plainTextLinkPattern.allMatches(text)) {
+    final isUrl = match.namedGroup('url') != null;
+    final label = isUrl ? _trimUrlTail(match.group(0)!) : match.group(0)!;
+    final uri = label.isEmpty ? null : _plainTextLinkUri(label, isUrl: isUrl);
+    // A shape that is not a usable target (`https://` on its own, say) stays
+    // part of the surrounding copy.
+    if (uri == null) continue;
+    if (match.start > cursor) {
+      runs.add(EmailTextRun.text(text.substring(cursor, match.start)));
+    }
+    runs.add(EmailTextRun.link(text: label, uri: uri));
+    cursor = match.start + label.length;
+  }
+  if (cursor < text.length) {
+    runs.add(EmailTextRun.text(text.substring(cursor)));
+  }
+  return runs;
+}
+
+/// Drops the punctuation a sentence puts after a URL: closing `.`, `,`, `;`,
+/// `:`, `!`, `?` and any bracket the URL itself does not open.
+///
+/// A URL is matched greedily from a character class, so the tail is the only
+/// place a sentence can bleed into it.
+String _trimUrlTail(String url) {
+  var end = url.length;
+  while (end > 0 && '.,;:!?'.contains(url[end - 1])) {
+    end--;
+  }
+  for (final pair in const [('(', ')'), ('[', ']'), ('{', '}')]) {
+    while (end > 0 && url[end - 1] == pair.$2) {
+      final candidate = url.substring(0, end);
+      if (pair.$2.allMatches(candidate).length <=
+          pair.$1.allMatches(candidate).length) {
+        break;
+      }
+      end--;
+    }
+  }
+  return url.substring(0, end);
+}
+
+/// Builds the target of a recognised link, or null when the match cannot be
+/// opened — the caller keeps such text as copy.
+Uri? _plainTextLinkUri(String label, {required bool isUrl}) {
+  if (!isUrl) {
+    final uri = Uri.tryParse('mailto:$label');
+    return uri == null || uri.path.isEmpty ? null : uri;
+  }
+  // `www.` is a host, not a scheme: the reader's browser needs one.
+  final candidate = label.toLowerCase().startsWith('www.')
+      ? 'https://$label'
+      : label;
+  final uri = Uri.tryParse(candidate);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return null;
+  }
+  return uri.host.isEmpty ? null : uri;
+}
+
+/// Opens a link from message copy in the user's own browser — or mail client,
+/// for `mailto:` — the same way the HTML viewer opens a sender's link.
+Future<void> openEmailLink(Uri uri) async {
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // No handler for the scheme: the tap simply does nothing.
+  }
+}
+
+/// Renders a plain-text message body, highlighting and linking the URLs and
+/// addresses in it.
+///
+/// The body arrives as text, so links are recognised by shape
+/// ([emailPlainTextRuns]) and drawn in the theme's link colour; a tap opens
+/// them like a link in an HTML message. Runs stay inside one [SelectableText]
+/// per copy block, so selection copies the message, link text included, in one
+/// sweep.
+class EmailPlainTextBody extends StatefulWidget {
+  const EmailPlainTextBody({
+    super.key,
     required this.body,
     required this.attachments,
     required this.workspaceId,
     this.style,
+    this.onOpenLink,
   });
 
   final String body;
@@ -2799,40 +2985,109 @@ class _PlainTextEmailBody extends StatelessWidget {
   final String? workspaceId;
   final TextStyle? style;
 
+  /// How a tapped link is opened; defaults to [openEmailLink].
+  final Future<void> Function(Uri uri)? onOpenLink;
+
+  @override
+  State<EmailPlainTextBody> createState() => _EmailPlainTextBodyState();
+}
+
+class _EmailPlainTextBodyState extends State<EmailPlainTextBody> {
   static final _imageMarker = RegExp(
     r'\[image:\s*([^\]\r\n]+)\]',
     caseSensitive: false,
   );
 
+  /// One recognizer per target, kept across builds: the body rebuilds on every
+  /// scroll report from its ancestors, and a fresh recognizer each build would
+  /// strand one gesture-arena entry per rebuild.
+  final _linkRecognizers = <Uri, TapGestureRecognizer>{};
+
+  @override
+  void didUpdateWidget(EmailPlainTextBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.body != widget.body) _disposeRecognizers();
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final recognizer in _linkRecognizers.values) {
+      recognizer.dispose();
+    }
+    _linkRecognizers.clear();
+  }
+
+  TapGestureRecognizer _recognizerFor(Uri uri) => _linkRecognizers.putIfAbsent(
+    uri,
+    () => TapGestureRecognizer()
+      ..onTap = () => unawaited((widget.onOpenLink ?? openEmailLink)(uri)),
+  );
+
+  /// Renders one stretch of copy between inline images as a single selectable
+  /// text, with its links as tappable spans.
+  Widget _textBlock(BuildContext context, String block) {
+    final style = widget.style;
+    final runs = emailPlainTextRuns(block);
+    if (runs.length == 1 && !runs.single.isLink) {
+      return SelectableText(runs.single.text, style: style);
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final linkStyle = (style ?? const TextStyle()).copyWith(
+      color: scheme.primary,
+      decoration: TextDecoration.underline,
+      decorationColor: scheme.primary.withValues(alpha: .4),
+    );
+    return SelectableText.rich(
+      TextSpan(
+        style: style,
+        children: [
+          for (final run in runs)
+            TextSpan(
+              text: run.text,
+              style: run.isLink ? linkStyle : null,
+              recognizer: run.isLink ? _recognizerFor(run.uri!) : null,
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (body.isEmpty) return SelectableText('(no body)', style: style);
+    final body = widget.body;
+    if (body.isEmpty) return SelectableText('(no body)', style: widget.style);
 
     final children = <Widget>[];
     var cursor = 0;
     for (final match in _imageMarker.allMatches(body)) {
       if (match.start > cursor) {
-        children.add(
-          SelectableText(body.substring(cursor, match.start), style: style),
-        );
+        children.add(_textBlock(context, body.substring(cursor, match.start)));
       }
       final filename = match.group(1)!.trim().toLowerCase();
-      final attachment = _imageAttachmentForFilename(attachments, filename);
+      final attachment = _imageAttachmentForFilename(
+        widget.attachments,
+        filename,
+      );
       // Drop markers with no matching attachment instead of showing the raw
       // preview-generation syntax in the message.
       if (attachment != null) {
         children.add(
           _InlineEmailImage(
             file: attachment,
-            workspaceId: workspaceId,
-            gallery: attachments,
+            workspaceId: widget.workspaceId,
+            gallery: widget.attachments,
           ),
         );
       }
       cursor = match.end;
     }
     if (cursor < body.length) {
-      children.add(SelectableText(body.substring(cursor), style: style));
+      children.add(_textBlock(context, body.substring(cursor)));
     }
 
     return Column(
@@ -2976,9 +3231,6 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   }
 
   Future<void> _prepareHtml() async {
-    // The typography stylesheet mirrors the app theme at render time; a theme
-    // switch while reading re-prepares it through [didChangeDependencies].
-    final css = emailTypographyCss(Theme.of(context));
     final imageFiles = <String, SnCloudFileReference>{
       for (final attachment in widget.attachments)
         if (isImageFile(attachment)) attachment.id: attachment,
@@ -3006,7 +3258,7 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     );
     if (!mounted) return;
     setState(() {
-      _preparedHtml = withEmailTypography(
+      _preparedHtml = readerEmailDocument(
         sanitizeEmailHtml(
           _replaceInlineImageReferences(
             widget.html,
@@ -3016,7 +3268,9 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
             resolvedImageUrls: urls,
           ),
         ),
-        css,
+        // The document mirrors the app theme at render time; a theme switch
+        // while reading re-prepares it through [didChangeDependencies].
+        Theme.of(context),
       );
     });
   }
@@ -3155,9 +3409,7 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
           return NavigationActionPolicy.ALLOW;
         }
         final url = navigationAction.request.url!;
-        try {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
-        } catch (_) {}
+        await openEmailLink(url);
         return NavigationActionPolicy.CANCEL;
       },
     );
@@ -3254,6 +3506,25 @@ String injectEmailTypography(String html, String css) {
 String withEmailTypography(String html, String css) {
   if (!isUnstyledEmailHtml(html)) return html;
   return injectEmailTypography(html, css);
+}
+
+/// The document the reading pane loads: the sender's markup with the app's
+/// typography stamped in, and — for a dark pane, which is the one colour
+/// assumption a message does not make — the text colours that would not read on
+/// it repaired.
+///
+/// A message that ships a stylesheet is returned with its own palette: its
+/// colours come from a cascade [withReadableEmailColors] cannot evaluate.
+String readerEmailDocument(String html, ThemeData theme) {
+  final body = theme.brightness == Brightness.dark && isUnstyledEmailHtml(html)
+      ? withReadableEmailColors(
+          html,
+          // The pane behind a transparent message body, and so the surface an
+          // inline colour has to read against.
+          backdrop: theme.colorScheme.surfaceContainerLow,
+        )
+      : html;
+  return withEmailTypography(body, emailTypographyCss(theme));
 }
 
 /// Default typography stylesheet for emails that carry no styling of their
@@ -3378,7 +3649,7 @@ SnCloudFileReference? _imageAttachmentForFilename(
   return null;
 }
 
-class _EmailMetadata extends StatelessWidget {
+class _EmailMetadata extends ConsumerWidget {
   const _EmailMetadata({
     required this.email,
     required this.mailHost,
@@ -3390,31 +3661,42 @@ class _EmailMetadata extends StatelessWidget {
   final TextStyle? dateStyle;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The message carries no contact data, so the header joins the senders
+    // index the same way the list does: that is where an address which is one
+    // of the account's own aliases, or a name the message dropped, is known. A
+    // missing entry just leaves the chip with the address and its initial.
+    final senders =
+        ref.watch(mailSenderIndexProvider).value ??
+        const <String, MailAddressSuggestion>{};
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _RecipientRow(
+        EmailRecipientRow(
           label: 'from'.tr(),
-          recipient: email.from,
+          recipients: email.from == null ? const [] : [email.from!],
           mailHost: mailHost,
+          senders: senders,
         ),
-        _RecipientRow(
+        EmailRecipientRow(
           label: 'to'.tr(),
           recipients: email.to,
           mailHost: mailHost,
+          senders: senders,
         ),
         if (email.cc.isNotEmpty)
-          _RecipientRow(
+          EmailRecipientRow(
             label: 'cc'.tr(),
             recipients: email.cc,
             mailHost: mailHost,
+            senders: senders,
           ),
         if (email.bcc.isNotEmpty)
-          _RecipientRow(
+          EmailRecipientRow(
             label: 'bcc'.tr(),
             recipients: email.bcc,
             mailHost: mailHost,
+            senders: senders,
           ),
         if (email.createdAt != null)
           Padding(
@@ -3429,49 +3711,248 @@ class _EmailMetadata extends StatelessWidget {
   }
 }
 
-class _RecipientRow extends StatelessWidget {
-  const _RecipientRow({
+/// One address row of the message header: its label, then a chip per contact.
+class EmailRecipientRow extends StatelessWidget {
+  const EmailRecipientRow({
+    super.key,
     required this.label,
-    this.recipient,
-    this.recipients,
+    required this.recipients,
     this.mailHost,
+    this.senders = const {},
   });
 
   final String label;
-  final MailRecipient? recipient;
-  final List<MailRecipient>? recipients;
+  final List<MailRecipient> recipients;
   final String? mailHost;
+
+  /// Senders-index entries, keyed by lowercase address.
+  final Map<String, MailAddressSuggestion> senders;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final list = recipients ?? (recipient == null ? const [] : [recipient!]);
-    final value = list
-        .map((r) {
-          final address = r.fullAddress(mailHost);
-          return r.name?.isNotEmpty == true ? '${r.name} <$address>' : address;
-        })
-        .join(', ');
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: RichText(
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        text: TextSpan(
-          style: text.bodyMedium,
-          children: [
-            TextSpan(
-              text: '$label ',
-              style: TextStyle(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Nudged onto the first chip's text line rather than its box.
+          Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Text(
+              label,
+              style: text.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w500,
               ),
             ),
-            TextSpan(text: value),
-          ],
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final recipient in recipients)
+                  EmailRecipientChip(
+                    recipient: recipient,
+                    mailHost: mailHost,
+                    sender: senders[recipient.fullAddress(mailHost)],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One contact as a chip: avatar and name, with the full address behind a tap.
+///
+/// The reading pane shows names, not addresses — a chip keeps the address one
+/// click away (the chip's tooltip already carries it for pointer users who
+/// never click) and offers copying it.
+///
+/// The message payload is the first source of a name and [sender] the second:
+/// a message that names nobody (your own alias among the recipients, say) still
+/// shows the identity the senders index holds for that address.
+class EmailRecipientChip extends StatelessWidget {
+  const EmailRecipientChip({
+    super.key,
+    required this.recipient,
+    required this.mailHost,
+    this.sender,
+    this.onDeleted,
+  });
+
+  final MailRecipient recipient;
+  final String? mailHost;
+
+  /// The senders-index entry for this address, when the index knows it.
+  final MailAddressSuggestion? sender;
+
+  /// Drops the chip when set, for callers that are editing the recipient list
+  /// rather than reading it.
+  final VoidCallback? onDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final address = recipient.fullAddress(mailHost);
+    final sent = recipient.name?.trim() ?? '';
+    final known = sender?.name?.trim() ?? '';
+    final name = sent.isNotEmpty ? sent : known;
+
+    return Tooltip(
+      message: address,
+      child: Material(
+        color: scheme.surfaceContainerHighest,
+        shape: StadiumBorder(side: BorderSide(color: scheme.outlineVariant)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _showAddress(context, address: address, name: name),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(4, 3, onDeleted == null ? 10 : 2, 3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ContactAvatar(
+                  url: emailAvatarUrl(sender),
+                  label: name.isEmpty ? address : name,
+                ),
+                const SizedBox(width: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 200),
+                  child: Text(
+                    name.isEmpty ? address : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                if (onDeleted != null) ...[
+                  const SizedBox(width: 2),
+                  IconButton(
+                    tooltip: 'removeRecipient'.tr(),
+                    onPressed: onDeleted,
+                    icon: const Icon(Symbols.close, size: 14),
+                    iconSize: 14,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
+                    style: IconButton.styleFrom(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+
+  /// Drops the chip's menu under the chip: the address, then Copy.
+  Future<void> _showAddress(
+    BuildContext context, {
+    required String address,
+    required String name,
+  }) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null || !box.hasSize) return;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    await showMenu<void>(
+      context: context,
+      position: RelativeRect.fromRect(
+        box.localToGlobal(Offset.zero, ancestor: overlay) & box.size,
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem<void>(
+          enabled: false,
+          height: 0,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (name.isNotEmpty)
+                Text(
+                  name,
+                  style: text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              SelectableText(
+                address,
+                style: text.bodySmall?.copyWith(color: scheme.onSurface),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<void>(
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: address));
+            showSnackBar('copied'.tr());
+          },
+          child: Row(
+            children: [
+              const Icon(Symbols.content_copy, size: 16),
+              const SizedBox(width: 10),
+              Text('copyAddress'.tr()),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The chip's 18px contact picture, falling back to the contact's initial.
+class _ContactAvatar extends StatelessWidget {
+  const _ContactAvatar({required this.url, required this.label});
+
+  final String? url;
+
+  /// Name — or address, when there is no name — the fallback initial reads
+  /// from.
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fallback = CircleAvatar(
+      radius: 9,
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      child: Text(
+        _senderInitials(label),
+        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+      ),
+    );
+    final picture = url;
+    if (picture == null || picture.isEmpty) return fallback;
+    return ClipOval(
+      child: Image.network(
+        picture,
+        width: 18,
+        height: 18,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
       ),
     );
   }
@@ -3536,11 +4017,15 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   final _subjectController = TextEditingController();
   final _quillController = QuillController.basic();
   final List<({String id, String name})> _attachments = [];
+  // Committed recipients, shown as chips; the controllers hold whatever is
+  // still being typed.
+  List<MailRecipient> _to = [];
+  List<MailRecipient> _cc = [];
+  List<MailRecipient> _bcc = [];
   var _showCcBcc = false;
   var _pickingAttachment = false;
   final _shortcutFocusNode = FocusNode();
   final _bodyFocusNode = FocusNode();
-  final Map<TextEditingController, FocusNode> _addressFocusNodes = {};
   MailMailbox? get _selectedMailbox =>
       widget.mailboxes.where((m) => m.id == _mailboxId).firstOrNull;
 
@@ -3552,23 +4037,25 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     final forwarding = widget.forwarding;
     if (replyingTo != null) {
       final from = replyingTo.from;
-      if (from != null) _toController.text = from.address;
+      if (from != null && from.address.trim().isNotEmpty) {
+        _to = [MailRecipient(address: from.address, name: from.name, kind: 'to')];
+      }
       if (widget.replyAll) {
-        final self = _selectedMailbox
-            ?.fullAddress(widget.mailHost)
-            .toLowerCase();
-        final others = [...replyingTo.to, ...replyingTo.cc]
-            .where(
-              (r) =>
-                  r.address.toLowerCase() != self &&
-                  r.address.toLowerCase() != from?.address.toLowerCase(),
-            )
-            .map((r) => r.address)
-            .where((a) => a.isNotEmpty)
-            .toSet();
-        if (others.isNotEmpty) {
-          _ccController.text = others.join(', ');
+        final self = _selectedMailbox?.fullAddress(widget.mailHost);
+        final seen = {from?.fullAddress(widget.mailHost), self};
+        final others = <MailRecipient>[];
+        for (final recipient in [...replyingTo.to, ...replyingTo.cc]) {
+          final address = recipient.fullAddress(widget.mailHost);
+          if (address.isEmpty || !seen.add(address)) continue;
+          others.add(
+            MailRecipient(
+              address: recipient.address,
+              name: recipient.name,
+              kind: 'cc',
+            ),
+          );
         }
+        _cc = others;
       }
       _subjectController.text = 'Re: ${replyingTo.displaySubject}';
       _quillController.document = Document.fromDelta(
@@ -3604,19 +4091,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     _quillController.dispose();
     _shortcutFocusNode.dispose();
     _bodyFocusNode.dispose();
-    for (final focusNode in _addressFocusNodes.values) {
-      focusNode.dispose();
-    }
     super.dispose();
-  }
-
-  List<MailRecipient> _parseRecipients(String text) {
-    return text
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .map((address) => MailRecipient(address: address, kind: 'to'))
-        .toList();
   }
 
   Future<void> _pickAttachment() async {
@@ -3640,93 +4115,16 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     }
   }
 
-  Widget _addressField(TextEditingController controller) =>
-      Autocomplete<MailAddressSuggestion>(
-        textEditingController: controller,
-        focusNode: _addressFocusNodes.putIfAbsent(controller, FocusNode.new),
-        optionsBuilder: (value) async {
-          final query = value.text.split(',').last.trim();
-          if (query.isEmpty) return const [];
-          try {
-            final suggestions = <String, MailAddressSuggestion>{};
-            for (final senders in [false, true]) {
-              final items = await ref.read(
-                mailAddressSuggestionsProvider((
-                  query: query,
-                  senders: senders,
-                )).future,
-              );
-              for (final item in items) {
-                suggestions.putIfAbsent(item.address.toLowerCase(), () => item);
-              }
-            }
-            return suggestions.values.toList(growable: false);
-          } catch (_) {
-            return const [];
-          }
-        },
-        onSelected: (option) {
-          final text = controller.text;
-          final comma = text.lastIndexOf(',');
-          final prefix = comma < 0 ? '' : text.substring(0, comma + 1);
-          final replacement = '$prefix${option.address}, ';
-          controller.value = TextEditingValue(
-            text: replacement,
-            selection: TextSelection.collapsed(offset: replacement.length),
-          );
-        },
-        optionsViewBuilder: (context, onSelected, options) => Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 6,
-            borderRadius: BorderRadius.circular(8),
-            clipBehavior: Clip.antiAlias,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280, maxWidth: 420),
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: options.length,
-                itemBuilder: (context, index) {
-                  final option = options.elementAt(index);
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 17,
-                      child: ClipOval(
-                        child: option.avatarUrl.isEmpty
-                            ? const Icon(Icons.person_outline, size: 18)
-                            : Image.network(
-                                option.avatarUrl,
-                                width: 34,
-                                height: 34,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    const Icon(Icons.person_outline, size: 18),
-                              ),
-                      ),
-                    ),
-                    title: Text(
-                      option.name ?? option.address,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      option.address,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () => onSelected(option),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      );
+  /// The chips committed in [field] plus an address still being typed there,
+  /// so a send never silently drops it.
+  List<MailRecipient> _recipients(
+    List<MailRecipient> committed,
+    TextEditingController field,
+    String kind,
+  ) => _mergeRecipients(committed, _parseRecipients(field.text, kind: kind));
 
   Future<void> _submit({bool draft = false}) async {
-    final to = _parseRecipients(_toController.text);
+    final to = _recipients(_to, _toController, 'to');
     if (to.isEmpty) {
       showSnackBar('recipientsRequired'.tr());
       return;
@@ -3735,8 +4133,8 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
       _MailDraft(
         mailboxId: _mailboxId,
         to: to,
-        cc: _parseRecipients(_ccController.text),
-        bcc: _parseRecipients(_bccController.text),
+        cc: _recipients(_cc, _ccController, 'cc'),
+        bcc: _recipients(_bcc, _bccController, 'bcc'),
         subject: _subjectController.text,
         body: QuillDeltaToHtmlConverter(
           _quillController.document.toDelta().toJson(),
@@ -3878,25 +4276,24 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                   children: [
                     _CompactLabeledField(
                       label: 'from'.tr(),
-                      field: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _mailboxId,
-                          isDense: true,
-                          isExpanded: true,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                          items: [
-                            for (final mailbox in widget.mailboxes)
-                              DropdownMenuItem(
-                                value: mailbox.id,
-                                child: Text(mailbox.displayName),
-                              ),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _mailboxId = value);
-                            }
-                          },
-                        ),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _mailboxId,
+                        isDense: true,
+                        isExpanded: true,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: _CompactLabeledField.decoration(),
+                        items: [
+                          for (final mailbox in widget.mailboxes)
+                            DropdownMenuItem(
+                              value: mailbox.id,
+                              child: Text(mailbox.displayName),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _mailboxId = value);
+                          }
+                        },
                       ),
                     ),
                     if (_selectedMailbox
@@ -3910,22 +4307,33 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                     const SizedBox(height: 8),
                     _CompactLabeledField(
                       label: 'to'.tr(),
-                      field: _addressField(_toController),
-                      suffix: IconButton(
-                        tooltip: 'ccBcc'.tr(),
-                        onPressed: () =>
-                            setState(() => _showCcBcc = !_showCcBcc),
-                        icon: Icon(
-                          _showCcBcc
-                              ? Symbols.expand_less
-                              : Symbols.expand_more,
-                          size: 18,
-                        ),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
+                      child: _ComposeRecipientField(
+                        controller: _toController,
+                        recipients: _to,
+                        kind: 'to',
+                        mailHost: widget.mailHost,
+                        onChanged: (recipients) =>
+                            setState(() => _to = recipients),
+                        // Sits inside the field's box, at its trailing edge.
+                        suffixIcon: IconButton(
+                          tooltip: 'ccBcc'.tr(),
+                          onPressed: () =>
+                              setState(() => _showCcBcc = !_showCcBcc),
+                          icon: Icon(
+                            _showCcBcc
+                                ? Symbols.expand_less
+                                : Symbols.expand_more,
+                            size: 18,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
                       ),
                     ),
@@ -3940,16 +4348,26 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                                 const SizedBox(height: 8),
                                 _CompactLabeledField(
                                   label: 'cc'.tr(),
-                                  field: _addressField(_ccController),
-                                  onSubmitted: (_) =>
-                                      FocusScope.of(context).nextFocus(),
+                                  child: _ComposeRecipientField(
+                                    controller: _ccController,
+                                    recipients: _cc,
+                                    kind: 'cc',
+                                    mailHost: widget.mailHost,
+                                    onChanged: (recipients) =>
+                                        setState(() => _cc = recipients),
+                                  ),
                                 ),
                                 const SizedBox(height: 8),
                                 _CompactLabeledField(
                                   label: 'bcc'.tr(),
-                                  field: _addressField(_bccController),
-                                  onSubmitted: (_) =>
-                                      FocusScope.of(context).nextFocus(),
+                                  child: _ComposeRecipientField(
+                                    controller: _bccController,
+                                    recipients: _bcc,
+                                    kind: 'bcc',
+                                    mailHost: widget.mailHost,
+                                    onChanged: (recipients) =>
+                                        setState(() => _bcc = recipients),
+                                  ),
                                 ),
                               ],
                             )
@@ -3958,9 +4376,15 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                     const SizedBox(height: 8),
                     _CompactLabeledField(
                       label: 'subject'.tr(),
-                      controller: _subjectController,
-                      style: textTheme.titleMedium,
-                      onSubmitted: (_) => _bodyFocusNode.requestFocus(),
+                      child: TextField(
+                        controller: _subjectController,
+                        style: textTheme.titleMedium,
+                        textInputAction: TextInputAction.next,
+                        decoration: _CompactLabeledField.decoration(),
+                        onSubmitted: (_) => _bodyFocusNode.requestFocus(),
+                        onTapOutside: (_) =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
+                      ),
                     ),
                   ],
                 ),
@@ -4026,6 +4450,9 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                         placeholder: 'body'.tr(),
                         expands: true,
                         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        // A quoted reply brings its body's images along; render
+                        // them rather than failing the line that holds them.
+                        unknownEmbedBuilder: const _ComposeUnknownEmbed(),
                         // Esc: quill's internal Shortcuts consumes Esc before
                         // the sheet-level listener, so intercept it here.
                         // ignore: experimental_member_use
@@ -4189,34 +4616,56 @@ class _ComposeToolbar extends StatelessWidget {
   }
 }
 
-/// Compact borderless labeled field used for recipients and subject.
+/// Label and field box for one compose header row (from, to, cc, bcc,
+/// subject).
+///
+/// The boxes are as tall as the field's own content — one text line plus
+/// [decoration]'s padding — so the caret sits centered and a recipient row
+/// grows downwards as its chips wrap.
 class _CompactLabeledField extends StatelessWidget {
-  const _CompactLabeledField({
-    required this.label,
-    this.controller,
-    this.field,
-    this.style,
-    this.onSubmitted,
-    this.suffix,
-  }) : assert(field != null || controller != null);
+  const _CompactLabeledField({required this.label, required this.child});
 
   final String label;
-  final TextEditingController? controller;
-  final Widget? field;
-  final TextStyle? style;
-  final ValueChanged<String>? onSubmitted;
-  final Widget? suffix;
+  final Widget child;
+
+  /// Vertical breathing room inside a header box.
+  static const _padding = EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+
+  /// Height of a single-line header box.
+  static double heightOf(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyLarge;
+    final scaled = MediaQuery.textScalerOf(
+      context,
+    ).scale(style?.fontSize ?? 16).toDouble();
+    return _padding.vertical + scaled * (style?.height ?? 1.5);
+  }
+
+  /// The box every header field wears: the app's outlined input theme with the
+  /// padding these rows need.
+  ///
+  /// The padding is deliberately below the theme's own so that one line plus
+  /// the padding measures exactly [heightOf]: an oversized padding would push
+  /// the text out of the box and leave the caret off-center.
+  static InputDecoration decoration({Widget? suffixIcon}) => InputDecoration(
+    suffixIcon: suffixIcon,
+    isDense: true,
+    contentPadding: _padding,
+  );
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 44,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 64,
+    final height = heightOf(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Kept to the first line's height so a wrapped recipient row leaves the
+        // label beside its chips.
+        SizedBox(
+          width: 64,
+          height: height,
+          child: Align(
+            alignment: Alignment.centerLeft,
             child: Text(
               label,
               style: Theme.of(
@@ -4224,24 +4673,359 @@ class _CompactLabeledField extends StatelessWidget {
               ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
-          Expanded(
-            child:
-                field ??
-                TextField(
-                  controller: controller,
-                  style: style,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isCollapsed: true,
-                  ),
-                  textInputAction: TextInputAction.next,
-                  onSubmitted: onSubmitted,
-                  onTapOutside: (_) =>
-                      FocusManager.instance.primaryFocus?.unfocus(),
-                ),
+        ),
+        Expanded(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: height),
+            child: child,
           ),
-          ?suffix,
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Chip input for one compose recipient row.
+///
+/// Addresses become chips instead of a hand-formatted comma-separated string:
+/// Enter, a typed separator, a pasted list and a picked suggestion all commit
+/// one, a chip's own button takes one back, and backspace in the empty field
+/// drops the last.
+class _ComposeRecipientField extends ConsumerStatefulWidget {
+  const _ComposeRecipientField({
+    required this.controller,
+    required this.recipients,
+    required this.kind,
+    required this.onChanged,
+    this.mailHost,
+    this.suffixIcon,
+  });
+
+  /// The address being typed. The sheet reads it too, so an address left
+  /// uncommitted still goes out with the message.
+  final TextEditingController controller;
+  final List<MailRecipient> recipients;
+
+  /// The role every recipient in this row carries ('to', 'cc', 'bcc').
+  final String kind;
+  final ValueChanged<List<MailRecipient>> onChanged;
+  final String? mailHost;
+  final Widget? suffixIcon;
+
+  @override
+  ConsumerState<_ComposeRecipientField> createState() =>
+      _ComposeRecipientFieldState();
+}
+
+class _ComposeRecipientFieldState
+    extends ConsumerState<_ComposeRecipientField> {
+  final _focusNode = FocusNode();
+
+  /// Suggestions picked in this row, keyed by lowercase address, so a chip can
+  /// wear the contact's avatar and name.
+  final _picked = <String, MailAddressSuggestion>{};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleTyped);
+    _focusNode.addListener(_handleFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(_ComposeRecipientField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleTyped);
+      widget.controller.addListener(_handleTyped);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleTyped);
+    _focusNode.removeListener(_handleFocusChanged);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  /// The row's box draws the focus ring itself, so it repaints with the
+  /// inline field's focus.
+  void _handleFocusChanged() => setState(() {});
+
+  /// A separator ends the address being typed — the same one a pasted list of
+  /// addresses arrives with.
+  void _handleTyped() {
+    final text = widget.controller.text;
+    if (!text.contains(',') && !text.contains(';') && !text.contains('\n')) {
+      return;
+    }
+    _commit(text);
+  }
+
+  void _commit(String text) => _add(_parseRecipients(text, kind: widget.kind));
+
+  /// Appends [incoming] and clears the field, so the caret is ready for the
+  /// next address.
+  void _add(Iterable<MailRecipient> incoming) {
+    final merged = _mergeRecipients(widget.recipients, incoming);
+    if (merged.length != widget.recipients.length) widget.onChanged(merged);
+    if (widget.controller.text.isNotEmpty) widget.controller.clear();
+  }
+
+  /// Backspace in the empty field takes the last chip back; every other key
+  /// belongs to the field.
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    if (event.logicalKey != LogicalKeyboardKey.backspace) {
+      return KeyEventResult.ignored;
+    }
+    if (widget.controller.text.isNotEmpty || widget.recipients.isEmpty) {
+      return KeyEventResult.ignored;
+    }
+    widget.onChanged([...widget.recipients]..removeLast());
+    return KeyEventResult.handled;
+  }
+
+  Future<Iterable<MailAddressSuggestion>> _options(TextEditingValue value) async {
+    final query = value.text.trim();
+    if (query.isEmpty) return const [];
+    try {
+      final suggestions = <String, MailAddressSuggestion>{};
+      for (final senders in [false, true]) {
+        final items = await ref.read(
+          mailAddressSuggestionsProvider((
+            query: query,
+            senders: senders,
+          )).future,
+        );
+        for (final item in items) {
+          suggestions.putIfAbsent(item.address.toLowerCase(), () => item);
+        }
+      }
+      return suggestions.values;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    // Focus sits above the field: key events bubble up from it, so backspace
+    // can still take a chip back when the field itself is empty.
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: _handleKey,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _focusNode.requestFocus,
+        child: InputDecorator(
+          isFocused: _focusNode.hasFocus,
+          isEmpty: widget.recipients.isEmpty && widget.controller.text.isEmpty,
+          decoration: _CompactLabeledField.decoration(
+            suffixIcon: widget.suffixIcon,
+          ),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final recipient in widget.recipients)
+                EmailRecipientChip(
+                  recipient: recipient,
+                  mailHost: widget.mailHost,
+                  sender: _picked[recipient.address.trim().toLowerCase()],
+                  onDeleted: () => widget.onChanged(
+                    [...widget.recipients]..remove(recipient),
+                  ),
+                ),
+              // The address field keeps the line's leftover width and grows
+              // with what is typed, down to an obvious click target.
+              IntrinsicWidth(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 96),
+                  child: Autocomplete<MailAddressSuggestion>(
+                    textEditingController: widget.controller,
+                    focusNode: _focusNode,
+                    displayStringForOption: (option) => option.address,
+                    optionsBuilder: _options,
+                    onSelected: (option) {
+                      _picked[option.address.toLowerCase()] = option;
+                      _add([
+                        MailRecipient(
+                          address: option.address,
+                          name: option.name,
+                          kind: widget.kind,
+                        ),
+                      ]);
+                    },
+                    fieldViewBuilder:
+                        (context, controller, focusNode, onFieldSubmitted) =>
+                            TextField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              style: text.bodyLarge,
+                              // Enter commits and keeps the caret here: a
+                              // recipient row usually holds several addresses.
+                              textInputAction: TextInputAction.done,
+                              decoration: const InputDecoration(
+                                isCollapsed: true,
+                                contentPadding: EdgeInsets.zero,
+                                filled: false,
+                                // Every slot: the app's input theme supplies
+                                // outlined borders, and one inside the row's
+                                // own box would read as a second field.
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                errorBorder: InputBorder.none,
+                                focusedErrorBorder: InputBorder.none,
+                                disabledBorder: InputBorder.none,
+                              ),
+                              onSubmitted: _commit,
+                              onTapOutside: (_) => focusNode.unfocus(),
+                            ),
+                    optionsViewBuilder: (context, onSelected, options) => Align(
+                      alignment: Alignment.topLeft,
+                      child: Material(
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(8),
+                        clipBehavior: Clip.antiAlias,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxHeight: 280,
+                            maxWidth: 420,
+                          ),
+                          child: ListView.builder(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: options.length,
+                            itemBuilder: (context, index) {
+                              final option = options.elementAt(index);
+                              return ListTile(
+                                dense: true,
+                                leading: CircleAvatar(
+                                  radius: 17,
+                                  child: ClipOval(
+                                    child: option.avatarUrl.isEmpty
+                                        ? const Icon(
+                                            Icons.person_outline,
+                                            size: 18,
+                                          )
+                                        : Image.network(
+                                            option.avatarUrl,
+                                            width: 34,
+                                            height: 34,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, _, _) =>
+                                                const Icon(
+                                                  Icons.person_outline,
+                                                  size: 18,
+                                                ),
+                                          ),
+                                  ),
+                                ),
+                                title: Text(
+                                  option.name ?? option.address,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  option.address,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => onSelected(option),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Ends one address and starts the next in a typed or pasted recipient list.
+final _recipientSeparators = RegExp(r'[,;\n]');
+
+/// Splits a typed or pasted recipient list on the separators mail clients
+/// accept, dropping blanks and repeats.
+List<MailRecipient> _parseRecipients(String text, {String kind = 'to'}) {
+  final seen = <String>{};
+  final recipients = <MailRecipient>[];
+  for (final part in text.split(_recipientSeparators)) {
+    final address = part.trim();
+    if (address.isEmpty || !seen.add(address.toLowerCase())) continue;
+    recipients.add(MailRecipient(address: address, kind: kind));
+  }
+  return recipients;
+}
+
+/// [recipients] plus [incoming], without blanks or addresses already carried.
+List<MailRecipient> _mergeRecipients(
+  List<MailRecipient> recipients,
+  Iterable<MailRecipient> incoming,
+) {
+  final seen = {
+    for (final recipient in recipients) recipient.address.trim().toLowerCase(),
+  };
+  return [
+    ...recipients,
+    for (final recipient in incoming)
+      if (recipient.address.trim().isNotEmpty &&
+          seen.add(recipient.address.trim().toLowerCase()))
+        recipient,
+  ];
+}
+
+/// Renders the embeds the compose editor has no builder for — a quoted
+/// reply's inline `<img src>` — instead of failing the line that holds them.
+class _ComposeUnknownEmbed extends EmbedBuilder {
+  const _ComposeUnknownEmbed();
+
+  @override
+  String get key => 'unknown';
+
+  /// Inline images sit on the text's middle rather than demanding a baseline.
+  @override
+  WidgetSpan buildWidgetSpan(Widget widget) =>
+      WidgetSpan(alignment: PlaceholderAlignment.middle, child: widget);
+
+  @override
+  Widget build(BuildContext context, EmbedContext embedContext) {
+    final source = embedContext.node.value.data;
+    if (source is! String || source.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Image.network(
+        source,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Symbols.broken_image, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                source,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

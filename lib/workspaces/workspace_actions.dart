@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -16,6 +17,9 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+
+/// Matches the generated [GateRoute] name for navigation outside typed routes.
+const _gateRouteName = 'GateRoute';
 
 class WorkspaceDraft {
   const WorkspaceDraft({
@@ -121,6 +125,15 @@ Future<void> activateWorkspaceAction(WidgetRef ref, Workspace workspace) async {
   await selectWorkspace(ref.read(secureStorageProvider), workspace);
   invalidateWorkspaceScope(ref);
   showSnackBar('workspaceNowActive'.tr(namedArgs: {'name': workspace.name}));
+}
+
+/// Clears the active workspace selection and returns to the gate's workspace
+/// chooser. Exposed from the workspace row's actions menu.
+Future<void> leaveWorkspaceAction(BuildContext context, WidgetRef ref) async {
+  await clearSelectedWorkspace(ref.read(secureStorageProvider));
+  invalidateWorkspaceScope(ref);
+  if (!context.mounted) return;
+  context.router.replaceAll([const PageRouteInfo(_gateRouteName)]);
 }
 
 Future<void> showWorkspaceQuota(
@@ -1433,6 +1446,8 @@ class WorkspaceList extends ConsumerWidget {
                                       ref,
                                       workspace,
                                     );
+                                  case 'leave':
+                                    leaveWorkspaceAction(context, ref);
                                   case 'delete':
                                     deleteWorkspaceAction(
                                       context,
@@ -1468,6 +1483,15 @@ class WorkspaceList extends ConsumerWidget {
                                     title: Text('edit'.tr()),
                                   ),
                                 ),
+                                if (isActive)
+                                  PopupMenuItem(
+                                    value: 'leave',
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: const Icon(Symbols.logout),
+                                      title: Text('leaveWorkspace'.tr()),
+                                    ),
+                                  ),
                                 PopupMenuItem(
                                   value: 'delete',
                                   child: ListTile(

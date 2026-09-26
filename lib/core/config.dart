@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -42,3 +43,59 @@ final appSettingsProvider = Provider<AppSettings>((ref) {
     defaultPoolId: prefs.getString('drive_default_pool_id'),
   );
 });
+
+// --- App appearance: theme mode and accent color ----------------------------
+
+const _kThemeModeKey = 'app_theme_mode';
+const _kAccentColorKey = 'app_accent_color';
+
+/// Dark/light/system preference, persisted in SharedPreferences. Defaults to
+/// following the system, mirroring `ThemeMode.system`.
+final appThemeModeProvider =
+    NotifierProvider<AppThemeModeNotifier, ThemeMode>(AppThemeModeNotifier.new);
+
+class AppThemeModeNotifier extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() {
+    final value = ref.watch(sharedPreferencesProvider).getString(_kThemeModeKey);
+    return switch (value) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
+  }
+
+  void set(ThemeMode mode) {
+    ref.read(sharedPreferencesProvider).setString(
+      _kThemeModeKey,
+      switch (mode) {
+        ThemeMode.light => 'light',
+        ThemeMode.dark => 'dark',
+        ThemeMode.system => 'system',
+      },
+    );
+    state = mode;
+  }
+}
+
+/// Optional seed color override for the Material scheme. Null follows the app
+/// default ([kSolWattSeedColor]); persisted as an ARGB int.
+final appAccentColorProvider = NotifierProvider<AppAccentColorNotifier, int?>(
+  AppAccentColorNotifier.new,
+);
+
+class AppAccentColorNotifier extends Notifier<int?> {
+  @override
+  int? build() =>
+      ref.watch(sharedPreferencesProvider).getInt(_kAccentColorKey);
+
+  void set(Color? color) {
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (color == null) {
+      prefs.remove(_kAccentColorKey);
+    } else {
+      prefs.setInt(_kAccentColorKey, color.toARGB32());
+    }
+    state = color?.toARGB32();
+  }
+}

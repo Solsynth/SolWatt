@@ -6,14 +6,17 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/mail/mail_address_suggestion.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -67,6 +70,13 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
+      appName: 'SolWatt',
+      packageName: 'dev.solsynth.solarwatt',
+      version: '1.2.3',
+      buildNumber: '45',
+      buildSignature: '',
+    );
     await EasyLocalization.ensureInitialized();
     // Start dark so the initial chrome assertion below runs in dark mode;
     // a later section flips the brightness to prove the titlebar follows.
@@ -82,10 +92,11 @@ void main() {
 
     Future<void> pumpApp(
       Size size, {
-      Map<String, String> senderAvatars = const {},
+      Map<String, MailAddressSuggestion> senders = const {},
     }) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
+      final prefs = await SharedPreferences.getInstance();
       await tester.pumpWidget(
         ProviderScope(
           // Riverpod only applies overrides when the scope element is fresh;
@@ -93,6 +104,7 @@ void main() {
           // every pump starts from its own override set.
           key: ValueKey('mail-${size.width}x${size.height}'),
           overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
             appAccessProvider.overrideWith(
               (ref) => const AsyncValue.data(AppAccess.ready),
             ),
@@ -107,12 +119,36 @@ void main() {
             mailCredentialsProvider.overrideWith(
               (ref) async => const <MailCredential>[],
             ),
+            mailNotificationSettingsProvider.overrideWith(
+              (ref) async => const MailNotificationSettings(
+                accountId: 'acc-1',
+                highlight: true,
+                summarize: false,
+              ),
+            ),
+            mailboxQuotaProvider.overrideWith(
+              (ref, mailboxId) async => MailboxQuota(
+                workspaceId: 'ws-1',
+                usedBytes: 100,
+                limitBytes: 1024 * 1024 * 1024,
+                remainingBytes: 1024 * 1024 * 1024 - 100,
+              ),
+            ),
+            mailboxAliasesProvider.overrideWith(
+              (ref, mailboxId) async => const <MailAlias>[],
+            ),
+            mailboxForwardingsProvider.overrideWith(
+              (ref, mailboxId) async => const <MailForwarding>[],
+            ),
+            mailBlockRulesProvider.overrideWith(
+              (ref) async => const <MailBlockRule>[],
+            ),
             threadsProvider.overrideWith(
               (ref, query) async =>
                   PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
             ),
-            mailSenderAvatarUrlsProvider.overrideWith(
-              (ref) async => senderAvatars,
+            mailSenderIndexProvider.overrideWith(
+              (ref) async => senders,
             ),
             broadsProvider.overrideWith((ref) async => const <Broad>[]),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
@@ -219,16 +255,64 @@ void main() {
     await tester.pumpAndSettle();
     expect(searchField, findsNothing);
 
-    // The mail settings page merges credentials and import.
+    // The mail settings page merges credentials, mailbox settings, blocked
+    // senders, and import. The page is a lazy list on a phone, so scroll to
+    // each section before asserting it.
     await tester.tap(find.byIcon(Symbols.settings));
     await tester.pumpAndSettle();
     expect(find.text('Mail settings'), findsOneWidget);
+    expect(find.text('Notification preferences'), findsOneWidget);
     expect(find.text('Mail credentials'), findsOneWidget);
     expect(find.text('No credentials'), findsOneWidget);
+
+    final settingsList = find.byType(Scrollable).last;
+    await tester.scrollUntilVisible(
+      find.text('Mailbox settings'),
+      120,
+      scrollable: settingsList,
+    );
+    expect(find.text('Mailbox settings'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Mail storage usage'),
+      120,
+      scrollable: settingsList,
+    );
+    expect(find.text('Mail storage usage'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Aliases'),
+      120,
+      scrollable: settingsList,
+    );
+    expect(find.text('Aliases'), findsOneWidget);
+    expect(find.text('No aliases yet'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Forwarding'),
+      120,
+      scrollable: settingsList,
+    );
+    expect(find.text('Forwarding'), findsOneWidget);
+    expect(find.text('No forwarding rules'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Blocked senders'),
+      120,
+      scrollable: settingsList,
+    );
+    expect(find.text('Blocked senders'), findsOneWidget);
+    expect(find.text('No blocked senders'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Import emails').first,
+      120,
+      scrollable: settingsList,
+    );
     expect(find.text('Import emails'), findsWidgets); // section + button
     // The import section targets the selected inbox, which is still the
     // default one at this point.
     expect(find.text('work@example.com'), findsWidgets);
+    // Scroll back to the header so the close button is tappable again.
+    await tester.fling(settingsList, const Offset(0, 800), 2000);
+    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
@@ -314,8 +398,13 @@ void main() {
     // ---- Desktop (wide) ----
     await pumpApp(
       const Size(1200, 800),
-      senderAvatars: const {
-        'alice@example.com': 'https://example.com/alice.png',
+      senders: const {
+        'alice@example.com': MailAddressSuggestion(
+          address: 'alice@example.com',
+          avatarUrl: 'https://example.com/alice.png',
+          avatarSource: 'bimi',
+          gravatarUrl: '',
+        ),
       },
     );
 
@@ -457,10 +546,11 @@ void main() {
     final lightTitleText = tester.widget<Text>(find.text('appName'.tr()));
     expect(lightTitleText.style?.color, lightScheme.onSurface);
 
-    // Profile absorbs Settings: the merged page carries the connection card
-    // and sign-out from the former Settings page. The real session providers
-    // resolve to null in this harness, so the page settles with the static
-    // content only — bounded pumps keep the drawer transition honest.
+    // Profile absorbs Settings: the merged page carries the connection card,
+    // the app-settings and about entries, and sign-out from the former
+    // Settings page. The real session providers resolve to null in this
+    // harness, so the page settles with the static content only — bounded
+    // pumps keep the drawer transition honest.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Profile'));
@@ -468,6 +558,33 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Account and workspaces'), findsOneWidget);
     expect(find.text('Your workspaces'), findsOneWidget);
+    expect(find.text('App settings'), findsOneWidget);
+    expect(find.text('About'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
+
+    // The App settings page offers language and appearance.
+    await tester.tap(find.text('Settings').last);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Language'), findsOneWidget);
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('Theme mode'), findsOneWidget);
+    expect(find.text('Accent color'), findsOneWidget);
+    expect(find.text('Display language'), findsOneWidget);
+
+    // And the About page carries app info and legal links.
+    await tester.tap(find.byType(BackButton));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    final aboutTile = find.widgetWithText(ListTile, 'About');
+    await tester.ensureVisible(aboutTile);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(aboutTile);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('App information'), findsOneWidget);
+    expect(find.text('Links'), findsOneWidget);
+    expect(find.text('Open-source licenses'), findsOneWidget);
+    expect(find.text('Developer'), findsOneWidget);
   });
 }

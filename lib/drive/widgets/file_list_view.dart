@@ -342,6 +342,7 @@ Menu _buildIndexedColumnMenu({
 
 class FileListView extends HookConsumerWidget {
   final String tabId;
+  final String? workspaceId;
   final Map<String, dynamic>? usage;
   final Map<String, dynamic>? quota;
   final ValueNotifier<String> currentPath;
@@ -361,6 +362,7 @@ class FileListView extends HookConsumerWidget {
 
   const FileListView({
     required this.tabId,
+    required this.workspaceId,
     required this.usage,
     required this.quota,
     required this.currentPath,
@@ -386,7 +388,6 @@ class FileListView extends HookConsumerWidget {
     final modeValue = useValueListenable(mode);
     final viewModeValue = useValueListenable(viewMode);
     final queryValue = useValueListenable(query);
-    final workspaceId = ref.watch(driveWorkspaceIdProvider(tabId));
 
     // Defer provider mutations — useEffect runs during HookWidget build here,
     // and invalidateSelf() during build triggers markNeedsBuild assertions.
@@ -922,6 +923,7 @@ class FileListView extends HookConsumerWidget {
           child: useColumnBrowser
               ? _DriveColumnBrowser(
                   tabId: tabId,
+                  workspaceId: workspaceId,
                   currentPath: currentPath,
                   selectedPool: selectedPool,
                   filters: filters.value,
@@ -2784,6 +2786,7 @@ class FileListView extends HookConsumerWidget {
 /// Miller-column (Finder-style) browser for indexed drive folders.
 class _DriveColumnBrowser extends HookConsumerWidget {
   final String tabId;
+  final String? workspaceId;
   final ValueNotifier<String> currentPath;
   final ValueNotifier<SnFilePool?> selectedPool;
   final DriveFileFilters filters;
@@ -2801,6 +2804,7 @@ class _DriveColumnBrowser extends HookConsumerWidget {
 
   const _DriveColumnBrowser({
     required this.tabId,
+    required this.workspaceId,
     required this.currentPath,
     required this.selectedPool,
     required this.filters,
@@ -2846,7 +2850,6 @@ class _DriveColumnBrowser extends HookConsumerWidget {
     final selectionMode = useValueListenable(isSelectionMode);
     final selectedIds = useValueListenable(selectedFileIds);
     final epoch = ref.watch(driveBrowserEpochProvider(tabId));
-    final workspaceId = ref.watch(driveWorkspaceIdProvider(tabId));
     final focusedFileId = useState<String?>(null);
     final scrollController = useScrollController();
 

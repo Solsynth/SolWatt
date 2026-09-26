@@ -633,8 +633,6 @@ class _TaskLane extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final laneSurface = scheme.surfaceContainerLow;
-    final total = column.tasks.length;
-    final done = column.tasks.where((task) => task.isCompleted).length;
 
     return DragTarget<WorkTask>(
       onWillAcceptWithDetails: (details) => _accepts(details.data),
@@ -693,34 +691,6 @@ class _TaskLane extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (total > 0)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                    child: Semantics(
-                      label: 'progressDone'.tr(
-                        namedArgs: {'done': '$done', 'total': '$total'},
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _LaneMeter(
-                              fraction: done / total,
-                              color: color,
-                              track: scheme.surfaceContainerHighest,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '$done/$total',
-                            style: text.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 Expanded(
                   child: column.tasks.isEmpty
                       ? Center(
@@ -766,44 +736,6 @@ class _TaskLane extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// Completed-of-total bar for one lane.
-class _LaneMeter extends StatelessWidget {
-  const _LaneMeter({
-    required this.fraction,
-    required this.color,
-    required this.track,
-  });
-
-  final double fraction;
-  final Color color;
-  final Color track;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: SizedBox(
-        height: 3,
-        child: Stack(
-          children: [
-            Positioned.fill(child: ColoredBox(color: track)),
-            // Sized through the box, not through a childless `ColoredBox`:
-            // under loose constraints a childless proxy box collapses to the
-            // smallest height, which hides the fill.
-            Positioned.fill(
-              child: FractionallySizedBox(
-                alignment: AlignmentDirectional.centerStart,
-                widthFactor: fraction.clamp(0.0, 1.0),
-                child: ColoredBox(color: color),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
