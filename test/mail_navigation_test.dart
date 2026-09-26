@@ -51,6 +51,17 @@ final _email = MailEmail(
   createdAt: DateTime(2026, 9, 25, 10, 30),
 );
 
+final _thread = MailThread(
+  id: 't-1',
+  mailboxId: 'mb-1',
+  subject: 'Hello there',
+  messageCount: 1,
+  unreadCount: 1,
+  participants: const ['alice@example.com'],
+  latestMessage: _email,
+  latestAt: DateTime(2026, 9, 25, 10, 30),
+);
+
 void main() {
   testWidgets('shell chrome: app bars, folder and tab bottom bars, drawer', (
     tester,
@@ -96,9 +107,9 @@ void main() {
             mailCredentialsProvider.overrideWith(
               (ref) async => const <MailCredential>[],
             ),
-            emailsProvider.overrideWith(
-              (ref, filter) async =>
-                  PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
+            threadsProvider.overrideWith(
+              (ref, query) async =>
+                  PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
             ),
             mailSenderAvatarUrlsProvider.overrideWith(
               (ref) async => senderAvatars,

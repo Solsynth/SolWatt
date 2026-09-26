@@ -263,11 +263,7 @@ class FileDetailScreen extends HookConsumerWidget {
     final uri = '$serverUrl/drive/files/${item.id}';
 
     Widget content = switch (item.mimeType.split('/').firstOrNull) {
-      'image' => ImageFileContent(
-        item: item,
-        uri: uri,
-        bottomInset: bottomInset,
-      ),
+      'image' => ImageFileContent(item: item, bottomInset: bottomInset),
       'video' => VideoFileContent(
         item: item,
         uri: uri,

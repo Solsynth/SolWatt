@@ -39,6 +39,17 @@ final _email = MailEmail(
   createdAt: DateTime(2026, 9, 25, 10, 30),
 );
 
+final _thread = MailThread(
+  id: 't-1',
+  mailboxId: 'mb-1',
+  subject: 'Hello there',
+  messageCount: 1,
+  unreadCount: 1,
+  participants: const ['alice@example.com'],
+  latestMessage: _email,
+  latestAt: DateTime(2026, 9, 25, 10, 30),
+);
+
 void main() {
   testWidgets('compose: compact fields, collapsed cc/bcc, full-screen body, '
       'preset styles, keyboard shortcuts', (tester) async {
@@ -69,10 +80,11 @@ void main() {
           mailCredentialsProvider.overrideWith(
             (ref) async => const <MailCredential>[],
           ),
-          emailsProvider.overrideWith(
-            (ref, filter) async =>
-                PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
+          threadsProvider.overrideWith(
+            (ref, query) async =>
+                PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
           ),
+          threadProvider.overrideWith((ref, id) async => [_email]),
           emailProvider.overrideWith((ref, id) async => _email),
           broadsProvider.overrideWith((ref) async => const <Broad>[]),
           mailAddressSuggestionsProvider.overrideWith((ref, request) async {

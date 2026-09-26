@@ -60,20 +60,34 @@ class TextFileContent extends HookConsumerWidget {
 }
 
 class ImageFileContent extends HookConsumerWidget {
-  final SnCloudFile item;
-  final String uri;
+  final IDisplayableCloudFile item;
+
+  /// Workspace the file is stored under, when it is a workspace file. Without
+  /// it the gateway cannot resolve a workspace-scoped Drive file.
+  final String? workspaceId;
   final double bottomInset;
+
+  /// Zoom/rotation controller owned by the caller. The lightbox passes its own
+  /// so it can tell a zoomed image (which pans on drag) from a resting one
+  /// (which may be swiped away).
+  final PhotoViewController? controller;
+
+  /// Scale-state controller, exposed for the same reason as [controller].
+  final PhotoViewScaleStateController? scaleStateController;
 
   const ImageFileContent({
     required this.item,
-    required this.uri,
+    this.workspaceId,
     this.bottomInset = 0,
+    this.controller,
+    this.scaleStateController,
     super.key,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final photoViewController = useMemoized(() => PhotoViewController(), []);
+    final ownedController = useMemoized(() => PhotoViewController(), []);
+    final photoViewController = controller ?? ownedController;
     final rotation = useState(0);
 
     final hasExifData = ExifInfoOverlay.precheck(item);
@@ -85,6 +99,7 @@ class ImageFileContent extends HookConsumerWidget {
       file: item,
       serverUrl: serverUrl,
       original: showOriginal.value,
+      workspaceId: workspaceId,
     );
     final qualityLoad = useImageQualityLoad(
       provider: imageProvider,
@@ -118,6 +133,7 @@ class ImageFileContent extends HookConsumerWidget {
                   color: Colors.transparent,
                 ),
                 controller: photoViewController,
+                scaleStateController: scaleStateController,
                 imageProvider: imageProvider,
                 customSize: Size(constraints.maxWidth, constraints.maxHeight),
                 basePosition: Alignment.center,

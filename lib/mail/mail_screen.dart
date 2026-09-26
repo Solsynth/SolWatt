@@ -15,6 +15,9 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:super_context_menu/super_context_menu.dart';
 import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
+import 'package:solwatt/core/utils/file_types.dart';
+import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
+import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
@@ -193,7 +196,7 @@ class MailComposePage extends ConsumerWidget {
             contentType: draft.contentType,
             replyToId: draft.replyToId,
           );
-      ref.invalidate(emailsProvider);
+      _invalidateMail(ref);
       if (context.mounted) {
         context.router.pop();
         showSnackBar(draft.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
@@ -217,12 +220,12 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   String? _from;
   String? _to;
   bool? _hasAttachments;
-  MailEmail? _selectedEmail;
-  final _take = 20;
-  int _offset = 0;
-  final List<MailEmail> _emails = [];
-  int _total = 0;
-  bool _isLoadingMore = false;
+  /// Conversation the detail pane is showing, for row highlighting.
+  String? _selectedThreadId;
+  /// Conversations requested from the server. "Load more" grows this instead of
+  /// paging offsets, so every fetch is a superset of the previous listing:
+  /// whole-conversation counts stay consistent and no page can go missing.
+  int _take = kThreadPageSize;
   final _searchController = TextEditingController();
   bool _searchOpen = false;
   Timer? _searchDebounce;
@@ -234,13 +237,11 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     super.dispose();
   }
 
-  /// Resets the paged list state when the mailbox, folder, or query changes.
+  /// Resets the list state when the mailbox, folder, or query changes.
   void _resetList() {
     setState(() {
-      _selectedEmail = null;
-      _offset = 0;
-      _emails.clear();
-      _total = 0;
+      _selectedThreadId = null;
+      _take = kThreadPageSize;
     });
   }
 
@@ -248,7 +249,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     if (ref.read(selectedMailboxIdProvider) == id) return;
     ref.read(selectedMailboxIdProvider.notifier).select(id);
     _resetList();
-    ref.invalidate(emailsProvider);
+    ref.invalidate(threadsProvider);
   }
 
   void _onSearchChanged(String value) {
@@ -256,7 +257,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     _searchDebounce = Timer(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       _resetList();
-      ref.invalidate(emailsProvider);
+      ref.invalidate(threadsProvider);
     });
   }
 
@@ -287,18 +288,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       if (!_searchOpen) _searchController.clear();
     });
     if (!_searchOpen) _resetList();
-    ref.invalidate(emailsProvider);
-  }
-
-  Future<void> _toggleStar(MailEmail email) async {
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .starEmail(email.id, starred: !email.isStarred);
-      ref.invalidate(emailsProvider);
-    } catch (error) {
-      showSnackBar(error.toString());
-    }
+    ref.invalidate(threadsProvider);
   }
 
   @override
@@ -310,17 +300,15 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     ref.listen(selectedFolderProvider, (previous, next) {
       if (previous == next || !mounted) return;
       _resetList();
-      ref.invalidate(emailsProvider);
+      ref.invalidate(threadsProvider);
     });
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider);
-    final workspaceId = ref.watch(selectedWorkspaceProvider).value?.id;
     final selectedMailboxId = ref.watch(selectedMailboxIdProvider);
     final folder = ref.watch(selectedFolderProvider);
     final mailboxId = _effectiveMailboxId(mailboxes.value, selectedMailboxId);
     return _buildEmailList(
       mailHost.value,
-      workspaceId: workspaceId,
       mailboxId: mailboxId,
       folder: folder,
       mailboxSelector: _buildMailboxSelector(
@@ -424,20 +412,15 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   EmailListFilter _emailFilter({
     String? mailboxId,
-    String? workspaceId,
     required String folder,
   }) => (
     mailboxId: mailboxId,
-    workspaceId: workspaceId,
     folder: folder,
     q: _searchController.text.trim().isEmpty
         ? null
         : _searchController.text.trim(),
     status: _deliveryStatus,
     isFlagged: _isFlagged,
-    isRead: null,
-    isStarred: null,
-    labelId: null,
     from: _from,
     to: _to,
     hasAttachments: _hasAttachments,
@@ -463,17 +446,14 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       _from = filter.from;
       _to = filter.to;
       _hasAttachments = filter.hasAttachments;
-      _selectedEmail = null;
-      _offset = 0;
-      _emails.clear();
-      _total = 0;
+      _selectedThreadId = null;
+      _take = kThreadPageSize;
     });
-    ref.invalidate(emailsProvider);
+    ref.invalidate(threadsProvider);
   }
 
   Widget _buildEmailList(
     String? mailHost, {
-    String? workspaceId,
     String? mailboxId,
     required String folder,
     required Widget mailboxSelector,
@@ -516,25 +496,21 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
             duration: const Duration(milliseconds: 250),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
-            child: _EmailList(
+            child: _EmailThreadList(
               key: ValueKey('$mailboxId/$folder'),
-              mailboxId: mailboxId,
-              workspaceId: workspaceId,
-              filter: _emailFilter(
-                mailboxId: mailboxId,
-                workspaceId: workspaceId,
-                folder: folder,
+              query: (
+                filter: _emailFilter(mailboxId: mailboxId, folder: folder),
+                take: _take,
               ),
               mailHost: mailHost,
-              selectedEmail: _selectedEmail,
-              onOpen: (email) => _openEmail(context, email),
-              onToggleStar: _toggleStar,
-              onDelete: (context, ref, email) =>
-                  _deleteEmail(context, ref, email, closeDetail: false),
-              onMove: (ref, email, folder) =>
-                  _moveEmailFromList(ref, email, folder),
+              selectedThreadId: _selectedThreadId,
+              onOpen: (thread) => _openThread(context, thread),
+              onToggleStar: _toggleThreadStar,
+              onToggleRead: _toggleThreadRead,
+              onDelete: (context, thread) => _deleteThread(context, thread),
+              onMove: (thread, folder) => _moveThread(thread, folder),
               onRefresh: () => _refreshEmails(ref),
-              onLoadMore: () => _loadMoreEmails(ref),
+              onLoadMore: _loadMoreThreads,
             ),
           ),
         ),
@@ -616,56 +592,24 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   );
 
   Future<void> _refreshEmails(WidgetRef ref) async {
-    setState(() {
-      _offset = 0;
-      _emails.clear();
-      _total = 0;
-    });
-    ref.invalidate(emailsProvider);
+    setState(() => _take = kThreadPageSize);
+    ref.invalidate(threadsProvider);
   }
 
-  Future<void> _loadMoreEmails(WidgetRef ref) async {
-    if (_isLoadingMore || _emails.length >= _total) return;
-    setState(() => _isLoadingMore = true);
-    try {
-      final page = await ref
-          .read(wattEngineClientProvider)
-          .listEmails(
-            mailboxId: _effectiveMailboxId(),
-            workspaceId: ref.read(selectedWorkspaceProvider).value?.id,
-            folder: ref.read(selectedFolderProvider),
-            q: _searchController.text.trim().isEmpty
-                ? null
-                : _searchController.text.trim(),
-            status: _deliveryStatus,
-            isFlagged: _isFlagged,
-            from: _from,
-            to: _to,
-            hasAttachments: _hasAttachments,
-            offset: _offset + _take,
-            take: _take,
-          );
-      if (!mounted) return;
-      setState(() {
-        _offset += _take;
-        _emails.addAll(page.items);
-        _total = page.totalCount;
-        _isLoadingMore = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isLoadingMore = false);
-      showSnackBar(error.toString());
-    }
+  /// Grows the conversation page. ElecPostal clamps `take` above
+  /// [kMaxThreadTake] back to its default, so the list stops there.
+  void _loadMoreThreads() {
+    final next = _take + kThreadPageSize;
+    setState(() => _take = next > kMaxThreadTake ? kMaxThreadTake : next);
   }
 
-  void _openEmail(BuildContext context, MailEmail email) {
+  void _openThread(BuildContext context, MailThread thread) {
     final wide = isWideScreen(context);
-    if (!email.isRead && email.id.isNotEmpty) {
-      _markRead(email.id);
+    setState(() => _selectedThreadId = thread.id);
+    if (thread.unreadCount > 0) {
+      unawaited(_markThreadRead(thread));
     }
-    setState(() => _selectedEmail = email);
-    final route = MailDetailRoute(emailId: email.id);
+    final route = MailDetailRoute(emailId: thread.latestMessage.id);
     if (wide) {
       context.router.navigate(route);
     } else {
@@ -673,13 +617,75 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     }
   }
 
-  Future<void> _markRead(String emailId) async {
+  /// Reading a conversation marks all of it read, so the unread count on the
+  /// row cannot survive the tap that opened it.
+  Future<void> _markThreadRead(MailThread thread) async {
     try {
-      await ref.read(wattEngineClientProvider).markEmailRead(emailId);
-      ref.invalidate(emailsProvider);
+      final client = ref.read(wattEngineClientProvider);
+      final messages = await _threadMessages(ref, thread);
+      await Future.wait(
+        messages
+            .where((message) => !message.isRead)
+            .map((message) => client.markEmailRead(message.id)),
+      );
+      _invalidateMail(ref);
     } catch (error) {
       showSnackBar(error.toString());
     }
+  }
+
+  Future<void> _toggleThreadStar(MailThread thread) async {
+    final starred = !thread.latestMessage.isStarred;
+    await _applyToThread(
+      ref,
+      thread,
+      (client, message) => client.starEmail(message.id, starred: starred),
+    );
+  }
+
+  Future<void> _toggleThreadRead(MailThread thread) async {
+    final markRead = thread.unreadCount > 0;
+    await _applyToThread(
+      ref,
+      thread,
+      (client, message) => markRead
+          ? client.markEmailRead(message.id)
+          : client.markEmailUnread(message.id),
+    );
+  }
+
+  Future<void> _moveThread(MailThread thread, String folder) async {
+    await _applyToThread(
+      ref,
+      thread,
+      (client, message) => client.moveEmail(message.id, folder),
+    );
+    showSnackBar(
+      'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
+    );
+  }
+
+  Future<void> _deleteThread(BuildContext context, MailThread thread) async {
+    final confirmed = await showConfirmAlert(
+      'deleteThreadConfirm'.tr(
+        namedArgs: {
+          'subject': thread.displaySubject,
+          'count': thread.messageCount.toString(),
+        },
+      ),
+      'delete'.tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'delete'.tr(),
+    );
+    if (!confirmed) return;
+    await _applyToThread(
+      ref,
+      thread,
+      (client, message) => client.deleteEmail(message.id),
+    );
+    if (!context.mounted) return;
+    showSnackBar('emailDeleted'.tr());
   }
 
   void _compose(BuildContext context, {MailEmail? replyingTo}) {
@@ -851,25 +857,71 @@ class MailDetailPage extends ConsumerWidget {
           onRetry: () => ref.invalidate(emailProvider(emailId)),
         ),
       ),
-      data: (value) => _EmailDetailPanel(
-        key: ValueKey(value.id),
-        email: value,
-        mailHost: mailHost,
-        workspaceId:
-            value.mailbox?.workspaceId ??
-            ref.watch(selectedWorkspaceProvider).value?.id,
-        onReply: () => _composeEmail(context, value),
-        onReplyAll: () => _composeEmail(context, value, replyAll: true),
-        onForward: () => _forwardEmail(context, value),
-        onResend: value.isDraft ? null : () => _resendEmail(ref, value),
-        onToggleRead: () => _toggleEmailRead(ref, value),
-        onToggleStar: () => _toggleEmailStar(ref, value),
-        onMove: (folder) => _moveEmail(context, ref, value, folder),
-        onDownloadEml: () => _downloadEmailEml(context, ref, value),
-        onDelete: () => _deleteEmail(context, ref, value),
-        onClose: () => context.router.pop(),
-      ),
+      data: (value) {
+        // The conversation is fetched separately: the route carries one
+        // message, and a thread's older messages live behind `GET /threads/:id`.
+        final conversation = ref.watch(threadProvider(value.threadKey));
+        return _EmailDetailPanel(
+          key: ValueKey(value.threadKey),
+          email: value,
+          conversation: conversation.value,
+          mailHost: mailHost,
+          workspaceId:
+              value.mailbox?.workspaceId ??
+              ref.watch(selectedWorkspaceProvider).value?.id,
+          onReply: (message) => _composeEmail(context, message),
+          onReplyAll: (message) =>
+              _composeEmail(context, message, replyAll: true),
+          onForward: (message) => _forwardEmail(context, message),
+          onResend: (message) => _resendEmail(ref, message),
+          onToggleRead: (message) => _toggleEmailRead(ref, message),
+          onToggleStar: (message) => _toggleEmailStar(ref, message),
+          onMove: (message, folder) => _moveEmail(context, ref, message, folder),
+          onDownloadEml: (message) =>
+              _downloadEmailEml(context, ref, message),
+          onDelete: (message) => _deleteEmail(context, ref, message),
+          onClose: () => context.router.pop(),
+        );
+      },
     );
+  }
+}
+
+/// Marks every mail surface stale after a write: the conversation list, the
+/// conversations the detail pane can open, and the message detail itself.
+void _invalidateMail(WidgetRef ref) {
+  ref.invalidate(threadsProvider);
+  ref.invalidate(threadProvider);
+  ref.invalidate(emailProvider);
+}
+
+/// Every message of [thread]. Single-message conversations come straight from
+/// the list payload; longer ones are fetched once and cached per thread id.
+Future<List<MailEmail>> _threadMessages(
+  WidgetRef ref,
+  MailThread thread,
+) async {
+  if (!thread.isMultiMessage) {
+    final message = thread.latestMessage;
+    return message.id.isEmpty ? const [] : [message];
+  }
+  return ref.read(threadProvider(thread.id).future);
+}
+
+/// Runs a per-message mutation across a whole conversation, so an action on a
+/// row applies to the conversation and not only to its newest message.
+Future<void> _applyToThread(
+  WidgetRef ref,
+  MailThread thread,
+  Future<void> Function(WattEngineClient client, MailEmail message) action,
+) async {
+  try {
+    final client = ref.read(wattEngineClientProvider);
+    final messages = await _threadMessages(ref, thread);
+    await Future.wait(messages.map((message) => action(client, message)));
+    _invalidateMail(ref);
+  } catch (error) {
+    showSnackBar(error.toString());
   }
 }
 
@@ -878,8 +930,7 @@ Future<void> _toggleEmailStar(WidgetRef ref, MailEmail email) async {
     await ref
         .read(wattEngineClientProvider)
         .starEmail(email.id, starred: !email.isStarred);
-    ref.invalidate(emailProvider(email.id));
-    ref.invalidate(emailsProvider);
+    _invalidateMail(ref);
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -921,26 +972,8 @@ Future<void> _moveEmail(
 ) async {
   try {
     await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
-    ref.invalidate(emailsProvider);
+    _invalidateMail(ref);
     if (context.mounted) context.router.pop();
-    showSnackBar(
-      'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
-    );
-  } catch (error) {
-    showSnackBar(error.toString());
-  }
-}
-
-/// Moves a message from the list context menu, which has no detail route to
-/// pop after the move.
-Future<void> _moveEmailFromList(
-  WidgetRef ref,
-  MailEmail email,
-  String folder,
-) async {
-  try {
-    await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
-    ref.invalidate(emailsProvider);
     showSnackBar(
       'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
     );
@@ -974,8 +1007,7 @@ void _composeEmail(
 Future<void> _resendEmail(WidgetRef ref, MailEmail email) async {
   try {
     await ref.read(wattEngineClientProvider).resendEmail(email.id);
-    ref.invalidate(emailProvider(email.id));
-    ref.invalidate(emailsProvider);
+    _invalidateMail(ref);
     showSnackBar('emailResent'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -989,8 +1021,7 @@ Future<void> _toggleEmailRead(WidgetRef ref, MailEmail email) async {
     } else {
       await ref.read(wattEngineClientProvider).markEmailRead(email.id);
     }
-    ref.invalidate(emailProvider(email.id));
-    ref.invalidate(emailsProvider);
+    _invalidateMail(ref);
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -999,9 +1030,8 @@ Future<void> _toggleEmailRead(WidgetRef ref, MailEmail email) async {
 Future<void> _deleteEmail(
   BuildContext context,
   WidgetRef ref,
-  MailEmail email, {
-  bool closeDetail = true,
-}) async {
+  MailEmail email,
+) async {
   final confirmed = await showConfirmAlert(
     'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
     'deleteEmail'.tr(),
@@ -1012,8 +1042,8 @@ Future<void> _deleteEmail(
   if (!confirmed) return;
   try {
     await ref.read(wattEngineClientProvider).deleteEmail(email.id);
-    ref.invalidate(emailsProvider);
-    if (closeDetail && context.mounted) context.router.pop();
+    _invalidateMail(ref);
+    if (context.mounted) context.router.pop();
     showSnackBar('emailDeleted'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -1418,89 +1448,190 @@ class _BooleanFilterField extends StatelessWidget {
   }
 }
 
-class _EmailList extends ConsumerWidget {
-  const _EmailList({
+/// Conversations per fetch, and ElecPostal's cap on `take`: anything above the
+/// cap is clamped back to its default, so the list stops asking there.
+const kThreadPageSize = 20;
+const kMaxThreadTake = 200;
+
+/// Compact list timestamp: time of day for today, month/day otherwise.
+String _mailTimestamp(DateTime? date) {
+  if (date == null) return '';
+  final local = date.toLocal();
+  final now = DateTime.now();
+  if (local.year == now.year &&
+      local.month == now.month &&
+      local.day == now.day) {
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+  return '${local.month.toString().padLeft(2, '0')}/${local.day.toString().padLeft(2, '0')}';
+}
+
+/// The mail list is a list of conversations: one row per thread, with the
+/// newest message's sender, subject and preview, and a badge for the number of
+/// messages behind it.
+class _EmailThreadList extends ConsumerStatefulWidget {
+  const _EmailThreadList({
     super.key,
-    required this.mailboxId,
-    required this.workspaceId,
-    required this.filter,
+    required this.query,
     required this.mailHost,
-    required this.selectedEmail,
+    required this.selectedThreadId,
     required this.onOpen,
     required this.onToggleStar,
+    required this.onToggleRead,
     required this.onDelete,
     required this.onMove,
     required this.onRefresh,
     required this.onLoadMore,
   });
 
-  final String? mailboxId;
-  final String? workspaceId;
-  final EmailListFilter filter;
+  final MailThreadsQuery query;
   final String? mailHost;
-  final MailEmail? selectedEmail;
-  final ValueChanged<MailEmail> onOpen;
-  final ValueChanged<MailEmail> onToggleStar;
-  final Future<void> Function(BuildContext, WidgetRef, MailEmail) onDelete;
-  final Future<void> Function(WidgetRef, MailEmail, String) onMove;
+  final String? selectedThreadId;
+  final ValueChanged<MailThread> onOpen;
+  final ValueChanged<MailThread> onToggleStar;
+  final ValueChanged<MailThread> onToggleRead;
+  final Future<void> Function(BuildContext, MailThread) onDelete;
+  final Future<void> Function(MailThread, String) onMove;
   final VoidCallback onRefresh;
   final VoidCallback onLoadMore;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final emails = ref.watch(emailsProvider(filter));
-    final senderAvatars = ref.watch(mailSenderAvatarUrlsProvider);
+  ConsumerState<_EmailThreadList> createState() => _EmailThreadListState();
+}
 
-    return emails.when(
-      loading: () => const PageLoading(),
-      error: (error, _) =>
-          PageError(message: error.toString(), onRetry: onRefresh),
-      data: (page) {
-        final items = page.items;
-        if (items.isEmpty) {
-          return EmptyState(
-            icon: Symbols.mail_outline,
-            title: 'noEmails'.tr(),
-            message: 'noEmailsDescription'.tr(),
-          );
-        }
-        return RefreshIndicator(
-          onRefresh: () async => onRefresh(),
-          child: ListView.builder(
-            itemCount: items.length + (items.length < page.totalCount ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index == items.length) {
-                onLoadMore();
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                );
-              }
-              final email = items[index];
-              return _EmailTile(
-                email: email,
-                mailHost: mailHost,
-                senderAvatars: senderAvatars.value ?? const {},
-                selected: email.id == selectedEmail?.id,
-                onTap: () => onOpen(email),
-                onToggleStar: () => onToggleStar(email),
-                onToggleRead: () => _toggleEmailRead(ref, email),
-                onDelete: () => onDelete(context, ref, email),
-                onMove: (folder) => onMove(ref, email, folder),
-              );
-            },
-          ),
+class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
+  /// Distance from the end of the list that triggers the next page.
+  static const _loadMoreExtent = 320.0;
+
+  /// Last listing rendered for [widget.query]'s filter. Growing the page size
+  /// re-fetches the same conversations, so the previous listing stays on screen
+  /// while the larger one loads instead of flashing a spinner over the list.
+  PaginatedResult<MailThread>? _cached;
+  EmailListFilter? _cachedFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final listing = ref.watch(threadsProvider(widget.query));
+    final loaded = listing.value;
+    if (loaded != null) {
+      _cached = loaded;
+      _cachedFilter = widget.query.filter;
+    }
+    // While a larger page (or a refresh) is in flight, keep the previous
+    // listing — but never conversations from a filter the user has left.
+    final page = loaded ?? (_cachedFilter == widget.query.filter ? _cached : null);
+    ref.listen(threadsProvider(widget.query), (previous, next) {
+      final error = next.error;
+      // A failure with rows on screen keeps them; say what went wrong rather
+      // than blanking the list. Without rows the error page below speaks.
+      if (error != null && _cachedFilter == widget.query.filter) {
+        showSnackBar(error.toString());
+      }
+    });
+    if (page == null) {
+      if (listing.hasError) {
+        return PageError(
+          message: listing.error.toString(),
+          onRetry: widget.onRefresh,
         );
+      }
+      return const PageLoading();
+    }
+    final items = page.items;
+    if (items.isEmpty) {
+      return EmptyState(
+        icon: Symbols.mail_outline,
+        title: 'noEmails'.tr(),
+        message: 'noEmailsDescription'.tr(),
+      );
+    }
+    final senderAvatars =
+        ref.watch(mailSenderAvatarUrlsProvider).value ?? const <String, String>{};
+    final canLoadMore =
+        widget.query.take < kMaxThreadTake && items.length < page.totalCount;
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        // Only the reader's own scrolling extends the page, and only once the
+        // current page has settled, so one flick cannot chain requests.
+        if (!listing.isLoading &&
+            canLoadMore &&
+            notification.metrics.extentAfter < _loadMoreExtent) {
+          widget.onLoadMore();
+        }
+        return false;
       },
+      child: RefreshIndicator(
+        onRefresh: () async => widget.onRefresh(),
+        child: ListView.builder(
+          itemCount: items.length + (canLoadMore ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index == items.length) {
+              return _ThreadListFooter(
+                loading: listing.isLoading,
+                shown: items.length,
+                total: page.totalCount,
+              );
+            }
+            final thread = items[index];
+            return _EmailThreadTile(
+              thread: thread,
+              mailHost: widget.mailHost,
+              senderAvatars: senderAvatars,
+              selected: thread.id == widget.selectedThreadId,
+              onTap: () => widget.onOpen(thread),
+              onToggleStar: () => widget.onToggleStar(thread),
+              onToggleRead: () => widget.onToggleRead(thread),
+              onDelete: () => widget.onDelete(context, thread),
+              onMove: (folder) => widget.onMove(thread, folder),
+            );
+          },
+        ),
+      ),
     );
   }
 }
 
-class _EmailTile extends StatelessWidget {
-  const _EmailTile({
-    required this.email,
+/// End-of-list row: a spinner while the next page loads, otherwise how much of
+/// the conversation list is on screen.
+class _ThreadListFooter extends StatelessWidget {
+  const _ThreadListFooter({
+    required this.loading,
+    required this.shown,
+    required this.total,
+  });
+
+  final bool loading;
+  final int shown;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!loading) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: Text(
+            'threadsShown'.tr(
+              namedArgs: {'shown': '$shown', 'total': '$total'},
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+    }
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    );
+  }
+}
+
+class _EmailThreadTile extends StatelessWidget {
+  const _EmailThreadTile({
+    required this.thread,
     required this.mailHost,
     required this.senderAvatars,
     required this.onTap,
@@ -1511,7 +1642,7 @@ class _EmailTile extends StatelessWidget {
     this.selected = false,
   });
 
-  final MailEmail email;
+  final MailThread thread;
   final String? mailHost;
   final Map<String, String> senderAvatars;
   final VoidCallback onTap;
@@ -1525,17 +1656,21 @@ class _EmailTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final fromAddress = email.from?.fullAddress(mailHost) ?? '';
-    final fromName = email.from?.displayName ?? '';
+    final latest = thread.latestMessage;
+    final fromAddress = latest.from?.fullAddress(mailHost) ?? '';
+    final fromName = latest.from?.displayName ?? '';
     final from = fromName.isNotEmpty ? fromName : fromAddress;
-    final senderAvatarUrl =
-        senderAvatars[fromAddress.trim().toLowerCase()];
-    final date = email.createdAt;
+    final unread = !thread.isRead;
+    final weight = unread ? FontWeight.w600 : FontWeight.normal;
+    final timestamp = _mailTimestamp(thread.latestAt ?? latest.createdAt);
 
     return ContextMenuWidget(
       menuProvider: (_) => Menu(
         children: emailContextMenuItems(
-          email: email,
+          // The actions cover the conversation, so the read state is the
+          // thread's — not the newest message's — to keep the labels honest.
+          isRead: thread.isRead,
+          isStarred: latest.isStarred,
           onToggleRead: onToggleRead,
           onToggleStar: onToggleStar,
           onMove: onMove,
@@ -1547,9 +1682,9 @@ class _EmailTile extends StatelessWidget {
         selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
         shape: const RoundedRectangleBorder(),
         leading: _SenderAvatar(
-          url: senderAvatarUrl,
+          url: senderAvatars[fromAddress.trim().toLowerCase()],
           name: from,
-          unread: !email.isRead,
+          unread: unread,
         ),
         title: Row(
           children: [
@@ -1558,16 +1693,16 @@ class _EmailTile extends StatelessWidget {
                 from,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: text.bodyMedium?.copyWith(
-                  fontWeight: email.isRead
-                      ? FontWeight.normal
-                      : FontWeight.w600,
-                ),
+                style: text.bodyMedium?.copyWith(fontWeight: weight),
               ),
             ),
-            if (date != null)
+            if (thread.isMultiMessage) ...[
+              _ThreadCountBadge(count: thread.messageCount),
+              const SizedBox(width: 6),
+            ],
+            if (timestamp.isNotEmpty)
               Text(
-                _formatDate(date),
+                timestamp,
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
           ],
@@ -1576,23 +1711,21 @@ class _EmailTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              email.displaySubject,
+              thread.displaySubject,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: text.bodyMedium?.copyWith(
-                fontWeight: email.isRead ? FontWeight.normal : FontWeight.w600,
-              ),
+              style: text.bodyMedium?.copyWith(fontWeight: weight),
             ),
-            if (email.previewText.isNotEmpty)
+            if (latest.previewText.isNotEmpty)
               Text(
-                email.previewText,
+                latest.previewText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
-            if (email.hasDeliveryStatus && !email.isDraft) ...[
+            if (latest.hasDeliveryStatus && !latest.isDraft) ...[
               const SizedBox(height: 6),
-              _DeliveryStatusChip(status: email.deliveryStatus!),
+              _DeliveryStatusChip(status: latest.deliveryStatus!),
             ],
           ],
         ),
@@ -1601,15 +1734,34 @@ class _EmailTile extends StatelessWidget {
       ),
     );
   }
+}
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    if (date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day) {
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    }
-    return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+/// How many messages a conversation holds, on rows with more than one.
+class _ThreadCountBadge extends StatelessWidget {
+  const _ThreadCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: 'threadMessageCount'.plural(count),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          '$count',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1700,25 +1852,24 @@ String _senderInitials(String name) {
 /// Kept as a plain function so the menu contract (destructive delete, star
 /// check state, folder moves) is unit-testable without a native menu.
 List<MenuElement> emailContextMenuItems({
-  required MailEmail email,
+  required bool isRead,
+  required bool isStarred,
   required VoidCallback onToggleRead,
   required VoidCallback onToggleStar,
   required ValueChanged<String> onMove,
   required VoidCallback onDelete,
 }) => [
   MenuAction(
-    title: (email.isRead ? 'markUnread' : 'markRead').tr(),
+    title: (isRead ? 'markUnread' : 'markRead').tr(),
     image: MenuImage.icon(
-      email.isRead ? Symbols.mark_email_unread : Symbols.mark_email_read,
+      isRead ? Symbols.mark_email_unread : Symbols.mark_email_read,
     ),
     callback: onToggleRead,
   ),
   MenuAction(
-    title: (email.isStarred ? 'unstar' : 'star').tr(),
-    image: MenuImage.icon(
-      email.isStarred ? Symbols.star : Symbols.star_outline,
-    ),
-    state: email.isStarred ? MenuActionState.checkOn : MenuActionState.none,
+    title: (isStarred ? 'unstar' : 'star').tr(),
+    image: MenuImage.icon(isStarred ? Symbols.star : Symbols.star_outline),
+    state: isStarred ? MenuActionState.checkOn : MenuActionState.none,
     callback: onToggleStar,
   ),
   MenuSeparator(),
@@ -1776,6 +1927,7 @@ class _EmailDetailPanel extends StatefulWidget {
   const _EmailDetailPanel({
     super.key,
     required this.email,
+    required this.conversation,
     required this.mailHost,
     required this.workspaceId,
     required this.onReply,
@@ -1790,18 +1942,24 @@ class _EmailDetailPanel extends StatefulWidget {
     required this.onClose,
   });
 
+  /// The message the route opened; the conversation starts selected on it.
   final MailEmail email;
+
+  /// Every message of the conversation, oldest first. Null while it loads or
+  /// when the message has no conversation behind it, in which case the pane
+  /// shows [email] on its own.
+  final List<MailEmail>? conversation;
   final String? mailHost;
   final String? workspaceId;
-  final VoidCallback onReply;
-  final VoidCallback onReplyAll;
-  final VoidCallback onForward;
-  final VoidCallback? onResend;
-  final VoidCallback onToggleRead;
-  final VoidCallback onToggleStar;
-  final ValueChanged<String> onMove;
-  final VoidCallback onDelete;
-  final VoidCallback onDownloadEml;
+  final ValueChanged<MailEmail> onReply;
+  final ValueChanged<MailEmail> onReplyAll;
+  final ValueChanged<MailEmail> onForward;
+  final ValueChanged<MailEmail> onResend;
+  final ValueChanged<MailEmail> onToggleRead;
+  final ValueChanged<MailEmail> onToggleStar;
+  final void Function(MailEmail message, String folder) onMove;
+  final ValueChanged<MailEmail> onDelete;
+  final ValueChanged<MailEmail> onDownloadEml;
   final VoidCallback onClose;
 
   @override
@@ -1822,6 +1980,9 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   double? _summaryHeight;
   DateTime? _layoutChangedAt;
 
+  /// Message of the conversation the pane is reading.
+  String? _selectedId;
+
   /// The message body is its own scroll surface, so the header follows the
   /// direction of that scroll: down hides it, up (or reaching the top) brings
   /// it back.
@@ -1830,13 +1991,59 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   /// Attachments are revealed once the reader reaches the end of the message.
   final _footer = BodyFooterRevealController();
 
+  List<MailEmail> get _conversation {
+    final conversation = widget.conversation;
+    if (conversation == null || conversation.isEmpty) return [widget.email];
+    return conversation;
+  }
+
+  /// The message the toolbar, header and action bar act on.
+  MailEmail get _selected {
+    final selectedId = _selectedId;
+    if (selectedId != null) {
+      for (final message in _conversation) {
+        if (message.id == selectedId) return message;
+      }
+    }
+    return widget.email;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedId = widget.email.id;
+  }
+
   @override
   void didUpdateWidget(_EmailDetailPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.email.id != widget.email.id) {
-      _header.reset();
-      _footer.reset();
+      _selectedId = widget.email.id;
+      _resetBody();
+      return;
     }
+    // A freshly loaded conversation can retire the selected message id; fall
+    // back to the one the route opened rather than showing a blank pane.
+    if (!_conversation.any((message) => message.id == _selectedId)) {
+      _selectedId = widget.email.id;
+    }
+  }
+
+  /// Reading a different message resets the header, scroll and footer state,
+  /// which belong to the body that was on screen.
+  void _resetBody() {
+    _header.reset();
+    _footer.reset();
+    _summaryHeight = null;
+  }
+
+  void _selectMessage(MailEmail message) {
+    if (message.id == _selectedId) return;
+    setState(() {
+      _selectedId = message.id;
+      _resetBody();
+    });
+    _remeasureSummary();
   }
 
   void _onBodyScroll(EmailBodyScroll sample) {
@@ -1876,8 +2083,12 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final email = widget.email;
+    final conversation = _conversation;
+    final selected = _selected;
     final summaryHeight = _summaryHeight ?? _estimateSummaryHeight;
+    final resendable =
+        !selected.isDraft &&
+        selected.deliveryStatus?.toLowerCase() == 'failed';
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -1887,13 +2098,13 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _EmailToolbar(
-            email: email,
+            email: selected,
             onClose: widget.onClose,
-            onToggleStar: widget.onToggleStar,
-            onToggleRead: widget.onToggleRead,
-            onMove: widget.onMove,
-            onDelete: widget.onDelete,
-            onDownloadEml: widget.onDownloadEml,
+            onToggleStar: () => widget.onToggleStar(selected),
+            onToggleRead: () => widget.onToggleRead(selected),
+            onMove: (folder) => widget.onMove(selected, folder),
+            onDelete: () => widget.onDelete(selected),
+            onDownloadEml: () => widget.onDownloadEml(selected),
           ),
           // The summary slides up under the toolbar as the body is scrolled
           // down and back out when it is scrolled up. OverflowBox keeps the
@@ -1911,32 +2122,101 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                 maxHeight: double.infinity,
                 child: _EmailSummary(
                   key: _summaryKey,
-                  email: email,
+                  email: selected,
                   mailHost: widget.mailHost,
                 ),
               ),
             ),
           ),
+          // A conversation gets a switcher: only one body is mounted at a time,
+          // because the message body owns the mouse wheel over its own area.
+          if (conversation.length > 1)
+            _ThreadMessageStrip(
+              messages: conversation,
+              selectedId: selected.id,
+              mailHost: widget.mailHost,
+              onSelect: _selectMessage,
+            ),
           Expanded(
             child: _EmailDetailContent(
-              email: email,
+              key: ValueKey(selected.id),
+              email: selected,
               workspaceId: widget.workspaceId,
               onBodyScroll: _onBodyScroll,
               // A footer with nothing to show would expand blank padding when
               // the reader reaches the end; keep it collapsed for emails
               // without attachments or delivery state.
-              showFooter: _footer.visible && emailHasFooterContent(email),
+              showFooter: _footer.visible && emailHasFooterContent(selected),
             ),
           ),
           _EmailActionBar(
-            onReply: widget.onReply,
-            onReplyAll: widget.onReplyAll,
-            onForward: widget.onForward,
-            onResend: email.deliveryStatus?.toLowerCase() == 'failed'
-                ? widget.onResend
-                : null,
+            onReply: () => widget.onReply(selected),
+            onReplyAll: () => widget.onReplyAll(selected),
+            onForward: () => widget.onForward(selected),
+            onResend: resendable ? () => widget.onResend(selected) : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Message switcher for a conversation, oldest first. The body below shows the
+/// picked message, so a long thread stays readable one message at a time.
+class _ThreadMessageStrip extends ConsumerWidget {
+  const _ThreadMessageStrip({
+    required this.messages,
+    required this.selectedId,
+    required this.mailHost,
+    required this.onSelect,
+  });
+
+  final List<MailEmail> messages;
+  final String selectedId;
+  final String? mailHost;
+  final ValueChanged<MailEmail> onSelect;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final senderAvatars =
+        ref.watch(mailSenderAvatarUrlsProvider).value ??
+        const <String, String>{};
+
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: SizedBox(
+        height: 56,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: messages.length,
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final message = messages[index];
+            final address = message.from?.fullAddress(mailHost) ?? '';
+            final name = message.from?.displayName ?? '';
+            final from = name.isNotEmpty ? name : address;
+            final timestamp = _mailTimestamp(message.createdAt);
+            return ChoiceChip(
+              selected: message.id == selectedId,
+              showCheckmark: false,
+              avatar: _SenderAvatar(
+                url: senderAvatars[address.trim().toLowerCase()],
+                name: from,
+                unread: !message.isRead,
+              ),
+              label: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Text(
+                  timestamp.isEmpty ? from : '$from · $timestamp',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              onSelected: (_) => onSelect(message),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2221,8 +2501,68 @@ class _EmailSummary extends StatelessWidget {
   }
 }
 
+/// Scroll surface for a plain-text message body.
+///
+/// It reports the body's metrics the way the web view reports its own: once
+/// after the first layout, then on every scroll. Without the first report the
+/// pane would never learn that the message already fits, and text-only mail
+/// would hide its attachments behind a footer nothing can reveal.
+class _PlainTextBodyScroll extends StatefulWidget {
+  const _PlainTextBodyScroll({required this.onScroll, required this.child});
+
+  final ValueChanged<EmailBodyScroll>? onScroll;
+  final Widget child;
+
+  @override
+  State<_PlainTextBodyScroll> createState() => _PlainTextBodyScrollState();
+}
+
+class _PlainTextBodyScrollState extends State<_PlainTextBodyScroll> {
+  final _controller = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _report());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _report() {
+    final onScroll = widget.onScroll;
+    if (onScroll == null || !mounted || !_controller.hasClients) return;
+    final position = _controller.position;
+    onScroll(
+      EmailBodyScroll(
+        y: position.pixels,
+        maxY: position.maxScrollExtent,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        _report();
+        return false;
+      },
+      child: SingleChildScrollView(
+        controller: _controller,
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class _EmailDetailContent extends StatelessWidget {
   const _EmailDetailContent({
+    super.key,
     required this.email,
     required this.workspaceId,
     this.onBodyScroll,
@@ -2260,8 +2600,8 @@ class _EmailDetailContent extends StatelessWidget {
                   workspaceId: attachmentWorkspaceId,
                   onScroll: onBodyScroll,
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+              : _PlainTextBodyScroll(
+                  onScroll: onBodyScroll,
                   child: _PlainTextEmailBody(
                     body: email.body,
                     attachments: email.attachments,
@@ -2391,21 +2731,11 @@ class _EmailFooter extends StatelessWidget {
           if (email.attachments.isNotEmpty) ...[
             Text('attachments'.tr(), style: text.titleSmall),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final attachment in email.attachments)
-                  CloudFileChip(
-                    file: attachment,
-                    displayUrl: _cloudFileUri(
-                      attachment,
-                      workspaceId,
-                    ).toString(),
-                    onPressed: () =>
-                        _openAttachment(context, attachment, workspaceId),
-                  ),
-              ],
+            // Media shows itself here; documents stay chips. Both kinds open
+            // the way their type reads (see [CloudFileAttachmentList]).
+            CloudFileAttachmentList(
+              files: email.attachments,
+              workspaceId: workspaceId,
             ),
           ],
           if (email.hasDeliveryStatus && !email.isDraft) ...[
@@ -2454,17 +2784,6 @@ class _EmailFooter extends StatelessWidget {
     );
   }
 
-  Future<void> _openAttachment(
-    BuildContext context,
-    IDisplayableCloudFile attachment,
-    String? workspaceId,
-  ) async {
-    final uri = _cloudFileUri(attachment, workspaceId);
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && context.mounted) {
-      showSnackBar('Unable to open ${attachment.name}.');
-    }
-  }
 }
 
 class _PlainTextEmailBody extends StatelessWidget {
@@ -2503,7 +2822,11 @@ class _PlainTextEmailBody extends StatelessWidget {
       // preview-generation syntax in the message.
       if (attachment != null) {
         children.add(
-          _InlineEmailImage(file: attachment, workspaceId: workspaceId),
+          _InlineEmailImage(
+            file: attachment,
+            workspaceId: workspaceId,
+            gallery: attachments,
+          ),
         );
       }
       cursor = match.end;
@@ -2520,23 +2843,40 @@ class _PlainTextEmailBody extends StatelessWidget {
 }
 
 class _InlineEmailImage extends StatelessWidget {
-  const _InlineEmailImage({required this.file, required this.workspaceId});
+  const _InlineEmailImage({
+    required this.file,
+    required this.workspaceId,
+    required this.gallery,
+  });
 
   final SnCloudFileReference file;
   final String? workspaceId;
 
+  /// The message's attachments, so a tapped image can be paged through with
+  /// the rest of the pictures it arrived with.
+  final List<IDisplayableCloudFile> gallery;
+
   @override
   Widget build(BuildContext context) {
+    final displayUrl = _cloudFileUri(file, workspaceId).toString();
+    void open() => openCloudFile(
+      context,
+      file,
+      gallery: gallery,
+      workspaceId: workspaceId,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: Image.network(
-          _cloudFileUri(file, workspaceId).toString(),
-          fit: BoxFit.contain,
-          errorBuilder: (_, _, _) => CloudFileChip(
-            file: file,
-            displayUrl: _cloudFileUri(file, workspaceId).toString(),
+        child: GestureDetector(
+          onTap: open,
+          child: Image.network(
+            displayUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) =>
+                CloudFileChip(file: file, displayUrl: displayUrl, onPressed: open),
           ),
         ),
       ),
@@ -2641,9 +2981,9 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     final css = emailTypographyCss(Theme.of(context));
     final imageFiles = <String, SnCloudFileReference>{
       for (final attachment in widget.attachments)
-        if (attachment.mimeType.startsWith('image/')) attachment.id: attachment,
+        if (isImageFile(attachment)) attachment.id: attachment,
       for (final attachment in widget.inlineAttachments.values)
-        if (attachment.mimeType.startsWith('image/')) attachment.id: attachment,
+        if (isImageFile(attachment)) attachment.id: attachment,
     };
     final urls = <String, String>{};
     await Future.wait(
@@ -3031,8 +3371,7 @@ SnCloudFileReference? _imageAttachmentForFilename(
   String filename,
 ) {
   for (final file in attachments) {
-    if (file.mimeType.startsWith('image/') &&
-        file.name.trim().toLowerCase() == filename) {
+    if (isImageFile(file) && file.name.trim().toLowerCase() == filename) {
       return file;
     }
   }

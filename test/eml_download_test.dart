@@ -47,6 +47,17 @@ final _email = MailEmail(
   createdAt: DateTime(2026, 9, 25, 10, 30),
 );
 
+final _thread = MailThread(
+  id: 't-1',
+  mailboxId: 'mb-1',
+  subject: 'MiMo-V2.6 preview',
+  messageCount: 1,
+  unreadCount: 1,
+  participants: const ['alice@example.com'],
+  latestMessage: _email,
+  latestAt: DateTime(2026, 9, 25, 10, 30),
+);
+
 /// Captures the client-side half of the EML download: the endpoint call must
 /// happen before the save dialog is offered.
 class _FakeMailClient extends WattEngineClient {
@@ -98,10 +109,11 @@ void main() {
             mailboxUnreadCountsProvider.overrideWith(
               (ref) async => const {'mb-1': 1},
             ),
-            emailsProvider.overrideWith(
-              (ref, filter) async =>
-                  PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
+            threadsProvider.overrideWith(
+              (ref, query) async =>
+                  PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
             ),
+            threadProvider.overrideWith((ref, id) async => [_email]),
             emailProvider.overrideWith((ref, id) async => _email),
             wattEngineClientProvider.overrideWith((ref) => fakeClient),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),

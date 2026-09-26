@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:solwatt/core/utils/file_types.dart';
 import 'package:solwatt/mail/import/mail_import_models.dart';
 
 /// Parses a single RFC 5322 message (an `.eml` file) into the fields the
@@ -364,7 +365,12 @@ class EmlParser {
       out.attachments.add(
         _AttachmentCandidate(
           fileName: name,
-          contentType: contentType.type,
+          // Parts routinely arrive with no Content-Type or a generic one;
+          // the filename is then the only thing that says what they are.
+          contentType: effectiveMimeType(
+            mimeType: contentType.type,
+            name: name,
+          ),
           bytes: raw,
           contentId: contentId.isEmpty ? null : contentId,
         ),

@@ -141,6 +141,31 @@ $pdf
       expect(attachment.bytes, List.generate(8, (i) => i));
     });
 
+    test('names a part from its filename when it declares no type', () {
+      final jpeg = base64.encode(List.generate(8, (i) => i));
+      final message = parse('''From: a@example.com
+Content-Type: multipart/mixed; boundary="mix"
+Message-ID: <x@example.com>
+
+--mix
+Content-Type: text/plain; charset=utf-8
+
+See attached.
+
+--mix
+Content-Disposition: attachment; filename="shot.JPG"
+Content-Transfer-Encoding: base64
+
+$jpeg
+
+--mix--
+''');
+      expect(message.attachments, hasLength(1));
+      final attachment = message.attachments.single;
+      expect(attachment.fileName, 'shot.JPG');
+      expect(attachment.contentType, 'image/jpeg');
+    });
+
     test('extracts named parts and content-id for inline images', () {
       final png = base64.encode([1, 2, 3, 4]);
       final message = parse('''From: a@example.com

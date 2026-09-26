@@ -81,9 +81,9 @@ Future<void> _pumpApp(WidgetTester tester, Size size) async {
         mailCredentialsProvider.overrideWith(
           (ref) async => const <MailCredential>[],
         ),
-        emailsProvider.overrideWith(
-          (ref, filter) async =>
-              PaginatedResult<MailEmail>(items: const [], totalCount: 0),
+        threadsProvider.overrideWith(
+          (ref, query) async =>
+              const PaginatedResult<MailThread>(items: [], totalCount: 0),
         ),
         mailSenderAvatarUrlsProvider.overrideWith(
           (ref) async => const <String, String>{},

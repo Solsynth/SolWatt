@@ -23,6 +23,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:solwatt/boards/github_integration.dart';
 import 'package:solwatt/boards/task_comments.dart';
+import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
+import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/theme.dart';

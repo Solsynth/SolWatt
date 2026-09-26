@@ -1,4 +1,3 @@
-import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,18 +8,16 @@ import 'package:solwatt/core/widgets/content/file_info_sheet.dart';
 import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:solwatt/network.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 /// Bottom-sheet with per-file actions (download, rename, share, info, …).
 ///
-/// Ported from Solian. One deliberate deviation: the "Open in viewer" action
-/// used `context.router.push(FileDetailRoute(id: …))`; SolWatt does not have a
-/// generated `FileDetailRoute` yet, so it navigates with the path-based
-/// `context.router.pushPath('/files/<id>')` instead. The `/files/:id` route
-/// must be registered in SolWatt's auto_route table (main.dart/route.gr).
+/// Ported from Solian.
 class CloudFileActionsSheet extends ConsumerWidget {
   final IDisplayableCloudFile item;
   final VoidCallback? onClose;
@@ -183,12 +180,16 @@ class CloudFileActionsSheet extends ConsumerWidget {
           _ActionTile(
             icon: Symbols.visibility,
             title: 'openInViewer'.tr(),
-            onTap: () => closeAndRun(
-              () async {
-                if (!rootContext.mounted) return;
-                await rootContext.router.pushPath('/files/${item.id}');
-              },
-            ),
+            onTap: () => closeAndRun(() async {
+              if (!rootContext.mounted) return;
+              // Pictures read better in the lightbox; everything else belongs
+              // on the file page, which can play, unpack or describe it.
+              openCloudFile(
+                rootContext,
+                item,
+                workspaceId: ref.watch(selectedWorkspaceProvider).value?.id,
+              );
+            }),
           ),
           const Gap(16),
         ],

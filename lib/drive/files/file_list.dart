@@ -2273,7 +2273,7 @@ class _DriveFileContentTab extends ConsumerWidget {
         onSecondaryTap: () => onInspectFile(file),
         child: ClipRect(
           child: switch (file.mimeType.split('/').firstOrNull) {
-            'image' => ImageFileContent(item: file, uri: uri),
+            'image' => ImageFileContent(item: file),
             'video' => VideoFileContent(item: file, uri: uri),
             'audio' => AudioFileContent(item: file, uri: uri),
             _ when file.mimeType.startsWith('text/') => TextFileContent(

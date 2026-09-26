@@ -1048,37 +1048,39 @@ class WattEngineClient {
     return MailMailbox.fromJson(response.data!);
   }
 
-  Future<PaginatedResult<MailEmail>> listEmails({
-    String? mailboxId,
-    String? workspaceId,
+  Future<MailEmail> getEmail(String emailId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/emails/$emailId',
+    );
+    return MailEmail.fromJson(response.data ?? const {});
+  }
+
+  /// Conversation summaries for one mailbox, newest activity first.
+  ///
+  /// The mailbox scopes the query (ElecPostal only filters by mailbox on the
+  /// nested route), and the counts cover every message of a conversation, not
+  /// just the ones on the fetched page.
+  Future<PaginatedResult<MailThread>> listThreads(
+    String mailboxId, {
     String? folder,
     String? q,
     String? status,
     bool? isFlagged,
-    bool? isRead,
-    bool? isStarred,
-    String? labelId,
     String? from,
     String? to,
     bool? hasAttachments,
     int offset = 0,
     int take = 20,
-  }) async => _parseEmailPage(
+  }) async => _parseThreadPage(
     await _get<List<dynamic>>(
-      '$kElecPostalBase/emails',
+      '$kElecPostalBase/mailboxes/$mailboxId/threads',
       queryParameters: {
         'offset': offset,
         'take': take,
-        if (mailboxId != null && mailboxId.isNotEmpty) 'mailbox_id': mailboxId,
-        if (workspaceId != null && workspaceId.isNotEmpty)
-          'workspace_id': workspaceId,
         if (folder != null && folder.isNotEmpty) 'folder': folder,
         if (q != null && q.isNotEmpty) 'q': q,
         if (status != null && status.isNotEmpty) 'status': status,
         'is_flagged': ?isFlagged,
-        'is_read': ?isRead,
-        'is_starred': ?isStarred,
-        if (labelId != null && labelId.isNotEmpty) 'label_id': labelId,
         if (from != null && from.isNotEmpty) 'from': from,
         if (to != null && to.isNotEmpty) 'to': to,
         'has_attachments': ?hasAttachments,
@@ -1086,22 +1088,15 @@ class WattEngineClient {
     ),
   );
 
-  Future<PaginatedResult<MailEmail>> listMailboxEmails(
-    String mailboxId, {
-    int offset = 0,
-    int take = 20,
-  }) async => _parseEmailPage(
-    await _get<List<dynamic>>(
-      '$kElecPostalBase/mailboxes/$mailboxId/emails',
-      queryParameters: {'offset': offset, 'take': take},
-    ),
-  );
-
-  Future<MailEmail> getEmail(String emailId) async {
-    final response = await _get<Map<String, dynamic>>(
-      '$kElecPostalBase/emails/$emailId',
+  /// Every message of one conversation, oldest first, with full bodies.
+  Future<List<MailEmail>> getThread(String threadId) async {
+    final response = await _get<List<dynamic>>(
+      '$kElecPostalBase/threads/${Uri.encodeComponent(threadId)}',
     );
-    return MailEmail.fromJson(response.data ?? const {});
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => MailEmail.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
   /// Downloads a freshly serialized `.eml` (message/rfc822) for an email.
@@ -1325,7 +1320,9 @@ class WattEngineClient {
     return (response.data?['host'] as String?)?.trim() ?? '';
   }
 
-  PaginatedResult<MailEmail> _parseEmailPage(Response<List<dynamic>> response) {
+  PaginatedResult<MailThread> _parseThreadPage(
+    Response<List<dynamic>> response,
+  ) {
     final totalHeader =
         response.headers.value('x-total') ??
         response.headers.value('X-Total') ??
@@ -1333,7 +1330,7 @@ class WattEngineClient {
     final totalCount = int.tryParse(totalHeader) ?? 0;
     final items = (response.data ?? const [])
         .whereType<Map>()
-        .map((item) => MailEmail.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) => MailThread.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
     return PaginatedResult(items: items, totalCount: totalCount);
   }
@@ -2771,6 +2768,8 @@ class MailEmail {
     required this.subject,
     required this.body,
     required this.isDraft,
+    this.threadId,
+    this.messageId,
     this.contentType,
     this.from,
     this.to = const [],
@@ -2793,6 +2792,14 @@ class MailEmail {
   final String id;
   final String mailboxId;
   final MailMailbox? mailbox;
+
+  /// Conversation this message belongs to. ElecPostal assigns every message a
+  /// thread, so this is null only for payloads that predate threading.
+  final String? threadId;
+
+  /// RFC 5322 `Message-ID` header without angle brackets, when the message
+  /// carried one. The per-mailbox import dedupe key, not a routing hint.
+  final String? messageId;
   final String subject;
   final String body;
   final bool isDraft;
@@ -2822,6 +2829,13 @@ class MailEmail {
       deliveryStatus != null && deliveryStatus!.isNotEmpty;
 
   bool get isHtml => contentType?.toLowerCase() == 'text/html';
+
+  /// Conversation key for this message: the server thread id, falling back to
+  /// the message id for payloads without one (each message is its own thread).
+  String get threadKey {
+    final thread = threadId?.trim();
+    return thread == null || thread.isEmpty ? id : thread;
+  }
 
   String get displaySubject =>
       subject.trim().isNotEmpty ? subject : '(no subject)';
@@ -2879,6 +2893,8 @@ class MailEmail {
       subject: json['subject']?.toString() ?? '',
       body: json['body']?.toString() ?? '',
       isDraft: json['is_draft'] == true,
+      threadId: nonEmptyString(json['thread_id']?.toString()),
+      messageId: nonEmptyString(json['message_id']?.toString()),
       contentType: nonEmptyString(json['content_type']?.toString()),
       from: from,
       to: allRecipients.where((r) => r.kind == 'to').toList(),
@@ -2901,6 +2917,72 @@ class MailEmail {
       providerMessageId: nonEmptyString(
         json['provider_message_id']?.toString(),
       ),
+    );
+  }
+}
+
+/// One conversation, as listed by `GET /postal/mailboxes/{id}/threads`.
+///
+/// [latestMessage] carries the newest message's header data plus a body
+/// preview, so the list needs no per-thread fetch; the full conversation comes
+/// from [WattEngineClient.getThread].
+class MailThread {
+  const MailThread({
+    required this.id,
+    required this.mailboxId,
+    required this.subject,
+    required this.messageCount,
+    required this.unreadCount,
+    required this.participants,
+    required this.latestMessage,
+    this.latestAt,
+  });
+
+  final String id;
+  final String mailboxId;
+  final String subject;
+  final int messageCount;
+  final int unreadCount;
+
+  /// Every address seen on the conversation: senders and recipients.
+  final List<String> participants;
+  final MailEmail latestMessage;
+  final DateTime? latestAt;
+
+  bool get isRead => unreadCount == 0;
+
+  bool get isMultiMessage => messageCount > 1;
+
+  String get displaySubject => subject.trim().isNotEmpty
+      ? subject
+      : latestMessage.displaySubject;
+
+  factory MailThread.fromJson(Map<String, dynamic> json) {
+    final latestRaw = json['latest_message'];
+    final latest = latestRaw is Map
+        ? MailEmail.fromJson(Map<String, dynamic>.from(latestRaw))
+        : const MailEmail(
+            id: '',
+            mailboxId: '',
+            subject: '',
+            body: '',
+            isDraft: false,
+          );
+    final id = json['id']?.toString() ?? latest.threadKey;
+    return MailThread(
+      id: id,
+      mailboxId: json['mailbox_id']?.toString() ?? latest.mailboxId,
+      subject: json['subject']?.toString() ?? latest.subject,
+      messageCount: (json['message_count'] as num?)?.toInt() ?? 1,
+      unreadCount: (json['unread_count'] as num?)?.toInt() ?? 0,
+      participants:
+          (json['participants'] as List?)
+              ?.map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false) ??
+          const [],
+      latestMessage: latest,
+      latestAt: parseInstant(json['latest_at']) ?? latest.createdAt,
     );
   }
 }
@@ -3634,16 +3716,14 @@ class SelectedFolderNotifier extends Notifier<String> {
   void select(String folder) => state = folder;
 }
 
+/// Filters the mail list applies to a conversation query. Mirrors the
+/// ElecPostal list parameters the UI exposes; unset fields are not sent.
 typedef EmailListFilter = ({
   String? mailboxId,
-  String? workspaceId,
   String? folder,
   String? q,
   String? status,
   bool? isFlagged,
-  bool? isRead,
-  bool? isStarred,
-  String? labelId,
   String? from,
   String? to,
   bool? hasAttachments,
@@ -3693,27 +3773,46 @@ final mailSenderAvatarUrlsProvider = FutureProvider<Map<String, String>>(
   },
 );
 
-final emailsProvider =
-    FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((
+/// Thread page request: the active mail-list filter plus how many
+/// conversations to show. The list grows [take] rather than paging offsets so
+/// each fetch is a superset of the previous one — no offset drift, no stitched
+/// duplicate keys — and the per-thread counts stay whole-conversation.
+typedef MailThreadsQuery = ({EmailListFilter filter, int take});
+
+/// Conversation summaries for the mail list, keyed by filter and page size.
+///
+/// Every `take` is its own family entry, so the provider is auto-disposed:
+/// only the size the list currently shows stays cached.
+final threadsProvider =
+    FutureProvider.family<PaginatedResult<MailThread>, MailThreadsQuery>((
       ref,
-      filter,
+      query,
     ) async {
-      final client = ref.watch(wattEngineClientProvider);
-      return client.listEmails(
-        mailboxId: filter.mailboxId,
-        workspaceId: filter.workspaceId,
-        folder: filter.folder,
-        q: filter.q,
-        status: filter.status,
-        isFlagged: filter.isFlagged,
-        isRead: filter.isRead,
-        isStarred: filter.isStarred,
-        labelId: filter.labelId,
-        from: filter.from,
-        to: filter.to,
-        hasAttachments: filter.hasAttachments,
-      );
-    });
+      final mailboxId = query.filter.mailboxId;
+      if (mailboxId == null || mailboxId.isEmpty) {
+        // No mailbox resolves yet (account without inboxes): nothing to list.
+        return const PaginatedResult<MailThread>(items: [], totalCount: 0);
+      }
+      return ref
+          .watch(wattEngineClientProvider)
+          .listThreads(
+            mailboxId,
+            folder: query.filter.folder,
+            q: query.filter.q,
+            status: query.filter.status,
+            isFlagged: query.filter.isFlagged,
+            from: query.filter.from,
+            to: query.filter.to,
+            hasAttachments: query.filter.hasAttachments,
+            take: query.take,
+          );
+    }, isAutoDispose: true);
+
+/// The full conversation a message belongs to, oldest message first.
+final threadProvider = FutureProvider.family<List<MailEmail>, String>(
+  (ref, threadId) async =>
+      ref.watch(wattEngineClientProvider).getThread(threadId),
+);
 
 /// Detailed email by id.
 final emailProvider = FutureProvider.family<MailEmail, String>(

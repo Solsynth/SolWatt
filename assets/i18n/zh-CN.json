@@ -467,6 +467,12 @@
   "markUnread": "标记未读",
   "deleteEmail": "删除邮件？",
   "deleteEmailConfirm": "删除 \"{subject}\"？此操作无法撤销。",
+  "deleteThreadConfirm": "删除会话 \"{subject}\" 及其 {count} 封邮件？此操作无法撤销。",
+  "threadMessageCount": {
+    "one": "1 封邮件",
+    "other": "{} 封邮件"
+  },
+  "threadsShown": "已显示 {total} 个会话中的 {shown} 个",
   "emailDeleted": "邮件已删除。",
   "emailSent": "邮件已发送。",
   "emailResent": "邮件已重新发送。",

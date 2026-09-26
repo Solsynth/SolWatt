@@ -31,7 +31,8 @@ void main() {
     var deletes = 0;
 
     final items = emailContextMenuItems(
-      email: starred,
+      isRead: starred.isRead,
+      isStarred: starred.isStarred,
       onToggleRead: () => readToggles++,
       onToggleStar: () => starToggles++,
       onMove: moves.add,
@@ -75,7 +76,8 @@ void main() {
 
   test('unread unstarred message reports unstarred menu state', () {
     final items = emailContextMenuItems(
-      email: _email(isRead: true, isStarred: false),
+      isRead: true,
+      isStarred: false,
       onToggleRead: () {},
       onToggleStar: () {},
       onMove: (_) {},

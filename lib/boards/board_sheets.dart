@@ -563,6 +563,15 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
                   for (final file in _attachments)
                     CloudFileChip(
                       file: file,
+                      onPressed: () => openCloudFile(
+                        context,
+                        file,
+                        gallery: _attachments,
+                        workspaceId: ref
+                            .watch(selectedWorkspaceProvider)
+                            .value
+                            ?.id,
+                      ),
                       onRemove: () => setState(() => _attachments.remove(file)),
                     ),
                 ],

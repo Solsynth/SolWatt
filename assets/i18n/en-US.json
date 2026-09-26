@@ -467,6 +467,12 @@
   "markUnread": "Mark unread",
   "deleteEmail": "Delete email?",
   "deleteEmailConfirm": "Delete \"{subject}\"? This cannot be undone.",
+  "deleteThreadConfirm": "Delete the conversation \"{subject}\" and its {count} messages? This cannot be undone.",
+  "threadMessageCount": {
+    "one": "1 message",
+    "other": "{} messages"
+  },
+  "threadsShown": "Showing {shown} of {total} conversations",
   "emailDeleted": "Email deleted.",
   "emailSent": "Email sent.",
   "emailResent": "Email resent.",

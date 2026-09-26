@@ -623,7 +623,9 @@ Future<void> importEmailsAction(
         'failed': result.failed,
       },
     );
-    ref.invalidate(emailsProvider);
+    ref.invalidate(threadsProvider);
+    ref.invalidate(threadProvider);
+    ref.invalidate(emailProvider);
     if (!context.mounted) return;
     showSnackBar(
       'importEmailsResult'.tr(

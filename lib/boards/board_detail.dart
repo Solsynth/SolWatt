@@ -1471,13 +1471,12 @@ class _TaskDetailSidebar extends ConsumerWidget {
                     const SizedBox(height: 24),
                     Text('attachments'.tr(), style: text.titleSmall),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final file in task.attachments)
-                          CloudFileChip(file: file),
-                      ],
+                    CloudFileAttachmentList(
+                      files: task.attachments,
+                      workspaceId: ref
+                          .watch(selectedWorkspaceProvider)
+                          .value
+                          ?.id,
                     ),
                   ],
                   if (task.gitHubIssue case final issue?) ...[

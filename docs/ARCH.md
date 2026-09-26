@@ -42,6 +42,10 @@ lib/
   boards/board_sheets.dart        # Task editor, lane picker, groups, assignees
   boards/github_integration.dart  # GitHub App link/sync UI for a board
   boards/task_comments.dart       # Task comments (local + GitHub-mirrored)
+  mail/mail_screen.dart           # Mail tab: conversation list, detail pane, compose
+  mail/mail_settings_page.dart    # Mail credentials + .eml/.mbox import
+  mail/import/                    # EML/mbox parsing and the import service
+  core/widgets/content/           # Drive viewer, image lightbox, file actions
   files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
   tasks/                          # Background task overlay (uploads, etc.)
   notifications/                  # Ring multi-tenant inbox + unread badge
@@ -156,6 +160,53 @@ Key providers:
 - `solarNetworkClientProvider` — authenticated Solar Network SDK (bearer from OAuth session)
 - `solWattPushProvider` — keeps the Metoer push subscription alive; subscribes on sign-in
 - `notificationUnreadCountProvider` / `notificationListProvider` — Ring inbox scoped to SolWatt’s multi-tenant app id
+- `threadsProvider` / `threadProvider` — ElecPostal conversations: the active
+  mailbox's thread summaries (`MailThreadsQuery` = list filter + page size) and
+  one conversation's messages, oldest first
+- `emailProvider` — a single message, which the detail route opens on
+
+## Mail (ElecPostal)
+
+ElecPostal gives every message a `thread_id` and exposes conversations
+directly, so the mail tab is conversation-first:
+
+- The list is one row per thread (`GET /postal/mailboxes/{id}/threads`): the
+  newest message's sender, subject, preview and delivery state, plus the
+  conversation's message count and unread count. The counts come from the
+  server and cover the whole conversation, so a row never disagrees with what
+  opening it shows.
+- Paging grows the request's `take` (`threadsProvider` keyed by
+  filter + take) instead of paging offsets. Each fetch supersets the previous
+  listing, so the row counts stay whole and no page can go missing; the list
+  stops at ElecPostal's `take` cap of 200.
+- Opening a row marks the conversation read: `thread_id` has no read endpoint,
+  so the unread messages of the thread are read one by one.
+- The detail pane shows the message the route opened plus a strip of the whole
+  conversation (`GET /postal/threads/{id}`). Only the selected message's body
+  is mounted, because the HTML body is a platform web view that owns the wheel
+  over its area.
+- Replies carry `reply_to_id`; ElecPostal resolves the parent's thread, which
+  keeps the reply in the conversation.
+- Row actions (read, star, move, delete) apply to every message of the
+  conversation, since the API only mutates one message at a time.
+- Attachments read where they are listed: `CloudFileAttachmentList`
+  (`lib/core/widgets/content/cloud_file_attachment_list.dart`) renders images
+  and videos as in-place previews — the Drive thumbnail, sized by the file's
+  own aspect ratio — and leaves documents and archives as chips. What counts
+  as media comes from `effectiveMimeType` (`lib/core/utils/file_types.dart`):
+  the declared MIME type, or the filename's extension when that type says
+  nothing, because mail parts arrive as `application/octet-stream` (or as
+  `text/plain` with no `Content-Type` at all) while the name still says
+  `.jpg`. `EmlParser` applies the same rule at import time, so newly stored
+  attachments carry the type their name implies.
+- Attachments open where they read best, through `openCloudFile`. Images open
+  in `CloudFileLightbox` (`lib/core/widgets/content/cloud_file_lightbox.dart`)
+  — the Drive viewer's image content, made full screen with a swipeable
+  gallery, tap-to-toggle chrome and swipe-down / Escape dismissal. Every other
+  type opens the Drive file detail page (`/files/:id`), the only surface that
+  can play, unpack or describe it. The mail footer, inline body images, board
+  task attachments and the Drive actions sheet all route through it.
+
 
 ## Notifications (Ring)
 
