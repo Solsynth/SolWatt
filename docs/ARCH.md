@@ -170,6 +170,15 @@ Key providers:
 ElecPostal gives every message a `thread_id` and exposes conversations
 directly, so the mail tab is conversation-first:
 
+- Every message carries a `thread_id`, and replies to a known message join its
+  conversation. When the caller names a parent (`reply_to_id` in-app, or the
+  RFC 5322 `In-Reply-To`/`References` chain on inbound SMTP and `.eml`/`.mbox`
+  import), ElecPostal resolves the parent's `Message-ID` to its thread and
+  chains the new message in — so reply → reply → reply threads automatically
+  even when an external sender never saw ElecPostal's `thread_id`. Outbound
+  mail carries its own `Message-ID` plus the `In-Reply-To`/`References` chain,
+  so the recipient's client (and a reply coming back) threads it the same way.
+  A message whose chain names nothing the account holds starts a new thread.
 - The list is one row per thread (`GET /postal/mailboxes/{id}/threads`): the
   newest message's sender, subject, preview and delivery state, plus the
   conversation's message count and unread count. The counts come from the

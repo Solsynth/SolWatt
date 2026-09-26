@@ -42,6 +42,8 @@ class ImportAttachment {
 class ParsedMailMessage {
   const ParsedMailMessage({
     this.messageId,
+    this.inReplyTo = const [],
+    this.references = const [],
     required this.fromAddress,
     this.fromName,
     this.subject = '',
@@ -57,6 +59,13 @@ class ParsedMailMessage {
   /// RFC 5322 Message-ID without the surrounding angle brackets; null when the
   /// message had none. This is the backend's per-mailbox dedupe key.
   final String? messageId;
+
+  /// RFC 5322 reply chain of the message, ids without angle brackets: the
+  /// message being answered (`In-Reply-To`) and the ancestors before it
+  /// (`References`). The backend uses them to chain the imported message into
+  /// the conversation it answers.
+  final List<String> inReplyTo;
+  final List<String> references;
   final String fromAddress;
   final String? fromName;
   final String subject;

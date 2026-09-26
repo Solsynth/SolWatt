@@ -340,6 +340,8 @@ class MailImportService {
       'mailbox_id': mailboxId,
       if (message.messageId != null && message.messageId!.isNotEmpty)
         'message_id': message.messageId,
+      if (message.inReplyTo.isNotEmpty) 'in_reply_to': message.inReplyTo,
+      if (message.references.isNotEmpty) 'references': message.references,
       'from_address': message.fromAddress,
       if (message.fromName != null && message.fromName!.isNotEmpty)
         'from_name': message.fromName,

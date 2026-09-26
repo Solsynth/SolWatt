@@ -51,6 +51,8 @@ class EmlParser {
       _decodeEncodedWords(_headerValue(headers, 'cc')),
     );
     final messageId = _stripAngles(_headerValue(headers, 'message-id'));
+    final inReplyTo = _splitMessageIDs(_headerValue(headers, 'in-reply-to'));
+    final references = _splitMessageIDs(_headerValue(headers, 'references'));
     final sentAt = parseMailDate(_headerValue(headers, 'date'));
 
     String body;
@@ -68,6 +70,8 @@ class EmlParser {
 
     return ParsedMailMessage(
       messageId: messageId.isEmpty ? null : messageId,
+      inReplyTo: inReplyTo,
+      references: references,
       fromAddress: from?.address ?? '',
       fromName: from?.name,
       subject: _decodeEncodedWords(_headerValue(headers, 'subject')),
@@ -566,6 +570,13 @@ class EmlParser {
     }
     return v.trim();
   }
+
+  /// Splits an RFC 5322 message-id header value (`In-Reply-To`, `References`)
+  /// into individual ids without angle brackets, dropping empty fields.
+  static List<String> _splitMessageIDs(String value) => [
+    for (final field in value.split(RegExp(r'\s+')))
+      if (_stripAngles(field).isNotEmpty) _stripAngles(field),
+  ];
 
   static const _months = <String, int>{
     'jan': 1,

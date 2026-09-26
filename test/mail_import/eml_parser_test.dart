@@ -35,6 +35,23 @@ This is the body.
       expect(message.attachments, isEmpty);
     });
 
+    test('parses the In-Reply-To and References reply chain', () {
+      final message = parse('''From: bob@example.net
+To: alice@example.com
+Subject: Re: Hello world
+Message-ID: <reply@example.com>
+In-Reply-To: <abc123@example.com>
+References: <root@example.com>
+	<abc123@example.com>
+
+Body.
+''');
+      expect(message.messageId, 'reply@example.com');
+      expect(message.inReplyTo, ['abc123@example.com']);
+      // Continuation lines unfold; ids come back without angle brackets.
+      expect(message.references, ['root@example.com', 'abc123@example.com']);
+    });
+
     test('decodes RFC 2047 encoded words in subject and display names', () {
       final message = parse('''From: =?UTF-8?B?5L2g5aW9?= <zhang@example.com>
 Subject: =?UTF-8?B?5L2g5aW9?= =?UTF-8?B?ISDkuJbnlYw=?=

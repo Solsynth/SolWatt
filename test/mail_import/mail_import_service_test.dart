@@ -12,8 +12,12 @@ ParsedMailMessage _message(
   int i, {
   List<ImportAttachment> attachments = const [],
   String? messageId,
+  List<String> inReplyTo = const [],
+  List<String> references = const [],
 }) => ParsedMailMessage(
   messageId: messageId ?? 'id-$i@example.com',
+  inReplyTo: inReplyTo,
+  references: references,
   fromAddress: 'sender-$i@example.net',
   fromName: 'Sender $i',
   subject: 'Subject $i',
@@ -31,12 +35,19 @@ void main() {
       final service = MailImportService(
         poster: (_, _) async => MailImportResult(),
       );
-      final json = service.itemToJson(_message(1), 'mb-1', [
-        'file-1',
-        'file-2',
-      ]);
+      final json = service.itemToJson(
+        _message(
+          1,
+          inReplyTo: const ['id-0@example.com'],
+          references: const ['id-0@example.com'],
+        ),
+        'mb-1',
+        ['file-1', 'file-2'],
+      );
       expect(json['mailbox_id'], 'mb-1');
       expect(json['message_id'], 'id-1@example.com');
+      expect(json['in_reply_to'], ['id-0@example.com']);
+      expect(json['references'], ['id-0@example.com']);
       expect(json['from_address'], 'sender-1@example.net');
       expect(json['from_name'], 'Sender 1');
       expect(json['subject'], 'Subject 1');
@@ -69,6 +80,8 @@ void main() {
         const [],
       );
       expect(json.containsKey('message_id'), isFalse);
+      expect(json.containsKey('in_reply_to'), isFalse);
+      expect(json.containsKey('references'), isFalse);
       expect(json.containsKey('from_name'), isFalse);
       expect(json.containsKey('sent_at'), isFalse);
       expect(json['to'], isEmpty);
