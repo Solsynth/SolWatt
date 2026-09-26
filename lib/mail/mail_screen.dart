@@ -20,7 +20,7 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
-import 'package:solwatt/main.dart';
+import 'package:solwatt/route.dart';
 import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -1449,6 +1449,7 @@ class _EmailList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final emails = ref.watch(emailsProvider(filter));
+    final senderAvatars = ref.watch(mailSenderAvatarUrlsProvider);
 
     return emails.when(
       loading: () => const PageLoading(),
@@ -1481,6 +1482,7 @@ class _EmailList extends ConsumerWidget {
               return _EmailTile(
                 email: email,
                 mailHost: mailHost,
+                senderAvatars: senderAvatars.value ?? const {},
                 selected: email.id == selectedEmail?.id,
                 onTap: () => onOpen(email),
                 onToggleStar: () => onToggleStar(email),
@@ -1500,6 +1502,7 @@ class _EmailTile extends StatelessWidget {
   const _EmailTile({
     required this.email,
     required this.mailHost,
+    required this.senderAvatars,
     required this.onTap,
     required this.onToggleStar,
     required this.onToggleRead,
@@ -1510,6 +1513,7 @@ class _EmailTile extends StatelessWidget {
 
   final MailEmail email;
   final String? mailHost;
+  final Map<String, String> senderAvatars;
   final VoidCallback onTap;
   final VoidCallback onToggleStar;
   final VoidCallback onToggleRead;
@@ -1524,6 +1528,8 @@ class _EmailTile extends StatelessWidget {
     final fromAddress = email.from?.fullAddress(mailHost) ?? '';
     final fromName = email.from?.displayName ?? '';
     final from = fromName.isNotEmpty ? fromName : fromAddress;
+    final senderAvatarUrl =
+        senderAvatars[fromAddress.trim().toLowerCase()];
     final date = email.createdAt;
 
     return ContextMenuWidget(
@@ -1540,11 +1546,10 @@ class _EmailTile extends StatelessWidget {
         selected: selected,
         selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
         shape: const RoundedRectangleBorder(),
-        leading: Icon(
-          email.isRead ? Symbols.mail_outline : Symbols.mail,
-          size: 20,
-          color: email.isRead ? scheme.onSurfaceVariant : scheme.primary,
-          fill: email.isRead ? 0 : 1,
+        leading: _SenderAvatar(
+          url: senderAvatarUrl,
+          name: from,
+          unread: !email.isRead,
         ),
         title: Row(
           children: [
@@ -1606,6 +1611,88 @@ class _EmailTile extends StatelessWidget {
     }
     return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
   }
+}
+
+/// Sender avatar for a mail list row: network image when the senders index
+/// has one, initials otherwise. An unread message gets a dot so the read
+/// state survives the switch from the mail-glyph leading.
+class _SenderAvatar extends StatelessWidget {
+  const _SenderAvatar({
+    required this.url,
+    required this.name,
+    this.unread = false,
+  });
+
+  final String? url;
+  final String name;
+  final bool unread;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fallbackText = _senderInitials(name);
+    final fallbackStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: scheme.onPrimaryContainer,
+    );
+
+    final Widget avatar;
+    if (url == null || url!.isEmpty) {
+      avatar = CircleAvatar(
+        radius: 18,
+        backgroundColor: scheme.primaryContainer,
+        foregroundColor: scheme.onPrimaryContainer,
+        child: Text(fallbackText, style: fallbackStyle),
+      );
+    } else {
+      avatar = ClipOval(
+        child: Image.network(
+          url!,
+          width: 36,
+          height: 36,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => CircleAvatar(
+            radius: 18,
+            backgroundColor: scheme.primaryContainer,
+            foregroundColor: scheme.onPrimaryContainer,
+            child: Text(fallbackText, style: fallbackStyle),
+          ),
+        ),
+      );
+    }
+
+    if (!unread) return avatar;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          right: -1,
+          bottom: -1,
+          child: Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: scheme.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: scheme.surface, width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Initials for the sender-avatar fallback: first grapheme, uppercase, '?'
+/// for an empty name. Matches the app's other avatar fallbacks (gate page,
+/// boards picker); the CJK/emoji-aware variant lives in the uncommitted
+/// drive port and is not reachable from tracked code.
+String _senderInitials(String name) {
+  final normalized = name.trim();
+  if (normalized.isEmpty) return '?';
+  return normalized.characters.first.toUpperCase();
 }
 
 /// Menu items shown when a message tile or its detail view is right-clicked.

@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_quill/flutter_quill.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
@@ -14,17 +15,14 @@ import 'package:solar_network_foundation/solar_network_foundation.dart'
 import 'package:window_manager/window_manager.dart';
 
 import 'package:solwatt/app_logging.dart';
-import 'package:solwatt/boards/boards_screen.dart';
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/firebase_options.dart';
-import 'package:solwatt/files/files_screen.dart';
-import 'package:solwatt/flywheel/flywheel_page.dart';
-import 'package:solwatt/gate/gate_page.dart';
 import 'package:solwatt/mail/mail_screen.dart';
-import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/notifications/notifications.dart';
 import 'package:solwatt/push/push_service.dart';
 import 'package:solwatt/realtime/realtime.dart';
+import 'package:solwatt/route.dart';
 import 'package:solwatt/tasks/task_overlay.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
@@ -32,7 +30,6 @@ import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
-part 'main.gr.dart';
 
 final globalOverlay = GlobalKey<OverlayState>();
 
@@ -88,8 +85,11 @@ Future<void> main() async {
 
   FlutterNativeSplash.remove();
 
+  final preferences = await SharedPreferences.getInstance();
+
   runApp(
     ProviderScope(
+      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
       child: EasyLocalization(
         supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
         path: 'assets/i18n',
@@ -102,14 +102,12 @@ Future<void> main() async {
 }
 
 class SolWattApp extends StatelessWidget {
-  SolWattApp({super.key});
-
-  final _router = AppRouter();
+  const SolWattApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     IslandUIFoundation.configureOverlay(globalOverlay);
-    IslandUIFoundation.configureNavigator(_router.navigatorKey);
+    IslandUIFoundation.configureNavigator(appRouter.navigatorKey);
 
     return MaterialApp.router(
       title: 'SolWatt',
@@ -120,6 +118,10 @@ class SolWattApp extends StatelessWidget {
       supportedLocales: context.supportedLocales,
       localizationsDelegates: [
         ...context.localizationDelegates,
+        // The drive renders `material_ui` fork widgets (AppBar, PopupMenuButton,
+        // …) whose MaterialLocalizations is a *distinct* type from Flutter's;
+        // the fork's delegates must be registered or those widgets assert.
+        ...mui.GlobalMaterialLocalizations.delegates,
         FlutterQuillLocalizations.delegate,
       ],
       locale: context.locale,
@@ -164,37 +166,9 @@ class SolWattApp extends StatelessWidget {
           ],
         );
       },
-      routerConfig: _router.config(),
+      routerConfig: appRouter.config(),
     );
   }
-}
-
-@AutoRouterConfig(replaceInRouteName: 'Page,Route')
-class AppRouter extends RootStackRouter {
-  @override
-  List<AutoRoute> get routes => [
-    AutoRoute(page: GateRoute.page, initial: true),
-    AutoRoute(
-      page: AppShellRoute.page,
-      children: [
-        AutoRoute(
-          page: MailRoute.page,
-          initial: true,
-          children: [
-            AutoRoute(page: MailListRoute.page, path: '', initial: true),
-            AutoRoute(page: MailSettingsRoute.page, path: 'settings'),
-            AutoRoute(page: MailComposeRoute.page, path: 'compose'),
-            AutoRoute(page: MailDetailRoute.page, path: ':id'),
-          ],
-        ),
-        AutoRoute(page: BoardsRoute.page),
-        AutoRoute(page: FilesRoute.page),
-        AutoRoute(page: FlywheelRoute.page),
-        AutoRoute(page: TaskBoardRoute.page),
-        AutoRoute(page: ProfileRoute.page),
-      ],
-    ),
-  ];
 }
 
 @RoutePage()
@@ -256,7 +230,7 @@ class AppShellPage extends ConsumerWidget {
           routes: const [
             MailRoute(),
             BoardsRoute(),
-            FilesRoute(),
+            FileListRoute(),
             FlywheelRoute(),
             ProfileRoute(),
           ],
@@ -646,7 +620,7 @@ class _MailFolderNavigationBar extends ConsumerWidget {
               ),
             if (hasOverflow)
               NavigationDestination(
-                icon: const Icon(Symbols.stacked_inbox),
+                icon: const Icon(Symbols.all_inbox),
                 label: 'more'.tr(),
               ),
           ],

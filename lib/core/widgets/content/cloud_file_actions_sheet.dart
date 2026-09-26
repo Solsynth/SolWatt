@@ -1,0 +1,322 @@
+import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:gap/gap.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:solwatt/drive/drive_service.dart';
+import 'package:solwatt/core/widgets/content/file_info_sheet.dart';
+import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
+import 'package:solwatt/shared/widgets/alert.dart';
+import 'package:solwatt/core/config.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+
+/// Bottom-sheet with per-file actions (download, rename, share, info, …).
+///
+/// Ported from Solian. One deliberate deviation: the "Open in viewer" action
+/// used `context.router.push(FileDetailRoute(id: …))`; SolWatt does not have a
+/// generated `FileDetailRoute` yet, so it navigates with the path-based
+/// `context.router.pushPath('/files/<id>')` instead. The `/files/:id` route
+/// must be registered in SolWatt's auto_route table (main.dart/route.gr).
+class CloudFileActionsSheet extends ConsumerWidget {
+  final IDisplayableCloudFile item;
+  final VoidCallback? onClose;
+  final ValueChanged<SnCloudFile>? onRenamed;
+  final VoidCallback? onRevealParentFolder;
+
+  const CloudFileActionsSheet({
+    super.key,
+    required this.item,
+    this.onClose,
+    this.onRenamed,
+    this.onRevealParentFolder,
+  });
+
+  static Future<T?> show<T>({
+    required BuildContext context,
+    required IDisplayableCloudFile item,
+    ValueChanged<SnCloudFile>? onRenamed,
+    VoidCallback? onRevealParentFolder,
+  }) {
+    return showModalBottomSheet<T>(
+      useRootNavigator: true,
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => CloudFileActionsSheet(
+        item: item,
+        onRenamed: onRenamed,
+        onRevealParentFolder: onRevealParentFolder,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    final serverUrl = ref.read(serverUrlProvider);
+    final isMedia =
+        item.mimeType.startsWith('image/') || item.mimeType.startsWith('video/');
+
+    String absoluteUrl(String? value) {
+      if (value == null || value.isEmpty) {
+        return '$serverUrl/drive/files/${item.id}';
+      }
+      final parsed = Uri.tryParse(value);
+      if (parsed?.hasScheme == true) return value;
+      if (value.startsWith('/')) return '$serverUrl$value';
+      return '$serverUrl/drive/files/${item.id}';
+    }
+
+    Future<void> closeAndRun(Future<void> Function() action) async {
+      Navigator.pop(context);
+      await Future<void>.delayed(Duration.zero);
+      if (!rootContext.mounted) return;
+      try {
+        await action();
+      } catch (e) {
+        showErrorAlert(e);
+      }
+    }
+
+    return SheetScaffold(
+      onClose: onClose,
+      titleText: item.name,
+      heightFactor: 0.5,
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          const Gap(8),
+          if (!item.isFolder)
+            _ActionTile(
+              icon: isMedia ? Symbols.save : Symbols.download,
+              title: (isMedia ? 'saveToGallery' : 'download').tr(),
+              onTap: () => closeAndRun(
+                () => isMedia
+                    ? ref
+                          .read(driveFileDownloaderProvider)
+                          .saveToGallery(item)
+                    : ref
+                          .read(driveFileDownloaderProvider)
+                          .downloadFile(item),
+              ),
+            ),
+          if (item is SnCloudFile)
+            _ActionTile(
+              icon: Symbols.edit,
+              title: 'rename'.tr(),
+              onTap: () async {
+                final uploader = ref.read(driveFileUploaderProvider);
+                Navigator.pop(context);
+                await Future<void>.delayed(Duration.zero);
+                if (!rootContext.mounted) return;
+                await _showRenameSheet(
+                  rootContext,
+                  uploader,
+                  item as SnCloudFile,
+                  onRenamed,
+                );
+              },
+            ),
+          _ActionTile(
+            icon: Symbols.share,
+            title: 'share'.tr(),
+            onTap: () => closeAndRun(() async {
+              final box = rootContext.findRenderObject() as RenderBox?;
+              await SharePlus.instance.share(
+                ShareParams(
+                  uri: Uri.parse(absoluteUrl(item.storageUrl)),
+                  sharePositionOrigin: box == null
+                      ? null
+                      : box.localToGlobal(Offset.zero) & box.size,
+                ),
+              );
+            }),
+          ),
+          _ActionTile(
+            icon: Symbols.info,
+            title: 'fileInfoTitle'.tr(),
+            onTap: () async {
+              Navigator.pop(context);
+              await Future<void>.delayed(Duration.zero);
+              if (!rootContext.mounted) return;
+              showModalBottomSheet(
+                useRootNavigator: true,
+                context: rootContext,
+                isScrollControlled: true,
+                builder: (context) => FileInfoSheet(item: item),
+              );
+            },
+          ),
+          if (item is SnCloudFile && onRevealParentFolder != null)
+            _ActionTile(
+              icon: Symbols.folder_open,
+              title: 'revealParentFolder'.tr(),
+              onTap: () {
+                Navigator.pop(context);
+                onRevealParentFolder?.call();
+              },
+            ),
+          if (item.storageUrl != null && item.storageUrl!.isNotEmpty)
+            _ActionTile(
+              icon: Symbols.open_in_new,
+              title: 'openInBrowser'.tr(),
+              onTap: () {
+                Navigator.pop(context);
+                launchUrlString(
+                  absoluteUrl(item.storageUrl),
+                  mode: LaunchMode.externalApplication,
+                );
+              },
+            ),
+          _ActionTile(
+            icon: Symbols.content_copy,
+            title: 'copyFileId'.tr(),
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: item.id));
+              showSnackBar('fileIdCopied'.tr());
+              Navigator.pop(context);
+            },
+          ),
+          _ActionTile(
+            icon: Symbols.visibility,
+            title: 'openInViewer'.tr(),
+            onTap: () => closeAndRun(
+              () async {
+                if (!rootContext.mounted) return;
+                await rootContext.router.pushPath('/files/${item.id}');
+              },
+            ),
+          ),
+          const Gap(16),
+        ],
+      ),
+    );
+  }
+
+  static Future<void> showRenameSheet({
+    required BuildContext context,
+    required SnCloudFile file,
+    required ValueChanged<SnCloudFile>? onRenamed,
+  }) async {
+    final uploader = ProviderScope.containerOf(
+      context,
+    ).read(driveFileUploaderProvider);
+    final rootContext = Navigator.of(context, rootNavigator: true).context;
+    if (!rootContext.mounted) return;
+    await _showRenameSheet(rootContext, uploader, file, onRenamed);
+  }
+
+  static Future<void> _showRenameSheet(
+    BuildContext context,
+    FileUploader uploader,
+    SnCloudFile file,
+    ValueChanged<SnCloudFile>? onRenamed,
+  ) async {
+    final nameController = TextEditingController(text: file.name);
+    String? errorMessage;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => SheetScaffold(
+          heightFactor: 0.4,
+          titleText: 'rename'.tr(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 24,
+                ),
+                child: TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: 'fileName'.tr(),
+                    errorText: errorMessage,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('cancel'.tr()),
+                    ),
+                    const Gap(8),
+                    TextButton(
+                      onPressed: () async {
+                        final newName = nameController.text.trim();
+                        if (newName.isEmpty) {
+                          setState(() {
+                            errorMessage = 'fieldCannotBeEmpty'.tr();
+                          });
+                          return;
+                        }
+
+                        try {
+                          showLoadingModal(context);
+                          final renamedFile = await uploader.renameFile(
+                            file.id,
+                            newName,
+                          );
+                          onRenamed?.call(renamedFile);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            showSnackBar('fileRenamed'.tr());
+                          }
+                        } catch (err) {
+                          showErrorAlert(err);
+                        } finally {
+                          if (context.mounted) hideLoadingModal(context);
+                        }
+                      },
+                      child: Text('rename'.tr()),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+      title: Text(title),
+      trailing: const Icon(Symbols.chevron_right, size: 20),
+      onTap: onTap,
+    );
+  }
+}

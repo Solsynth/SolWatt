@@ -8,7 +8,7 @@
 // ignore_for_file: type=lint
 // coverage:ignore-file
 
-part of 'main.dart';
+part of 'route.dart';
 
 /// generated route for
 /// [AppShellPage]
@@ -43,17 +43,71 @@ class BoardsRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
-/// [FilesPage]
-class FilesRoute extends PageRouteInfo<void> {
-  const FilesRoute({List<PageRouteInfo>? children})
-    : super(FilesRoute.name, initialChildren: children);
+/// [FileDetailScreen]
+class FileDetailRoute extends PageRouteInfo<FileDetailRouteArgs> {
+  FileDetailRoute({
+    Key? key,
+    required String id,
+    String? heroTag,
+    List<PageRouteInfo>? children,
+  }) : super(
+         FileDetailRoute.name,
+         args: FileDetailRouteArgs(key: key, id: id, heroTag: heroTag),
+         initialChildren: children,
+       );
 
-  static const String name = 'FilesRoute';
+  static const String name = 'FileDetailRoute';
 
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
-      return const FilesPage();
+      final args = data.argsAs<FileDetailRouteArgs>();
+      return FileDetailScreen(
+        key: args.key,
+        id: args.id,
+        heroTag: args.heroTag,
+      );
+    },
+  );
+}
+
+class FileDetailRouteArgs {
+  const FileDetailRouteArgs({this.key, required this.id, this.heroTag});
+
+  final Key? key;
+
+  final String id;
+
+  final String? heroTag;
+
+  @override
+  String toString() {
+    return 'FileDetailRouteArgs{key: $key, id: $id, heroTag: $heroTag}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! FileDetailRouteArgs) return false;
+    return key == other.key && id == other.id && heroTag == other.heroTag;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ id.hashCode ^ heroTag.hashCode;
+}
+
+/// generated route for
+/// [FileListScreen]
+class FileListRoute extends PageRouteInfo<void> {
+  const FileListRoute({List<PageRouteInfo>? children})
+    : super(FileListRoute.name, initialChildren: children);
+
+  static const String name = 'FileListRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const FileListScreen();
     },
   );
 }

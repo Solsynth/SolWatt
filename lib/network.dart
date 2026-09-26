@@ -3346,6 +3346,14 @@ final wattEngineClientProvider = Provider(
 final authSessionProvider = FutureProvider<OAuthSession?>(
   (ref) => ref.watch(authenticatorProvider).validSession(),
 );
+
+/// Current bearer token for signed URLs and image requests, mirroring
+/// Solian's `tokenProvider` (used by the ported drive's UniversalImage).
+final tokenProvider = Provider<AppToken?>((ref) {
+  final session = ref.watch(authSessionProvider).value;
+  if (session == null) return null;
+  return AppToken(token: session.accessToken);
+});
 final solWattProfileProvider = FutureProvider<SolWattProfile?>((ref) async {
   final session = await ref.watch(authSessionProvider.future);
   if (session == null) return null;
@@ -3664,6 +3672,26 @@ final mailAddressSuggestionsProvider =
       if (request.senders) return client.listSenders(query: request.query);
       return client.listContacts(query: request.query);
     });
+
+/// Sender-avatar lookup keyed by lowercase address, from the senders index.
+///
+/// The emails endpoint does not carry avatar data, so the list joins against
+/// the senders index the same way the compose autocomplete does. Unknown
+/// senders fall back to initials in the tile. A failure degrades to an empty
+/// map so the mail list never depends on avatar resolution.
+final mailSenderAvatarUrlsProvider = FutureProvider<Map<String, String>>(
+  (ref) async {
+    final client = ref.watch(wattEngineClientProvider);
+    final senders = await client
+        .listSenders(query: '', take: 200)
+        .catchError((_) => const <MailAddressSuggestion>[]);
+    return {
+      for (final sender in senders)
+        if (sender.avatarUrl.isNotEmpty)
+          sender.address.trim().toLowerCase(): sender.avatarUrl,
+    };
+  },
+);
 
 final emailsProvider =
     FutureProvider.family<PaginatedResult<MailEmail>, EmailListFilter>((

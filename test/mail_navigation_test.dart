@@ -69,11 +69,18 @@ void main() {
       },
     );
 
-    Future<void> pumpApp(Size size) async {
+    Future<void> pumpApp(
+      Size size, {
+      Map<String, String> senderAvatars = const {},
+    }) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       await tester.pumpWidget(
         ProviderScope(
+          // Riverpod only applies overrides when the scope element is fresh;
+          // a reused element keeps the first pump's overrides. Key by size so
+          // every pump starts from its own override set.
+          key: ValueKey('mail-${size.width}x${size.height}'),
           overrides: [
             appAccessProvider.overrideWith(
               (ref) => const AsyncValue.data(AppAccess.ready),
@@ -92,6 +99,9 @@ void main() {
             emailsProvider.overrideWith(
               (ref, filter) async =>
                   PaginatedResult<MailEmail>(items: [_email], totalCount: 1),
+            ),
+            mailSenderAvatarUrlsProvider.overrideWith(
+              (ref) async => senderAvatars,
             ),
             broadsProvider.overrideWith((ref) async => const <Broad>[]),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
@@ -118,6 +128,12 @@ void main() {
 
     // Email-first: the mail list is the initial surface after sign-in.
     expect(find.text('Alice'), findsOneWidget); // sender on the email tile
+    // No sender-avatar data in this pump: the tile falls back to initials
+    // ("Alice" -> "A") and the unread fixture gets the read-state dot.
+    expect(
+      find.descendant(of: find.byType(ListTile), matching: find.text('A')),
+      findsOneWidget,
+    );
 
     // Phone chrome: an app bar carries the inbox switcher and the drawer,
     // instead of a burger inside the bottom navigation bar.
@@ -285,7 +301,12 @@ void main() {
     );
 
     // ---- Desktop (wide) ----
-    await pumpApp(const Size(1200, 800));
+    await pumpApp(
+      const Size(1200, 800),
+      senderAvatars: const {
+        'alice@example.com': 'https://example.com/alice.png',
+      },
+    );
 
     // Rail is email-first: the mail folders live in the rail; the burger
     // (below the notification bell) opens the drawer with everything else.
@@ -316,6 +337,12 @@ void main() {
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('work@example.com'), findsOneWidget); // dropdown value
     expect(find.byType(ChoiceChip), findsNothing);
+    // The senders-index avatar URL rides on the tile leading as a network
+    // image (initials shown only when the image cannot load).
+    expect(
+      find.descendant(of: find.byType(ListTile), matching: find.byType(Image)),
+      findsOneWidget,
+    );
 
     // No bottom nav on desktop.
     expect(find.byType(NavigationBar), findsNothing);

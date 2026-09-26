@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "450302957176",
+    "project_id": "solwatt-0x001",
+    "storage_bucket": "solwatt-0x001.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:450302957176:android:e70b21a08396054da93f8d",
+        "android_client_info": {
+          "package_name": "dev.solsynth.solarwatt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBc9DgIaxN4l2F6XbVlM_Ft3j4pwFWdW6A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

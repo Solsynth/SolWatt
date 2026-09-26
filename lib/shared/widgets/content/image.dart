@@ -1,0 +1,415 @@
+import 'dart:io' show HandshakeException;
+
+import 'dart:math' as math;
+
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_blurhash/flutter_blurhash.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:solwatt/core/config.dart';
+import 'package:solwatt/network.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
+
+class UniversalImage extends HookConsumerWidget {
+  final String uri;
+  final String? blurHash;
+  final BoxFit fit;
+  final double? width;
+  final double? height;
+  final bool noCacheOptimization;
+  final bool isSvg;
+  final bool useFallbackImage;
+  final Widget Function(BuildContext context, double? progress)?
+  loadingIndicatorBuilder;
+
+  const UniversalImage({
+    super.key,
+    required this.uri,
+    this.blurHash,
+    this.fit = BoxFit.cover,
+    this.width,
+    this.height,
+    this.noCacheOptimization = false,
+    this.isSvg = false,
+    this.useFallbackImage = true,
+    this.loadingIndicatorBuilder,
+  });
+
+  bool _isValidBlurHash(String hash) {
+    if (hash.isEmpty || hash.length < 6) return false;
+    try {
+      return RegExp(r'^[0-9A-Za-z#$%*+\-.,:;<>@\[\\\]^_{|}]+$').hasMatch(hash);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final loaded = useState(false);
+    final loadingCompletionScheduled = useRef(false);
+    final isCached = useState<bool?>(null);
+    final isSvgImage = isSvg || uri.toLowerCase().endsWith('.svg');
+
+    final serverUrl = ref.watch(serverUrlProvider);
+    final token = ref.watch(tokenProvider);
+
+    // On web, cached_network_image's default HtmlImage render decodes through
+    // a browser <img> element and only snapshots a single frame, so GIFs
+    // never animate. Route app-origin and clearly-animated URIs through
+    // HttpGet (byte decode + multi-frame codec) so they play.
+    final renderMethod = imageRenderMethodForWebFor(uri, serverUrl: serverUrl);
+
+    final Map<String, String>? httpHeaders =
+        uri.startsWith(serverUrl) && token != null
+        ? {'Authorization': 'Bearer ${token.token}'}
+        : null;
+
+    useEffect(() {
+      loaded.value = false;
+      loadingCompletionScheduled.value = false;
+      isCached.value = null;
+      DefaultCacheManager().getFileFromCache(uri).then((fileInfo) {
+        if (context.mounted) isCached.value = fileInfo != null;
+      });
+      return null;
+    }, [uri]);
+
+    if (isSvgImage) {
+      return SvgPicture.network(
+        uri,
+        fit: fit,
+        width: width,
+        height: height,
+        placeholderBuilder: (BuildContext context) =>
+            loadingIndicatorBuilder?.call(context, null) ??
+            const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    int? cacheWidth;
+    int? cacheHeight;
+    if (width != null && height != null && !noCacheOptimization) {
+      final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+      cacheWidth = width != null ? (width! * devicePixelRatio).round() : null;
+      cacheHeight = height != null
+          ? (height! * devicePixelRatio).round()
+          : null;
+    }
+
+    return SizedBox(
+      width: width,
+      height: height ?? 200,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (blurHash != null &&
+              blurHash!.isNotEmpty &&
+              _isValidBlurHash(blurHash!))
+            BlurHash(hash: blurHash!),
+          if (isCached.value == null)
+            loadingIndicatorBuilder?.call(context, null) ??
+                Center(
+                  child: SizedBox(
+                    width: (width ?? 32).clamp(12, 48),
+                    height: (height ?? 32).clamp(12, 48),
+                    child: const CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+          else if (isCached.value!)
+            CachedNetworkImage(
+              imageUrl: uri,
+              httpHeaders: httpHeaders,
+              imageRenderMethodForWeb: renderMethod,
+              fit: fit,
+              width: width,
+              height: height,
+              memCacheHeight: cacheHeight,
+              memCacheWidth: cacheWidth,
+              imageBuilder: (context, imageProvider) => Image(
+                image: CachedNetworkImageProvider(
+                  uri,
+                  headers: httpHeaders,
+                  imageRenderMethodForWeb: renderMethod,
+                ),
+                fit: fit,
+                width: width,
+                height: height,
+              ),
+              errorWidget: (context, url, error) => CachedImageErrorWidget(
+                useFallbackImage: useFallbackImage,
+                uri: uri,
+                blurHash: blurHash,
+                error: error,
+                debug: true,
+              ),
+            )
+          else
+            CachedNetworkImage(
+              imageUrl: uri,
+              httpHeaders: httpHeaders,
+              imageRenderMethodForWeb: renderMethod,
+              fit: fit,
+              width: width,
+              height: height,
+              memCacheHeight: cacheHeight,
+              memCacheWidth: cacheWidth,
+              progressIndicatorBuilder: (context, url, progress) {
+                return loadingIndicatorBuilder?.call(
+                      context,
+                      progress.progress,
+                    ) ??
+                    Center(
+                      child: AnimatedCircularProgressIndicator(
+                        value: progress.progress,
+                        color: Colors.white.withOpacity(0.5),
+                        strokeWidth: 2,
+                      ),
+                    );
+              },
+              imageBuilder: (context, imageProvider) {
+                if (loadingIndicatorBuilder != null &&
+                    !loaded.value &&
+                    !loadingCompletionScheduled.value) {
+                  loadingCompletionScheduled.value = true;
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    if (context.mounted) loaded.value = true;
+                  });
+                }
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    AnimatedOpacity(
+                      opacity: loaded.value ? 1.0 : 0.0,
+                      duration: loadingIndicatorBuilder == null
+                          ? const Duration(milliseconds: 300)
+                          : const Duration(milliseconds: 180),
+                      child: Image(
+                        image: CachedNetworkImageProvider(
+                          uri,
+                          headers: httpHeaders,
+                          imageRenderMethodForWeb: renderMethod,
+                        ),
+                        fit: fit,
+                        width: width,
+                        height: height,
+                      ),
+                    ),
+                    if (loadingIndicatorBuilder != null && !loaded.value)
+                      loadingIndicatorBuilder!.call(context, 1.0),
+                  ],
+                );
+              },
+              errorWidget: (context, url, error) => CachedImageErrorWidget(
+                useFallbackImage: useFallbackImage,
+                uri: uri,
+                blurHash: blurHash,
+                error: error,
+                debug: true,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class CachedImageErrorWidget extends StatelessWidget {
+  final bool useFallbackImage;
+  final String uri;
+  final String? blurHash;
+  final dynamic error;
+  final bool debug;
+
+  const CachedImageErrorWidget({
+    super.key,
+    required this.useFallbackImage,
+    required this.uri,
+    this.blurHash,
+    this.error,
+    this.debug = false,
+  });
+
+  int? _extractStatusCode(dynamic error) {
+    if (error == null) return null;
+    final errorString = error.toString();
+    final httpExceptionRegex = RegExp(r'Invalid statusCode: (\d+)');
+    final match = httpExceptionRegex.firstMatch(errorString);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '');
+    }
+    if (error is HandshakeException) {
+      return null;
+    }
+    if (error is DioException) {
+      return error.response?.statusCode;
+    }
+    return null;
+  }
+
+  String? _extractErrorMessage(dynamic error) {
+    final message = error is DioException ? error.message : error?.toString();
+    final trimmed = message?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed.replaceFirst(RegExp(r'^(Exception|Error):\s*'), '');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!useFallbackImage) {
+      return SizedBox.shrink();
+    }
+
+    final statusCode = _extractStatusCode(error);
+    final isOffline = statusCode != 404;
+    final errorMessage = _extractErrorMessage(error);
+    final theme = Theme.of(context);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final minDimension = constraints.maxWidth < constraints.maxHeight
+            ? constraints.maxWidth
+            : constraints.maxHeight;
+        final iconSize = math.max(minDimension * 0.3, 28);
+        final hasEnoughSpace = minDimension > 40;
+        final foregroundColor = isOffline
+            ? theme.colorScheme.onSurfaceVariant
+            : Colors.white;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (isOffline)
+              ColoredBox(color: theme.colorScheme.surfaceContainer)
+            else if (blurHash != null)
+              BlurHash(hash: blurHash!)
+            else
+              Image.asset(
+                'assets/images/media-offline.webp',
+                fit: BoxFit.cover,
+                key: Key('-$uri'),
+              ),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _getErrorIcon(statusCode),
+                    color: foregroundColor,
+                    size: iconSize * 0.5,
+                    shadows: isOffline
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  if (hasEnoughSpace && statusCode != null) ...[
+                    SizedBox(height: iconSize * 0.1),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: iconSize * 0.15,
+                        vertical: iconSize * 0.05,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(iconSize * 0.1),
+                      ),
+                      child: Text(
+                        statusCode.toString(),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: iconSize * 0.15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (hasEnoughSpace && isOffline && errorMessage != null) ...[
+                    SizedBox(height: iconSize * 0.1),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth * 0.85,
+                      ),
+                      child: Text(
+                        errorMessage,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: foregroundColor,
+                          fontSize: math.max(iconSize * 0.15, 10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  IconData _getErrorIcon(int? statusCode) {
+    switch (statusCode) {
+      case 403:
+      case 401:
+        return Icons.lock_rounded;
+      case 404:
+        return Icons.broken_image_rounded;
+      case 500:
+      case 502:
+      case 503:
+        return Icons.error_rounded;
+      default:
+        return Icons.broken_image_rounded;
+    }
+  }
+}
+
+class AnimatedCircularProgressIndicator extends HookWidget {
+  final double? value;
+  final Color? color;
+  final double strokeWidth;
+  final Duration duration;
+
+  const AnimatedCircularProgressIndicator({
+    super.key,
+    this.value,
+    this.color,
+    this.strokeWidth = 4.0,
+    this.duration = const Duration(milliseconds: 200),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final animationController = useAnimationController(duration: duration);
+    final animation = useAnimation(
+      Tween<double>(begin: 0.0, end: value ?? 0.0).animate(
+        CurvedAnimation(parent: animationController, curve: Curves.linear),
+      ),
+    );
+
+    useEffect(() {
+      animationController.animateTo(value ?? 0.0);
+      return null;
+    }, [value]);
+
+    return CircularProgressIndicator(
+      value: animation,
+      color: color,
+      strokeWidth: strokeWidth,
+      backgroundColor: Colors.transparent,
+    );
+  }
+}

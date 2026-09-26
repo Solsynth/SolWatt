@@ -3,13 +3,19 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  desktop_drop
   desktop_webview_window
   file_saver
   file_selector_windows
+  firebase_core
   flutter_inappwebview_windows
   flutter_secure_storage_windows
+  gal
   irondash_engine_context
+  media_kit_libs_windows_video
+  media_kit_video
   screen_retriever_windows
+  share_plus
   super_native_extensions
   url_launcher_windows
   window_manager
@@ -17,6 +23,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  flutter_local_notifications_windows
   jni
 )
 
