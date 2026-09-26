@@ -16,6 +16,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:solwatt/app_logging.dart';
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/core/drive_wiring.dart';
 import 'package:solwatt/firebase_options.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/network.dart';
@@ -89,7 +90,10 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        ...driveHostOverrides(),
+      ],
       child: EasyLocalization(
         supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
         path: 'assets/i18n',

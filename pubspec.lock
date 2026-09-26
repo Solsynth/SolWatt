@@ -1096,11 +1096,9 @@ packages:
   island_ui_foundation:
     dependency: "direct main"
     description:
-      path: "packages/island_ui_foundation"
-      ref: HEAD
-      resolved-ref: "7824ceb5cf2151e144f559e810bf0519bd9d9c1e"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/island_ui_foundation"
+      relative: true
+    source: path
     version: "1.0.0"
   jni:
     dependency: transitive
@@ -1822,20 +1820,16 @@ packages:
   solar_network_foundation:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_foundation"
-      ref: HEAD
-      resolved-ref: "7824ceb5cf2151e144f559e810bf0519bd9d9c1e"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/solar_network_foundation"
+      relative: true
+    source: path
     version: "0.1.0"
   solar_network_sdk:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_sdk"
-      ref: HEAD
-      resolved-ref: "7824ceb5cf2151e144f559e810bf0519bd9d9c1e"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/solar_network_sdk"
+      relative: true
+    source: path
     version: "1.0.0"
   source_gen:
     dependency: transitive
