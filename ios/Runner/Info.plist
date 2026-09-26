@@ -35,6 +35,10 @@
 				</array>
 			</dict>
 		</array>
+		<!-- iOS reports the APNs token directly (see lib/push/push_service.dart);
+		     FCM auto-init would register an unused Firebase token at launch. -->
+		<key>FirebaseMessagingAutoInitEnabled</key>
+		<false/>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>UIApplicationSceneManifest</key>

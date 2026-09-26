@@ -137,6 +137,7 @@ Key providers:
 - `workspaceFilesProvider` / `workspaceFolderChildrenProvider` / `workspaceUnindexedFilesProvider` — workspace Drive listings (`workspace_id` query; indexed folders vs unindexed assets)
 - `workspaceDriveUsageProvider` — live storage used/total for the active workspace
 - `solarNetworkClientProvider` — authenticated Solar Network SDK (bearer from OAuth session)
+- `solWattPushProvider` — keeps the Metoer push subscription alive; subscribes on sign-in
 - `notificationUnreadCountProvider` / `notificationListProvider` — Ring inbox scoped to SolWatt’s multi-tenant app id
 
 ## Notifications (Ring)
@@ -201,6 +202,48 @@ Packet handling:
 - `ideask.broad_*` — invalidate `broadsProvider`
 
 A small status dot on the desktop rail shows connection state; tap retries.
+
+## Push notifications (Metoer subscription)
+
+SolWatt reports a device push subscription to the **Metoer** notification
+gateway so the server can reach the device when the websocket is not
+connected. Registration mirrors Solian’s `subscribePushNotification`
+(`lib/core/services/notify.universal.dart`) and MaidKit’s
+`MaidCafePushService`:
+
+```
+PUT /metoer/notifications/subscription
+{ "provider": 0|1, "device_token": "…", "device_name": "…", "app_id": "dev.solsynth.solarwatt" }
+```
+
+- `provider`: 0 = Apple APNs, 1 = Google FCM
+  (`SnNotificationPushSubscriptionProvider`), matching Metoer wire values
+- `app_id`: `kNotificationTenantAppId` — keeps the subscription scoped to
+  SolWatt, same multi-tenant key as Ring/websocket
+
+| Piece | Role |
+| --- | --- |
+| `lib/push/push_service.dart` | Registration, token refresh, background handler, system notifications |
+| `solWattPushProvider` | Watched by `AppShellPage`; subscribes on sign-in (auth session listener) |
+| `registerSolWattPushSubscription` | Wire contract: token + provider + `app_id` → SDK `NotificationsApi` |
+| `tool/generate_firebase_options.dart` | Generates `lib/firebase_options.dart` from the platform Firebase configs |
+
+Platform behavior:
+
+- **Android**: FCM token, `provider: fcm`. Auto-init on.
+- **iOS**: APNs token reported directly; `FirebaseMessagingAutoInitEnabled =
+  NO` in `Info.plist` (no FCM token registration). The APNs token comes from
+  the native registration.
+- **macOS**: FCM-managed APNs registration like MaidKit (auto-init re-enabled
+  at registration time).
+- **Linux / Windows / web**: no firebase_core support — the in-app Metoer
+  feed over the websocket is the only notification surface.
+
+Foreground pushes surface through the websocket in-app feed
+(`notifications.new`); the FCM handler only shows a system notification for
+background/cold-start delivery (Android data messages), avoiding duplication
+while the app is focused. The push service degrades gracefully when the
+Firebase configs are missing (init is skipped, status `unavailable`).
 
 ## GitHub App task sync
 

@@ -1,5 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -13,6 +15,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:solwatt/app_logging.dart';
 import 'package:solwatt/boards/boards_screen.dart';
+import 'package:solwatt/firebase_options.dart';
 import 'package:solwatt/files/files_screen.dart';
 import 'package:solwatt/flywheel/flywheel_page.dart';
 import 'package:solwatt/gate/gate_page.dart';
@@ -20,6 +23,7 @@ import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/notifications/notifications.dart';
+import 'package:solwatt/push/push_service.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/tasks/task_overlay.dart';
 import 'package:solwatt/theme.dart';
@@ -44,6 +48,27 @@ Future<void> main() async {
   await EasyLocalization.ensureInitialized();
   EasyLocalization.logger.enableBuildModes = [];
   await initializeAppLogging();
+
+  // Firebase for Metoer push notifications (Android/iOS/macOS only;
+  // firebase_core has no Linux/Windows/web support here). The background
+  // handler must be registered before any message can be received in a
+  // terminated app. Initialization is skipped (push unavailable) when the
+  // platform Firebase configs are missing.
+  if (firebaseSupported()) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      FirebaseMessaging.onBackgroundMessage(
+        solWattFirebaseMessagingBackgroundHandler,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SolWatt] Firebase init skipped; push unavailable: $error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
 
   if (DesktopWindowFrame.isPlatformDesktop) {
     await windowManager.ensureInitialized();
@@ -180,6 +205,9 @@ class AppShellPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(appAccessProvider);
     ref.watch(realtimeBridgeProvider);
+    // Keeps the Metoer push subscription alive (and subscribing on sign-in)
+    // for the whole app session.
+    ref.watch(solWattPushProvider);
 
     ref.listen(appAccessProvider, (previous, next) {
       next.whenData((state) {

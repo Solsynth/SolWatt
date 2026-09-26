@@ -80,6 +80,12 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   super_context_menu: ^0.10.0-dev.2
   file_saver: ^0.6.0
+  # Push notifications (Android/iOS/macOS): FCM token registration with the
+  # Solar Network Metoer gateway, mirroring MaidKit's maidcafe_push service.
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  flutter_local_notifications: ^22.3.1
+  device_info_plus: ^13.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
