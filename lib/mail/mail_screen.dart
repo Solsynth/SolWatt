@@ -21,6 +21,7 @@ import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 @RoutePage()
@@ -1834,7 +1835,10 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
               email: email,
               workspaceId: widget.workspaceId,
               onBodyScroll: _onBodyScroll,
-              showFooter: _footer.visible,
+              // A footer with nothing to show would expand blank padding when
+              // the reader reaches the end; keep it collapsed for emails
+              // without attachments or delivery state.
+              showFooter: _footer.visible && emailHasFooterContent(email),
             ),
           ),
           _EmailActionBar(
@@ -2030,62 +2034,65 @@ class _EmailToolbar extends StatelessWidget {
 
     return SizedBox(
       height: height,
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: 'close'.tr(),
-            onPressed: onClose,
-            icon: const Icon(Symbols.close),
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
-            onPressed: onToggleStar,
-            icon: Icon(
-              email.isStarred ? Symbols.star : Symbols.star_outline,
-              color: email.isStarred
-                  ? Colors.amber.shade600
-                  : scheme.onSurfaceVariant,
-              fill: email.isStarred ? 1 : 0,
+      child: Padding(
+        padding: isWideScreen(context) ? const EdgeInsets.symmetric(horizontal: 8) : .zero,
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'close'.tr(),
+              onPressed: onClose,
+              icon: const Icon(Symbols.close),
             ),
-          ),
-          IconButton(
-            tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
-            onPressed: onToggleRead,
-            icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'more'.tr(),
-            icon: const Icon(Symbols.more_vert),
-            onSelected: (value) {
-              if (value == 'archive') onMove('archive');
-              if (value == 'spam') onMove('spam');
-              if (value == 'trash') onMove('trash');
-              if (value == 'download-eml') onDownloadEml();
-            },
-            itemBuilder: (_) => [
-              if (email.folder != 'archive')
-                PopupMenuItem(
-                  value: 'archive',
-                  child: Text('folderArchive'.tr()),
-                ),
-              if (email.folder != 'spam')
-                PopupMenuItem(value: 'spam', child: Text('folderSpam'.tr())),
-              if (email.folder != 'trash')
-                PopupMenuItem(value: 'trash', child: Text('folderTrash'.tr())),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'download-eml',
-                child: Text('downloadEml'.tr()),
+            const Spacer(),
+            IconButton(
+              tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+              onPressed: onToggleStar,
+              icon: Icon(
+                email.isStarred ? Symbols.star : Symbols.star_outline,
+                color: email.isStarred
+                    ? Colors.amber.shade600
+                    : scheme.onSurfaceVariant,
+                fill: email.isStarred ? 1 : 0,
               ),
-            ],
-          ),
-          IconButton(
-            tooltip: 'delete'.tr(),
-            onPressed: onDelete,
-            icon: Icon(Symbols.delete, color: scheme.error),
-          ),
-        ],
+            ),
+            IconButton(
+              tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+              onPressed: onToggleRead,
+              icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'more'.tr(),
+              icon: const Icon(Symbols.more_vert),
+              onSelected: (value) {
+                if (value == 'archive') onMove('archive');
+                if (value == 'spam') onMove('spam');
+                if (value == 'trash') onMove('trash');
+                if (value == 'download-eml') onDownloadEml();
+              },
+              itemBuilder: (_) => [
+                if (email.folder != 'archive')
+                  PopupMenuItem(
+                    value: 'archive',
+                    child: Text('folderArchive'.tr()),
+                  ),
+                if (email.folder != 'spam')
+                  PopupMenuItem(value: 'spam', child: Text('folderSpam'.tr())),
+                if (email.folder != 'trash')
+                  PopupMenuItem(value: 'trash', child: Text('folderTrash'.tr())),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'download-eml',
+                  child: Text('downloadEml'.tr()),
+                ),
+              ],
+            ),
+            IconButton(
+              tooltip: 'delete'.tr(),
+              onPressed: onDelete,
+              icon: Icon(Symbols.delete, color: scheme.error),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2270,6 +2277,13 @@ Uri _cloudFileUri(IDisplayableCloudFile file, String? workspaceId) {
   );
 }
 
+/// Whether the end-of-message footer has anything to show: attachment chips
+/// or delivery state for a sent message. Emails with neither get no footer,
+/// so reaching the end of a plain message does not expand blank space.
+bool emailHasFooterContent(MailEmail email) =>
+    email.attachments.isNotEmpty ||
+    (email.hasDeliveryStatus && !email.isDraft);
+
 /// Attachments and delivery state for the open message, shown below the body.
 class _EmailFooter extends StatelessWidget {
   const _EmailFooter({required this.email, required this.workspaceId});
@@ -2309,8 +2323,6 @@ class _EmailFooter extends StatelessWidget {
           ],
           if (email.hasDeliveryStatus && !email.isDraft) ...[
             if (email.attachments.isNotEmpty) const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 12),
             Row(
               children: [
                 _DeliveryStatusChip(status: email.deliveryStatus!),
@@ -2490,16 +2502,35 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   static const _maxScrollScript =
       'Math.max(document.documentElement.scrollHeight - window.innerHeight, 0)';
 
+  /// Bundled Nunito faces served to the web view through the `appfont://`
+  /// scheme, keyed by the lowercase name referenced in [emailTypographyCss].
+  static const _appFontAssets = <String, String>{
+    'nunito-regular': 'assets/fonts/Nunito-Regular.ttf',
+    'nunito-bold': 'assets/fonts/Nunito-Bold.ttf',
+    'nunito-italic': 'assets/fonts/Nunito-Italic.ttf',
+  };
+
+  /// Decoded once per app run; the web view requests each face per document
+  /// and WebKit caches them for the document's lifetime.
+  static final _appFontCache = <String, Uint8List>{};
+
   String? _preparedHtml;
   InAppWebViewController? _controller;
   double? _maxScrollY;
   bool _atBottom = false;
   double? _viewportHeight;
   DateTime? _lastMetricsAt;
+  Brightness? _lastBrightness;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The first prepare happens here, not in initState: _prepareHtml reads
+    // Theme.of, which is only legal once inherited lookups are allowed. Later
+    // theme switches (brightness flip) rebuild the document with fresh colors.
+    final brightness = Theme.of(context).brightness;
+    if (brightness == _lastBrightness && _preparedHtml != null) return;
+    _lastBrightness = brightness;
     _prepareHtml();
   }
 
@@ -2518,6 +2549,9 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   }
 
   Future<void> _prepareHtml() async {
+    // The typography stylesheet mirrors the app theme at render time; a theme
+    // switch while reading re-prepares it through [didChangeDependencies].
+    final css = emailTypographyCss(Theme.of(context));
     final imageFiles = <String, SnCloudFileReference>{
       for (final attachment in widget.attachments)
         if (attachment.mimeType.startsWith('image/')) attachment.id: attachment,
@@ -2545,14 +2579,17 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     );
     if (!mounted) return;
     setState(() {
-      _preparedHtml = sanitizeEmailHtml(
-        _replaceInlineImageReferences(
-          widget.html,
-          widget.attachments,
-          widget.inlineAttachments,
-          widget.workspaceId,
-          resolvedImageUrls: urls,
+      _preparedHtml = withEmailTypography(
+        sanitizeEmailHtml(
+          _replaceInlineImageReferences(
+            widget.html,
+            widget.attachments,
+            widget.inlineAttachments,
+            widget.workspaceId,
+            resolvedImageUrls: urls,
+          ),
         ),
+        css,
       );
     });
   }
@@ -2602,6 +2639,31 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     if (mounted) _refreshScrollMetrics(controller, force: true);
   }
 
+  /// Serves a bundled Nunito face for an `appfont://` request from the
+  /// typography stylesheet. Unknown faces return `null`, so the font stack in
+  /// [emailTypographyCss] falls back to the system sans.
+  static Future<CustomSchemeResponse?> _serveAppFont(
+    InAppWebViewController controller,
+    WebResourceRequest request,
+  ) async {
+    final host = request.url.host;
+    final asset = _appFontAssets[host.toLowerCase()];
+    if (asset == null) return null;
+    var bytes = _appFontCache[asset];
+    if (bytes == null) {
+      final data = await rootBundle.load(asset);
+      bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      _appFontCache[asset] = bytes;
+    }
+    return CustomSchemeResponse(
+      data: bytes,
+      contentType: 'font/ttf',
+      // The data is binary, not text: leave the encoding name empty so the
+      // engine does not try to decode the font as a string.
+      contentEncoding: '',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final html = _preparedHtml;
@@ -2646,8 +2708,13 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         supportZoom: false,
         mediaPlaybackRequiresUserGesture: true,
         useShouldOverrideUrlLoading: true,
+        // The typography stylesheet loads the bundled Nunito faces through
+        // this scheme ([_serveAppFont]); platforms without custom-scheme
+        // support ignore it and fall back to the system font stack.
+        resourceCustomSchemes: const ['appfont'],
       ),
       onWebViewCreated: (controller) => _controller = controller,
+      onLoadResourceWithCustomScheme: _serveAppFont,
       onScrollChanged: _onScrollChanged,
       onLoadStop: (controller, url) async {
         _controller = controller;
@@ -2720,6 +2787,118 @@ String sanitizeEmailHtml(String html) {
     'about:blank#blocked',
   );
   return sanitized;
+}
+
+/// Whether [html] carries styling of its own: an embedded `<style>` element or
+/// a linked stylesheet. Inline `style=` attributes do not count — tracking
+/// pixels and single-element tweaks are ubiquitous in otherwise-plain email,
+/// and the injected defaults are element selectors, so a message's inline
+/// styles keep winning by specificity anyway.
+bool isUnstyledEmailHtml(String html) {
+  final ownStyling = RegExp(
+    r'''<\s*style\b|\brel\s*=\s*["']?\s*stylesheet\b''',
+    caseSensitive: false,
+  );
+  return !ownStyling.hasMatch(html);
+}
+
+/// Injects [css] as the document's first stylesheet. The style goes into the
+/// existing `<head>` when there is one, into a freshly added `<head>` when the
+/// document only has `<html>`, and is prepended to bare fragments — browsers
+/// apply a `<style>` wherever it appears.
+String injectEmailTypography(String html, String css) {
+  final style = '<style>$css</style>';
+  final headEnd = RegExp(r'</head\s*>', caseSensitive: false).firstMatch(html);
+  if (headEnd != null) {
+    return html.replaceRange(headEnd.start, headEnd.start, style);
+  }
+  final htmlTag = RegExp(r'<\s*html\b[^>]*>', caseSensitive: false).firstMatch(
+    html,
+  );
+  if (htmlTag != null) {
+    return html.replaceRange(htmlTag.end, htmlTag.end, '<head>$style</head>');
+  }
+  return '$style$html';
+}
+
+/// Returns [html] with [css] injected as its default stylesheet when the
+/// message defines no styling of its own; styled messages are returned
+/// untouched so their look is preserved.
+String withEmailTypography(String html, String css) {
+  if (!isUnstyledEmailHtml(html)) return html;
+  return injectEmailTypography(html, css);
+}
+
+/// Default typography stylesheet for emails that carry no styling of their
+/// own, derived from the app theme so the message pane reads like the rest of
+/// the app: same font, sizes and colors, dark mode included.
+///
+/// Nunito is served from the bundled assets through the `appfont://` scheme
+/// (see [_HtmlBodyViewerState._serveAppFont]); on platforms without
+/// custom-scheme support the stack falls back to the system sans.
+String emailTypographyCss(ThemeData theme) {
+  final scheme = theme.colorScheme;
+  final text = theme.textTheme;
+  // The @font-face block below only bundles the Nunito faces, so the family
+  // name is pinned to the app's font constant rather than the theme slot —
+  // the app theme always applies this family anyway.
+  final font = SolWattFonts.sans;
+  final onSurface = _cssHex(scheme.onSurface);
+  final onSurfaceVariant = _cssHex(scheme.onSurfaceVariant);
+  final primary = _cssHex(scheme.primary);
+  final outlineVariant = _cssHex(scheme.outlineVariant);
+  final codeBackground = _cssHex(scheme.surfaceContainerHighest);
+  final selection = _cssHex(scheme.primaryContainer);
+
+  String heading(TextStyle? style, double fallbackSize, int fallbackWeight) =>
+      'font-size: ${style?.fontSize ?? fallbackSize}px;'
+      'font-weight: ${style?.fontWeight?.value ?? fallbackWeight};';
+
+  return '''
+@font-face { font-family: '$font'; src: url('appfont://nunito-regular') format('truetype'); font-weight: 400; font-style: normal; }
+@font-face { font-family: '$font'; src: url('appfont://nunito-bold') format('truetype'); font-weight: 700; font-style: normal; }
+@font-face { font-family: '$font'; src: url('appfont://nunito-italic') format('truetype'); font-weight: 400; font-style: italic; }
+:root { color-scheme: ${theme.brightness == Brightness.dark ? 'dark' : 'light'}; }
+html, body { background: transparent; }
+body {
+  margin: 0;
+  padding: 24px;
+  font-family: '$font', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: ${text.bodyLarge?.fontSize ?? 16}px;
+  line-height: 1.6;
+  color: $onSurface;
+  overflow-wrap: break-word;
+  -webkit-text-size-adjust: 100%;
+}
+h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.2em 0 0.5em; color: inherit; }
+h1 { ${heading(text.headlineMedium, 28, 700)} }
+h2 { ${heading(text.headlineSmall, 24, 700)} }
+h3 { ${heading(text.titleLarge, 22, 600)} }
+h4 { ${heading(text.titleMedium, 16, 600)} }
+h5 { ${heading(text.titleSmall, 14, 600)} }
+h6 { ${heading(text.labelLarge, 14, 600)} }
+p { margin: 0 0 1em; }
+a { color: $primary; }
+a:visited { color: $primary; }
+strong, b { font-weight: 700; }
+em, i { font-style: italic; }
+img { max-width: 100%; height: auto; }
+hr { border: 0; border-top: 1px solid $outlineVariant; margin: 1.5em 0; }
+blockquote { margin: 1em 0; padding: 0 0 0 1em; border-left: 3px solid $outlineVariant; color: $onSurfaceVariant; }
+code, pre { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; font-size: 0.9em; background: $codeBackground; border-radius: 6px; }
+code { padding: 0.15em 0.4em; }
+pre { padding: 12px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; max-width: 100%; }
+ul, ol { margin: 0 0 1em; padding-left: 1.5em; }
+li { margin: 0.25em 0; }
+::selection { background: $selection; }
+''';
+}
+
+String _cssHex(Color color) {
+  final rgb = color.toARGB32() & 0xFFFFFF;
+  return '#${rgb.toRadixString(16).padLeft(6, '0')}';
 }
 
 String _replaceInlineImageReferences(

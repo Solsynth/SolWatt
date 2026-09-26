@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/network.dart';
 
 EmailBodyScroll _sample(double y, double? maxY) =>
     EmailBodyScroll(y: y, maxY: maxY);
@@ -97,6 +99,49 @@ void main() {
       // A fresh document starts at the top of a long body: still hidden.
       expect(footer.update(_sample(0, 900)), isFalse);
       expect(footer.visible, isFalse);
+    });
+  });
+
+  group('emailHasFooterContent', () {
+    MailEmail email({
+      List<SnCloudFileReference> attachments = const [],
+      String? deliveryStatus,
+      bool isDraft = false,
+    }) => MailEmail(
+      id: 'e-1',
+      mailboxId: 'mb-1',
+      subject: 'Subject',
+      body: 'Body',
+      isDraft: isDraft,
+      attachments: attachments,
+      deliveryStatus: deliveryStatus,
+    );
+
+    test('a plain incoming message has no footer content', () {
+      expect(emailHasFooterContent(email()), isFalse);
+    });
+
+    test('attachments warrant the footer', () {
+      expect(
+        emailHasFooterContent(
+          email(attachments: const [SnCloudFileReference(id: 'f-1')]),
+        ),
+        isTrue,
+      );
+    });
+
+    test('delivery state on a sent message warrants the footer', () {
+      expect(
+        emailHasFooterContent(email(deliveryStatus: 'delivered')),
+        isTrue,
+      );
+    });
+
+    test('drafts never show the delivery footer', () {
+      expect(
+        emailHasFooterContent(email(deliveryStatus: 'failed', isDraft: true)),
+        isFalse,
+      );
     });
   });
 }
