@@ -2208,43 +2208,46 @@ class _EmailActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const .symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
             if (onResend != null) ...[
               OutlinedButton.icon(
                 onPressed: onResend,
-                icon: const Icon(Symbols.refresh, size: 18),
+                icon: const Icon(Symbols.refresh, size: 12),
                 label: Text('resend'.tr()),
                 style: OutlinedButton.styleFrom(
+                  visualDensity: .compact,
+                  padding: .symmetric(horizontal: 12, vertical: 8),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
-              const Spacer(),
             ],
             IconButton(
               tooltip: 'replyAll'.tr(),
               onPressed: onReplyAll,
-              icon: const Icon(Symbols.reply_all),
+              icon: const Icon(Symbols.reply_all, size: 14),
+              visualDensity: .compact,
             ),
             IconButton(
               tooltip: 'forward'.tr(),
               onPressed: onForward,
-              icon: const Icon(Symbols.forward),
+              icon: const Icon(Symbols.forward, size: 14),
+              visualDensity: .compact,
             ),
-            const SizedBox(width: 8),
+            const Spacer(),
             FilledButton.icon(
               onPressed: onReply,
-              icon: const Icon(Symbols.reply, size: 18),
+              icon: const Icon(Symbols.reply, size: 12),
               label: Text('reply'.tr()),
               style: FilledButton.styleFrom(
+                visualDensity: .compact,
+                padding: .symmetric(horizontal: 12, vertical: 8),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
