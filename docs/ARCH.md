@@ -162,7 +162,8 @@ Key providers:
 - `notificationUnreadCountProvider` / `notificationListProvider` — Ring inbox scoped to SolWatt’s multi-tenant app id
 - `threadsProvider` / `threadProvider` — ElecPostal conversations: the active
   mailbox's thread summaries (`MailThreadsQuery` = list filter + page size) and
-  one conversation's messages, oldest first
+  one conversation's messages, oldest first. A term in the filter's `q` widens
+  the query to every mailbox and folder instead
 - `emailProvider` — a single message, which the detail route opens on
 
 ## Mail (ElecPostal)
@@ -184,6 +185,19 @@ directly, so the mail tab is conversation-first:
   conversation's message count and unread count. The counts come from the
   server and cover the whole conversation, so a row never disagrees with what
   opening it shows.
+- A search is not scoped: as soon as the search field holds a term,
+  `threadsProvider` drops both the mailbox and the folder from the query and
+  asks `GET /postal/threads`, so a term finds the message wherever it sits —
+  another mailbox, Spam, or Trash. The list says so (a "searching every
+  mailbox and folder" strip) and each row carries a badge naming the mailbox it
+  came from, because the selected inbox no longer describes what is on screen.
+  The browse list, with no term, stays folder- and mailbox-scoped.
+- Multi-select: the header's select action (or a long press on a row) turns the
+  list into a selection list — rows answer taps with a checkbox, a bottom bar
+  carries the count, Select All, delete, and the flag and move actions — and
+  every action applies to every message of every ticked conversation, the same
+  fan-out a single row's actions use. Select All means the conversations the
+  list has loaded, not the whole folder.
 - Paging grows the request's `take` (`threadsProvider` keyed by
   filter + take) instead of paging offsets. Each fetch supersets the previous
   listing, so the row counts stay whole and no page can go missing; the list
@@ -256,6 +270,15 @@ directly, so the mail tab is conversation-first:
   failing the line that holds it.
 - Row actions (read, star, move, delete) apply to every message of the
   conversation, since the API only mutates one message at a time.
+- Trash is the one place a delete is permanent. Everywhere else the delete
+  action files the conversation into Trash
+  (`DELETE /postal/emails/{id}`) and stays recoverable — a second delete of
+  the same mail records nothing. Inside Trash the delete confirmation changes
+  to match: it goes through `DELETE /postal/emails/{id}/permanent`, which also
+  drops ElecPostal's stored attachment bytes, and an "Empty trash" action
+  sweeps the whole folder through `DELETE /postal/mailboxes/{id}/trash`. A
+  multi-select follows the same rule, so a selection that is entirely Trash
+  deletes for good and any other selection only moves there.
 - Attachments read where they are listed: `CloudFileAttachmentList`
   (`lib/core/widgets/content/cloud_file_attachment_list.dart`) renders images
   and videos as in-place previews — the Drive thumbnail, sized by the file's

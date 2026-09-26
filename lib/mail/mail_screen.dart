@@ -232,6 +232,11 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   bool _searchOpen = false;
   Timer? _searchDebounce;
 
+  /// Conversations ticked for a bulk action, held as whole threads so an
+  /// action can reach every message of each one without re-fetching the page.
+  final Map<String, MailThread> _selection = {};
+  bool _selectionMode = false;
+
   @override
   void dispose() {
     _searchDebounce?.cancel();
@@ -243,9 +248,140 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   void _resetList() {
     setState(() {
       _selectedThreadId = null;
+      _selection.clear();
+      _selectionMode = false;
       _take = kThreadPageSize;
     });
   }
+
+  bool get _selecting => _selectionMode;
+
+  /// Enters the mode with one conversation already ticked, which is what a
+  /// long press on a row means.
+  void _selectThread(MailThread thread) {
+    setState(() {
+      _selectionMode = true;
+      _selection[thread.id] = thread;
+    });
+  }
+
+  void _toggleSelected(MailThread thread) {
+    setState(() {
+      if (_selection.remove(thread.id) == null) {
+        _selection[thread.id] = thread;
+      }
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selection.clear();
+      _selectionMode = false;
+    });
+  }
+
+  void _enterSelectionMode() => setState(() => _selectionMode = true);
+
+  /// The query the list is currently showing, rebuilt from the same providers
+  /// the list build reads, so "select all" can see the loaded conversations.
+  MailThreadsQuery get _visibleQuery => (
+    filter: _emailFilter(
+      mailboxId: _effectiveMailboxId(
+        ref.read(mailboxesProvider).value,
+        ref.read(selectedMailboxIdProvider),
+      ),
+      folder: ref.read(selectedFolderProvider),
+    ),
+    take: _take,
+  );
+
+  /// Ticks every conversation the list has loaded, or clears the ticks when
+  /// they are all ticked already.
+  void _toggleSelectAll() {
+    final items =
+        ref.read(threadsProvider(_visibleQuery)).value?.items ??
+        const <MailThread>[];
+    final allSelected =
+        items.isNotEmpty &&
+        items.every((thread) => _selection.containsKey(thread.id));
+    setState(() {
+      _selectionMode = true;
+      if (allSelected) {
+        _selection.clear();
+        return;
+      }
+      for (final thread in items) {
+        _selection[thread.id] = thread;
+      }
+    });
+  }
+
+  /// Runs [action] for every message of every ticked conversation, then drops
+  /// the selection and refreshes the list.
+  Future<void> _runOnSelection(
+    Future<void> Function(WattEngineClient client, MailEmail message) action, {
+    required String success,
+    String? folder,
+  }) async {
+    final threads = _selection.values.toList(growable: false);
+    final count = threads.length;
+    try {
+      final client = ref.read(wattEngineClientProvider);
+      for (final thread in threads) {
+        // Whole conversations: the API mutates one message at a time, and a
+        // row action covers the conversation.
+        for (final message in await _threadMessages(ref, thread)) {
+          await action(client, message);
+        }
+      }
+      if (!mounted) return;
+      _clearSelection();
+      _invalidateMail(ref);
+      showSnackBar(
+        success.tr(
+          namedArgs: {
+            'count': '$count',
+            if (folder != null) 'folder': mailFolderLabel(folder),
+          },
+        ),
+      );
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _deleteSelection(BuildContext context) async {
+    final threads = _selection.values.toList(growable: false);
+    if (threads.isEmpty) return;
+    // A selection that already sits in Trash is the permanent delete; any
+    // other selection only moves to Trash, where it stays recoverable.
+    final permanent = threads.every(
+      (thread) => _messageLivesInTrash(ref, thread.latestMessage),
+    );
+    final confirmed = await showConfirmAlert(
+      (permanent
+              ? 'deleteSelectionPermanentlyConfirm'
+              : 'deleteSelectionConfirm')
+          .tr(namedArgs: {'count': '${threads.length}'}),
+      (permanent ? 'deleteEmailPermanently' : 'deleteEmail').tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: (permanent ? 'deleteEmailPermanently' : 'delete').tr(),
+    );
+    if (!confirmed) return;
+    await _runOnSelection(
+      (client, message) => permanent
+          ? client.deleteEmailPermanently(message.id)
+          : client.deleteEmail(message.id),
+      success: permanent ? 'selectionDeletedPermanently' : 'selectionMovedToTrash',
+    );
+  }
+
+  Future<void> _moveSelection(String folder) => _runOnSelection(
+    (client, message) => client.moveEmail(message.id, folder),
+    success: 'selectionMovedToFolder',
+    folder: folder,
+  );
 
   void _selectMailbox(String id) {
     if (ref.read(selectedMailboxIdProvider) == id) return;
@@ -412,6 +548,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       _to != null ||
       _hasAttachments != null;
 
+  /// A search runs across every mailbox and folder (see [threadsProvider]), so
+  /// the list says so instead of implying it is scoped to the open folder.
+  bool get _searching => _searchController.text.trim().isNotEmpty;
+
   EmailListFilter _emailFilter({
     String? mailboxId,
     required String folder,
@@ -461,12 +601,14 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     required Widget mailboxSelector,
   }) {
     final wide = isWideScreen(context);
-    final compose = FloatingActionButton(
-      heroTag: 'mail-compose-fab',
-      tooltip: 'compose'.tr(),
-      onPressed: () => _compose(context),
-      child: const Icon(Symbols.edit),
-    );
+    final compose = _selecting
+        ? null
+        : FloatingActionButton(
+            heroTag: 'mail-compose-fab',
+            tooltip: 'compose'.tr(),
+            onPressed: () => _compose(context),
+            child: const Icon(Symbols.edit),
+          );
     final list = Column(
       children: [
         if (wide) ...[
@@ -486,10 +628,15 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                 hasDiscoveryFilters: _hasDiscoveryFilters,
                 onOpenSettings: () => _openSettings(context),
                 onShowFilters: () => _showEmailFilters(context),
+                onEmptyTrash: folder == 'trash'
+                    ? () => _emptyTrash(context)
+                    : null,
+                onSelectThreads: _selecting ? null : _enterSelectionMode,
               ),
             ),
           ),
         ],
+        if (_searching) const _SearchScopeBanner(),
         Expanded(
           // Crossfade between lists when the rail (or bottom bar) switches
           // mailbox or folder, so the reload doesn't blink from a stale list
@@ -506,6 +653,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
               ),
               mailHost: mailHost,
               selectedThreadId: _selectedThreadId,
+              selecting: _selecting,
+              selectedThreadIds: _selection.keys.toSet(),
+              onToggleSelected: _toggleSelected,
+              onEnterSelection: _selectThread,
               onOpen: (thread) => _openThread(context, thread),
               onToggleStar: _toggleThreadStar,
               onToggleRead: _toggleThreadRead,
@@ -516,6 +667,32 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
             ),
           ),
         ),
+        if (_selecting)
+          _MailSelectionBar(
+            count: _selection.length,
+            allVisibleSelected: _allVisibleSelected,
+            onToggleSelectAll: _toggleSelectAll,
+            onMarkRead: () => _runOnSelection(
+              (client, message) => client.markEmailRead(message.id),
+              success: 'selectionUpdated',
+            ),
+            onMarkUnread: () => _runOnSelection(
+              (client, message) => client.markEmailUnread(message.id),
+              success: 'selectionUpdated',
+            ),
+            onStar: () => _runOnSelection(
+              (client, message) => client.starEmail(message.id, starred: true),
+              success: 'selectionUpdated',
+            ),
+            onUnstar: () => _runOnSelection(
+              (client, message) =>
+                  client.starEmail(message.id, starred: false),
+              success: 'selectionUpdated',
+            ),
+            onMove: (folder) => _moveSelection(folder),
+            onDelete: () => _deleteSelection(context),
+            onClose: _clearSelection,
+          ),
       ],
     );
 
@@ -524,7 +701,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     if (!wide) {
       return Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
-        appBar: _buildMailAppBar(mailboxSelector),
+        appBar: _buildMailAppBar(mailboxSelector, folder: folder),
         body: list,
         floatingActionButton: compose,
       );
@@ -536,10 +713,19 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       child: Stack(
         children: [
           list,
-          Positioned(right: 16, bottom: 16, child: compose),
+          if (compose != null) Positioned(right: 16, bottom: 16, child: compose),
         ],
       ),
     );
+  }
+
+  /// Whether every conversation the list has loaded is ticked.
+  bool get _allVisibleSelected {
+    final items =
+        ref.read(threadsProvider(_visibleQuery)).value?.items ??
+        const <MailThread>[];
+    return items.isNotEmpty &&
+        items.every((thread) => _selection.containsKey(thread.id));
   }
 
   /// Search input, decorated for the wide header box or bare for the app bar.
@@ -557,7 +743,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   /// Phone chrome: the drawer, the active inbox and the header actions live in
   /// an app bar instead of the wide header row.
-  PreferredSizeWidget _buildMailAppBar(Widget mailboxSelector) => AppBar(
+  PreferredSizeWidget _buildMailAppBar(
+    Widget mailboxSelector, {
+    required String folder,
+  }) => AppBar(
     leading: _searchOpen
         ? IconButton(
             tooltip: 'clearSearch'.tr(),
@@ -572,6 +761,18 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     actions: _searchOpen
         ? const []
         : [
+            if (folder == 'trash')
+              IconButton(
+                tooltip: 'emptyTrash'.tr(),
+                onPressed: () => _emptyTrash(context),
+                icon: const Icon(Symbols.delete_sweep, size: 20),
+              ),
+            if (!_selecting)
+              IconButton(
+                tooltip: 'enterSelectionMode'.tr(),
+                onPressed: _enterSelectionMode,
+                icon: const Icon(Symbols.select_check_box, size: 20),
+              ),
             IconButton(
               tooltip: 'searchEmails'.tr(),
               onPressed: _toggleSearch,
@@ -668,26 +869,69 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   }
 
   Future<void> _deleteThread(BuildContext context, MailThread thread) async {
+    // Deleting inside Trash is the permanent delete; anywhere else it moves the
+    // conversation to Trash, where it can still be recovered.
+    final permanent = _messageLivesInTrash(ref, thread.latestMessage);
     final confirmed = await showConfirmAlert(
-      'deleteThreadConfirm'.tr(
-        namedArgs: {
-          'subject': thread.displaySubject,
-          'count': thread.messageCount.toString(),
-        },
-      ),
-      'delete'.tr(),
+      permanent
+          ? 'deleteThreadPermanentlyConfirm'.tr(
+              namedArgs: {
+                'subject': thread.displaySubject,
+                'count': thread.messageCount.toString(),
+              },
+            )
+          : 'deleteThreadConfirm'.tr(
+              namedArgs: {
+                'subject': thread.displaySubject,
+                'count': thread.messageCount.toString(),
+              },
+            ),
+      permanent ? 'deleteEmailPermanently'.tr() : 'delete'.tr(),
       icon: Symbols.delete,
       isDanger: true,
-      confirmLabel: 'delete'.tr(),
+      confirmLabel: permanent ? 'deleteEmailPermanently'.tr() : 'delete'.tr(),
     );
     if (!confirmed) return;
     await _applyToThread(
       ref,
       thread,
-      (client, message) => client.deleteEmail(message.id),
+      (client, message) => permanent
+          ? client.deleteEmailPermanently(message.id)
+          : client.deleteEmail(message.id),
     );
     if (!context.mounted) return;
-    showSnackBar('emailDeleted'.tr());
+    showSnackBar(
+      permanent ? 'emailDeletedPermanently'.tr() : 'emailDeleted'.tr(),
+    );
+  }
+
+  /// Permanently removes every message the selected mailbox keeps in Trash.
+  Future<void> _emptyTrash(BuildContext context) async {
+    final mailboxId = _effectiveMailboxId(
+      ref.read(mailboxesProvider).value,
+      ref.read(selectedMailboxIdProvider),
+    );
+    if (mailboxId == null || mailboxId.isEmpty) return;
+    final confirmed = await showConfirmAlert(
+      'emptyTrashConfirm'.tr(),
+      'emptyTrash'.tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'emptyTrash'.tr(),
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final deleted = await ref
+          .read(wattEngineClientProvider)
+          .emptyTrash(mailboxId);
+      _resetList();
+      ref.invalidate(threadsProvider);
+      if (context.mounted) {
+        showSnackBar('trashEmptied'.tr(args: ['$deleted']));
+      }
+    } catch (error) {
+      showSnackBar(error.toString());
+    }
   }
 
   void _compose(BuildContext context, {MailEmail? replyingTo}) {
@@ -1034,22 +1278,45 @@ Future<void> _deleteEmail(
   WidgetRef ref,
   MailEmail email,
 ) async {
+  // A message already in Trash is deleted for good; elsewhere the delete only
+  // moves it there, so the confirmation has to say which one this is.
+  final permanent = _messageLivesInTrash(ref, email);
   final confirmed = await showConfirmAlert(
-    'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
-    'deleteEmail'.tr(),
+    permanent
+        ? 'deleteEmailPermanentlyConfirm'.tr(
+            namedArgs: {'subject': email.displaySubject},
+          )
+        : 'deleteEmailConfirm'.tr(namedArgs: {'subject': email.displaySubject}),
+    permanent ? 'deleteEmailPermanently'.tr() : 'deleteEmail'.tr(),
     icon: Symbols.delete,
     isDanger: true,
-    confirmLabel: 'delete'.tr(),
+    confirmLabel: permanent ? 'deleteEmailPermanently'.tr() : 'delete'.tr(),
   );
   if (!confirmed) return;
   try {
-    await ref.read(wattEngineClientProvider).deleteEmail(email.id);
+    final client = ref.read(wattEngineClientProvider);
+    if (permanent) {
+      await client.deleteEmailPermanently(email.id);
+    } else {
+      await client.deleteEmail(email.id);
+    }
     _invalidateMail(ref);
     if (context.mounted) context.router.pop();
-    showSnackBar('emailDeleted'.tr());
+    showSnackBar(
+      permanent ? 'emailDeletedPermanently'.tr() : 'emailDeleted'.tr(),
+    );
   } catch (error) {
     showSnackBar(error.toString());
   }
+}
+
+/// Whether a message already sits in Trash, where the next delete removes it
+/// for good instead of moving it again. The message's own folder decides;
+/// without one, the folder the list is showing does.
+bool _messageLivesInTrash(WidgetRef ref, MailEmail email) {
+  final folder = email.folder?.trim().toLowerCase();
+  if (folder != null && folder.isNotEmpty) return folder == 'trash';
+  return ref.read(selectedFolderProvider).toLowerCase() == 'trash';
 }
 
 class _MailListHeader extends StatelessWidget {
@@ -1061,6 +1328,8 @@ class _MailListHeader extends StatelessWidget {
     required this.hasDiscoveryFilters,
     required this.onOpenSettings,
     required this.onShowFilters,
+    this.onEmptyTrash,
+    this.onSelectThreads,
   });
 
   final Widget mailboxSelector;
@@ -1070,6 +1339,14 @@ class _MailListHeader extends StatelessWidget {
   final bool hasDiscoveryFilters;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowFilters;
+
+  /// Set while Trash is on screen: how many messages are in it is the server's
+  /// answer, so the action is offered whenever the folder is open.
+  final VoidCallback? onEmptyTrash;
+
+  /// Enters multi-select mode. Hidden while the selection bar already offers
+  /// the mode's own actions.
+  final VoidCallback? onSelectThreads;
 
   @override
   Widget build(BuildContext context) {
@@ -1081,6 +1358,18 @@ class _MailListHeader extends StatelessWidget {
             children: [
               Expanded(child: mailboxSelector),
               const SizedBox(width: 4),
+              if (onEmptyTrash != null)
+                IconButton(
+                  tooltip: 'emptyTrash'.tr(),
+                  onPressed: onEmptyTrash,
+                  icon: const Icon(Symbols.delete_sweep, size: 20),
+                ),
+              if (onSelectThreads != null)
+                IconButton(
+                  tooltip: 'enterSelectionMode'.tr(),
+                  onPressed: onSelectThreads,
+                  icon: const Icon(Symbols.select_check_box, size: 20),
+                ),
               IconButton(
                 tooltip: 'searchEmails'.tr(),
                 onPressed: onToggleSearch,
@@ -1111,6 +1400,167 @@ class _MailListHeader extends StatelessWidget {
             child: searchField,
           ),
       ],
+    );
+  }
+}
+
+/// Bottom bar for multi-select, mirroring the Drive file list's selection bar:
+/// how many conversations are ticked, select-all, the bulk delete, the rest of
+/// the bulk actions, and the way out of the mode. The mail list is a narrow
+/// pane even on wide screens, so the bar stays one short row: only the
+/// destructive action sits inline, the rest live in the overflow menu.
+class _MailSelectionBar extends StatelessWidget {
+  const _MailSelectionBar({
+    required this.count,
+    required this.allVisibleSelected,
+    required this.onToggleSelectAll,
+    required this.onMarkRead,
+    required this.onMarkUnread,
+    required this.onStar,
+    required this.onUnstar,
+    required this.onMove,
+    required this.onDelete,
+    required this.onClose,
+  });
+
+  final int count;
+  final bool allVisibleSelected;
+  final VoidCallback onToggleSelectAll;
+  final VoidCallback onMarkRead;
+  final VoidCallback onMarkUnread;
+  final VoidCallback onStar;
+  final VoidCallback onUnstar;
+  final ValueChanged<String> onMove;
+  final VoidCallback onDelete;
+  final VoidCallback onClose;
+
+  /// Folders a bulk move offers: the destinations a row menu already has, plus
+  /// Inbox so mail can be taken back out of a folder.
+  static const _moveTargets = ['inbox', 'archive', 'spam', 'trash'];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final border = scheme.outlineVariant.withValues(alpha: 0.55);
+    final enabled = count > 0;
+
+    return Material(
+      color: scheme.surfaceContainerLow,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: border)),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            4,
+            4,
+            4 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'threadsSelected'.tr(namedArgs: {'count': '$count'}),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton(
+                onPressed: onToggleSelectAll,
+                child: Text(
+                  allVisibleSelected ? 'deselectAll'.tr() : 'selectAll'.tr(),
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('mail-selection-delete'),
+                onPressed: enabled ? onDelete : null,
+                tooltip: 'delete'.tr(),
+                icon: Icon(Symbols.delete, color: scheme.error),
+              ),
+              PopupMenuButton<String>(
+                enabled: enabled,
+                tooltip: 'more'.tr(),
+                icon: const Icon(Symbols.more_vert),
+                onSelected: (value) {
+                  if (value.startsWith(_moveValuePrefix)) {
+                    onMove(value.substring(_moveValuePrefix.length));
+                    return;
+                  }
+                  switch (value) {
+                    case 'read':
+                      onMarkRead();
+                    case 'unread':
+                      onMarkUnread();
+                    case 'star':
+                      onStar();
+                    case 'unstar':
+                      onUnstar();
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'read',
+                    child: Text('markRead'.tr()),
+                  ),
+                  PopupMenuItem(
+                    value: 'unread',
+                    child: Text('markUnread'.tr()),
+                  ),
+                  PopupMenuItem(value: 'star', child: Text('star'.tr())),
+                  PopupMenuItem(value: 'unstar', child: Text('unstar'.tr())),
+                  const PopupMenuDivider(),
+                  for (final folder in _moveTargets)
+                    PopupMenuItem(
+                      value: '$_moveValuePrefix$folder',
+                      child: Text(mailFolderLabel(folder)),
+                    ),
+                ],
+              ),
+              IconButton(
+                onPressed: onClose,
+                tooltip: 'exitSelectionMode'.tr(),
+                icon: const Icon(Symbols.close),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Folder prefixes in the selection bar's overflow menu values, so a move
+/// entry can carry its destination through the same string channel as the
+/// flag actions: `move:trash`.
+const _moveValuePrefix = 'move:';
+
+/// Strip above the list while a search is running, spelling out the scope a
+/// search actually has: every mailbox and folder of the account.
+class _SearchScopeBanner extends StatelessWidget {
+  const _SearchScopeBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerHigh,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          Icon(Symbols.travel_explore, size: 16, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'searchingAllMailboxes'.tr(),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1484,6 +1934,10 @@ class _EmailThreadList extends ConsumerStatefulWidget {
     required this.onMove,
     required this.onRefresh,
     required this.onLoadMore,
+    this.selecting = false,
+    this.selectedThreadIds = const {},
+    this.onToggleSelected,
+    this.onEnterSelection,
   });
 
   final MailThreadsQuery query;
@@ -1496,6 +1950,17 @@ class _EmailThreadList extends ConsumerStatefulWidget {
   final Future<void> Function(MailThread, String) onMove;
   final VoidCallback onRefresh;
   final VoidCallback onLoadMore;
+
+  /// Multi-select mode: rows carry checkboxes and tapping one ticks it instead
+  /// of opening the conversation.
+  final bool selecting;
+  final Set<String> selectedThreadIds;
+
+  /// Ticks or unticks a conversation while [selecting].
+  final ValueChanged<MailThread>? onToggleSelected;
+
+  /// Starts the mode from a row gesture (long press).
+  final ValueChanged<MailThread>? onEnterSelection;
 
   @override
   ConsumerState<_EmailThreadList> createState() => _EmailThreadListState();
@@ -1550,6 +2015,16 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
     final senders =
         ref.watch(mailSenderIndexProvider).value ??
         const <String, MailAddressSuggestion>{};
+    // A search spans every mailbox, so those rows have to name the mailbox
+    // each conversation came out of; a folder-scoped list does not.
+    final searchAcrossMailboxes = (widget.query.filter.q ?? '').trim().isNotEmpty;
+    final mailboxNames = searchAcrossMailboxes
+        ? {
+            for (final mailbox
+                in ref.watch(mailboxesProvider).value ?? const <MailMailbox>[])
+              mailbox.id: mailbox.displayName,
+          }
+        : const <String, String>{};
     final canLoadMore =
         widget.query.take < kMaxThreadTake && items.length < page.totalCount;
 
@@ -1581,7 +2056,16 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
               thread: thread,
               mailHost: widget.mailHost,
               senders: senders,
+              mailboxName: mailboxNames[thread.mailboxId],
               selected: thread.id == widget.selectedThreadId,
+              selecting: widget.selecting,
+              checked: widget.selectedThreadIds.contains(thread.id),
+              onToggleSelected: widget.onToggleSelected == null
+                  ? null
+                  : () => widget.onToggleSelected!(thread),
+              onLongPress: widget.onEnterSelection == null
+                  ? null
+                  : () => widget.onEnterSelection!(thread),
               onTap: () => widget.onOpen(thread),
               onToggleStar: () => widget.onToggleStar(thread),
               onToggleRead: () => widget.onToggleRead(thread),
@@ -1642,13 +2126,29 @@ class _EmailThreadTile extends StatelessWidget {
     required this.onToggleRead,
     required this.onDelete,
     required this.onMove,
+    this.mailboxName,
     this.selected = false,
+    this.selecting = false,
+    this.checked = false,
+    this.onToggleSelected,
+    this.onLongPress,
   });
 
   final MailThread thread;
   final String? mailHost;
   final Map<String, MailAddressSuggestion> senders;
+
+  /// Set only on a cross-mailbox search, where a row has to say which mailbox
+  /// the conversation lives in.
+  final String? mailboxName;
   final VoidCallback onTap;
+
+  /// Multi-select state: while [selecting], the avatar becomes a checkbox and
+  /// [onToggleSelected] replaces [onTap].
+  final bool selecting;
+  final bool checked;
+  final VoidCallback? onToggleSelected;
+  final VoidCallback? onLongPress;
   final VoidCallback onToggleStar;
   final VoidCallback onToggleRead;
   final VoidCallback onDelete;
@@ -1668,27 +2168,38 @@ class _EmailThreadTile extends StatelessWidget {
     final timestamp = _mailTimestamp(thread.latestAt ?? latest.createdAt);
 
     return ContextMenuWidget(
-      menuProvider: (_) => Menu(
-        children: emailContextMenuItems(
-          // The actions cover the conversation, so the read state is the
-          // thread's — not the newest message's — to keep the labels honest.
-          isRead: thread.isRead,
-          isStarred: latest.isStarred,
-          onToggleRead: onToggleRead,
-          onToggleStar: onToggleStar,
-          onMove: onMove,
-          onDelete: onDelete,
-        ),
-      ),
+      // A context menu and multi-select do not mix: while selecting, the row
+      // answers taps with a tick instead.
+      menuProvider: selecting
+          ? (_) => null
+          : (_) => Menu(
+              children: emailContextMenuItems(
+                // The actions cover the conversation, so the read state is the
+                // thread's — not the newest message's — to keep the labels
+                // honest.
+                isRead: thread.isRead,
+                isStarred: latest.isStarred,
+                onToggleRead: onToggleRead,
+                onToggleStar: onToggleStar,
+                onMove: onMove,
+                onDelete: onDelete,
+              ),
+            ),
       child: ListTile(
-        selected: selected,
+        selected: selected || checked,
         selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
         shape: const RoundedRectangleBorder(),
-        leading: _SenderAvatar(
-          url: emailAvatarUrl(senders[fromAddress.trim().toLowerCase()]),
-          name: from,
-          unread: unread,
-        ),
+        leading: selecting
+            ? Checkbox(
+                value: checked,
+                onChanged: (_) => onToggleSelected?.call(),
+              )
+            : _SenderAvatar(
+                url: emailAvatarUrl(senders[fromAddress.trim().toLowerCase()]),
+                name: from,
+                unread: unread,
+              ),
+        onLongPress: selecting ? null : onLongPress,
         title: Row(
           children: [
             Expanded(
@@ -1726,6 +2237,10 @@ class _EmailThreadTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
+            if (mailboxName case final name? when name.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              _ThreadMailboxBadge(name: name),
+            ],
             if (latest.hasDeliveryStatus && !latest.isDraft) ...[
               const SizedBox(height: 6),
               _DeliveryStatusChip(status: latest.deliveryStatus!),
@@ -1733,7 +2248,44 @@ class _EmailThreadTile extends StatelessWidget {
           ],
         ),
         isThreeLine: false,
-        onTap: onTap,
+        onTap: selecting ? onToggleSelected : onTap,
+      ),
+    );
+  }
+}
+
+/// Which mailbox a search hit came out of, on a cross-mailbox search row.
+class _ThreadMailboxBadge extends StatelessWidget {
+  const _ThreadMailboxBadge({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Symbols.inbox, size: 12, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

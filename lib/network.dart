@@ -1055,13 +1055,15 @@ class WattEngineClient {
     return MailEmail.fromJson(response.data ?? const {});
   }
 
-  /// Conversation summaries for one mailbox, newest activity first.
+  /// Conversation summaries, newest activity first.
   ///
-  /// The mailbox scopes the query (ElecPostal only filters by mailbox on the
-  /// nested route), and the counts cover every message of a conversation, not
-  /// just the ones on the fetched page.
+  /// A mailbox scopes the query to that address
+  /// (`GET /postal/mailboxes/{id}/threads`); an empty [mailboxId] asks the
+  /// account-wide route (`GET /postal/threads`), which is how a search covers
+  /// every mailbox. Counts cover every message of a conversation, not just the
+  /// ones on the fetched page.
   Future<PaginatedResult<MailThread>> listThreads(
-    String mailboxId, {
+    String? mailboxId, {
     String? folder,
     String? q,
     String? status,
@@ -1071,22 +1073,27 @@ class WattEngineClient {
     bool? hasAttachments,
     int offset = 0,
     int take = 20,
-  }) async => _parseThreadPage(
-    await _get<List<dynamic>>(
-      '$kElecPostalBase/mailboxes/$mailboxId/threads',
-      queryParameters: {
-        'offset': offset,
-        'take': take,
-        if (folder != null && folder.isNotEmpty) 'folder': folder,
-        if (q != null && q.isNotEmpty) 'q': q,
-        if (status != null && status.isNotEmpty) 'status': status,
-        'is_flagged': ?isFlagged,
-        if (from != null && from.isNotEmpty) 'from': from,
-        if (to != null && to.isNotEmpty) 'to': to,
-        'has_attachments': ?hasAttachments,
-      },
-    ),
-  );
+  }) async {
+    final path = mailboxId == null || mailboxId.isEmpty
+        ? '$kElecPostalBase/threads'
+        : '$kElecPostalBase/mailboxes/${Uri.encodeComponent(mailboxId)}/threads';
+    return _parseThreadPage(
+      await _get<List<dynamic>>(
+        path,
+        queryParameters: {
+          'offset': offset,
+          'take': take,
+          if (folder != null && folder.isNotEmpty) 'folder': folder,
+          if (q != null && q.isNotEmpty) 'q': q,
+          if (status != null && status.isNotEmpty) 'status': status,
+          'is_flagged': ?isFlagged,
+          if (from != null && from.isNotEmpty) 'from': from,
+          if (to != null && to.isNotEmpty) 'to': to,
+          'has_attachments': ?hasAttachments,
+        },
+      ),
+    );
+  }
 
   /// Every message of one conversation, oldest first, with full bodies.
   Future<List<MailEmail>> getThread(String threadId) async {
@@ -1240,6 +1247,23 @@ class WattEngineClient {
 
   Future<void> deleteEmail(String emailId) =>
       _request<void>('DELETE', '$kElecPostalBase/emails/$emailId');
+
+  /// Removes a message and its stored attachment bytes for good. This is the
+  /// only way out of Trash; it cannot be undone.
+  Future<void> deleteEmailPermanently(String emailId) => _request<void>(
+    'DELETE',
+    '$kElecPostalBase/emails/${Uri.encodeComponent(emailId)}/permanent',
+  );
+
+  /// Permanently deletes every message the mailbox keeps in Trash and returns
+  /// how many went away.
+  Future<int> emptyTrash(String mailboxId) async {
+    final response = await _request<Map<String, dynamic>>(
+      'DELETE',
+      '$kElecPostalBase/mailboxes/${Uri.encodeComponent(mailboxId)}/trash',
+    );
+    return (response.data?['deleted'] as num?)?.toInt() ?? 0;
+  }
 
   /// Moves a message to another folder
   /// (`inbox`, `sent`, `drafts`, `spam`, `trash`, `archive`).
@@ -4103,8 +4127,12 @@ final threadsProvider =
       ref,
       query,
     ) async {
-      final mailboxId = query.filter.mailboxId;
-      if (mailboxId == null || mailboxId.isEmpty) {
+      // A search is about finding a message, not about where it happens to sit,
+      // so it runs across every mailbox and folder of the account. Choosing a
+      // mailbox and folder scopes the browse list only.
+      final searching = (query.filter.q ?? '').trim().isNotEmpty;
+      final mailboxId = searching ? null : query.filter.mailboxId;
+      if (!searching && (mailboxId == null || mailboxId.isEmpty)) {
         // No mailbox resolves yet (account without inboxes): nothing to list.
         return const PaginatedResult<MailThread>(items: [], totalCount: 0);
       }
@@ -4112,7 +4140,7 @@ final threadsProvider =
           .watch(wattEngineClientProvider)
           .listThreads(
             mailboxId,
-            folder: query.filter.folder,
+            folder: searching ? null : query.filter.folder,
             q: query.filter.q,
             status: query.filter.status,
             isFlagged: query.filter.isFlagged,
