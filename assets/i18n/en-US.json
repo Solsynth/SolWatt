@@ -687,5 +687,16 @@
   "fileHashCopied": "File hash copied",
   "fileNameCopied": "File name copied",
   "userMetadata": "User metadata",
-  "valueCopied": "Copied"
+  "valueCopied": "Copied",
+  "boardUnavailable": "Board unavailable",
+  "boardUnavailableDetail": "It may have been deleted, or it belongs to another workspace.",
+  "overdue": "Overdue",
+  "dueToday": "Due today",
+  "dueTomorrow": "Due tomorrow",
+  "moveToGroup": "Move to group",
+  "openTask": "Open task",
+  "noMatchingTasks": "No tasks match these filters",
+  "noMatchingTasksDetail": "Clear the filters to see the rest of the board.",
+  "progressDone": "{done} of {total} done",
+  "optionalLongFormDetail": "Optional long-form detail"
 }

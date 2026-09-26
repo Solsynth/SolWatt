@@ -38,10 +38,19 @@ class AppRouter extends RootStackRouter {
             AutoRoute(page: MailDetailRoute.page, path: ':id'),
           ],
         ),
-        AutoRoute(page: BoardsRoute.page),
+        // The boards tab owns a nested stack: the board list is the root and
+        // a single board is pushed on top of it, so opening a board keeps the
+        // app shell (navigation rail / bottom bar) in place and returns to the
+        // list it came from.
+        AutoRoute(
+          page: BoardsRoute.page,
+          children: [
+            AutoRoute(page: BoardsListRoute.page, path: '', initial: true),
+            AutoRoute(page: TaskBoardRoute.page, path: ':broadId'),
+          ],
+        ),
         AutoRoute(page: FileListRoute.page),
         AutoRoute(page: FlywheelRoute.page),
-        AutoRoute(page: TaskBoardRoute.page),
         AutoRoute(page: ProfileRoute.page),
       ],
     ),

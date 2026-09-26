@@ -141,9 +141,7 @@ class _GitHubIntegrationSheetState
         _repos = repos;
         _step = _GitHubStep.pickRepo;
         _busy = false;
-        _error = repos.isEmpty
-            ? 'noRepositoriesGranted'.tr()
-            : null;
+        _error = repos.isEmpty ? 'noRepositoriesGranted'.tr() : null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -419,9 +417,7 @@ class _InstallWaiting extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          polling
-              ? 'waitingForGitHub'.tr()
-              : 'openInstallPage'.tr(),
+          polling ? 'waitingForGitHub'.tr() : 'openInstallPage'.tr(),
           textAlign: TextAlign.center,
           style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
         ),
@@ -539,9 +535,15 @@ class _LinkedStatus extends StatelessWidget {
             subtitle: Text(
               integration.lastSyncedAt == null
                   ? 'linkedImportQueued'.tr()
-                  : 'lastSynced'.tr(namedArgs: {
-                      'date': integration.lastSyncedAt!.toLocal().toString().split('.').first,
-                    }),
+                  : 'lastSynced'.tr(
+                      namedArgs: {
+                        'date': integration.lastSyncedAt!
+                            .toLocal()
+                            .toString()
+                            .split('.')
+                            .first,
+                      },
+                    ),
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,

@@ -687,5 +687,16 @@
   "fileHashCopied": "文件哈希已复制",
   "fileNameCopied": "文件名已复制",
   "userMetadata": "用户元数据",
-  "valueCopied": "已复制"
+  "valueCopied": "已复制",
+  "boardUnavailable": "看板不可用",
+  "boardUnavailableDetail": "它可能已被删除，或属于其他工作区。",
+  "overdue": "已逾期",
+  "dueToday": "今天到期",
+  "dueTomorrow": "明天到期",
+  "moveToGroup": "移动到分组",
+  "openTask": "打开任务",
+  "noMatchingTasks": "没有符合筛选条件的任务",
+  "noMatchingTasksDetail": "清除筛选条件即可看到看板的其余任务。",
+  "progressDone": "已完成 {done}/{total}",
+  "optionalLongFormDetail": "可选的长篇说明"
 }

@@ -27,6 +27,22 @@ class AppShellRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [BoardsListPage]
+class BoardsListRoute extends PageRouteInfo<void> {
+  const BoardsListRoute({List<PageRouteInfo>? children})
+    : super(BoardsListRoute.name, initialChildren: children);
+
+  static const String name = 'BoardsListRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const BoardsListPage();
+    },
+  );
+}
+
+/// generated route for
 /// [BoardsPage]
 class BoardsRoute extends PageRouteInfo<void> {
   const BoardsRoute({List<PageRouteInfo>? children})
@@ -352,15 +368,10 @@ class TaskBoardRoute extends PageRouteInfo<TaskBoardRouteArgs> {
   TaskBoardRoute({
     Key? key,
     required String broadId,
-    required String broadName,
     List<PageRouteInfo>? children,
   }) : super(
          TaskBoardRoute.name,
-         args: TaskBoardRouteArgs(
-           key: key,
-           broadId: broadId,
-           broadName: broadName,
-         ),
+         args: TaskBoardRouteArgs(key: key, broadId: broadId),
          rawPathParams: {'broadId': broadId},
          initialChildren: children,
        );
@@ -370,43 +381,35 @@ class TaskBoardRoute extends PageRouteInfo<TaskBoardRouteArgs> {
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
-      final args = data.argsAs<TaskBoardRouteArgs>();
-      return TaskBoardPage(
-        key: args.key,
-        broadId: args.broadId,
-        broadName: args.broadName,
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<TaskBoardRouteArgs>(
+        orElse: () =>
+            TaskBoardRouteArgs(broadId: pathParams.getString('broadId')),
       );
+      return TaskBoardPage(key: args.key, broadId: args.broadId);
     },
   );
 }
 
 class TaskBoardRouteArgs {
-  const TaskBoardRouteArgs({
-    this.key,
-    required this.broadId,
-    required this.broadName,
-  });
+  const TaskBoardRouteArgs({this.key, required this.broadId});
 
   final Key? key;
 
   final String broadId;
 
-  final String broadName;
-
   @override
   String toString() {
-    return 'TaskBoardRouteArgs{key: $key, broadId: $broadId, broadName: $broadName}';
+    return 'TaskBoardRouteArgs{key: $key, broadId: $broadId}';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     if (other is! TaskBoardRouteArgs) return false;
-    return key == other.key &&
-        broadId == other.broadId &&
-        broadName == other.broadName;
+    return key == other.key && broadId == other.broadId;
   }
 
   @override
-  int get hashCode => key.hashCode ^ broadId.hashCode ^ broadName.hashCode;
+  int get hashCode => key.hashCode ^ broadId.hashCode;
 }

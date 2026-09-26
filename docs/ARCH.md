@@ -28,15 +28,18 @@ justify them.
 
 ```
 lib/
-  main.dart                       # Bootstrap, routes, app shell, shared pages
-  main.gr.dart                    # Generated auto_route routes; do not edit
+  main.dart                       # Bootstrap, app shell, window frame
+  route.dart                      # AppRouter and every route declaration
+  route.gr.dart                   # Generated auto_route routes; do not edit
   theme.dart                      # Island-derived Material theme and Nunito
   network.dart                    # OAuth, WattEngine client, session providers
   gate/gate_page.dart             # Sign-in + workspace selection entry
   workspaces/workspace_actions.dart  # Workspace CRUD and shared list UI
   ui/page_scaffold.dart           # Shared page chrome for shell screens
   ui/cloud_files.dart             # Cloud upload picker + link attachment
-  boards/boards_screen.dart       # Ideask boards and tasks
+  boards/boards_screen.dart       # Boards tab shell, board list, board editor
+  boards/board_detail.dart        # One board: header, lanes, cards, task detail
+  boards/board_sheets.dart        # Task editor, lane picker, groups, assignees
   boards/github_integration.dart  # GitHub App link/sync UI for a board
   boards/task_comments.dart       # Task comments (local + GitHub-mirrored)
   files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
@@ -49,6 +52,13 @@ docs/
   ARCH.md                         # This document
 assets/fonts/                     # Bundled Nunito font files
 ```
+
+`lib/boards/boards_screen.dart` is the library head and `board_detail.dart` /
+`board_sheets.dart` are its `part` files: the boards surfaces share private
+helpers (lane colours, date formatting, priority metadata) without widening the
+library's public surface. Keep new board-internal helpers private; add a part
+file rather than a second public API.
+
 
 ## Access gate
 
@@ -97,6 +107,13 @@ and profile. Wide screens get a rail that lists the mail folders while Mail is
 active (with the inbox badge) and the top-level tabs otherwise, plus a drawer
 for the rest.
 
+A tab that has a list-and-detail shape owns a *nested* stack, so its detail
+surfaces keep the shell chrome and Back returns to the list it came from
+instead of covering the rail: the mail tab pushes compose/settings/detail above
+its list, and the boards tab pushes one board (`/boards/:broadId`) above the
+board list. Push through `context.router` inside such a tab, never through
+`Navigator.of(context)` on the root navigator.
+
 Every tab page owns a top app bar (`PageScaffold`, or the page's own
 `Scaffold`), and app-level navigation lives there, never in a bottom bar: on
 narrow screens the app bar leads with `appBarDrawerButton` and the drawer holds
@@ -115,7 +132,7 @@ known. Do not add placeholder pages or speculative UI content.
 When changing routes:
 
 1. Add `@RoutePage()` to the page.
-2. Update `AppRouter` in `lib/main.dart`.
+2. Update `AppRouter` in `lib/route.dart`.
 3. Run `dart run build_runner build`.
 4. Never hand-edit `*.gr.dart` files.
 
@@ -258,9 +275,27 @@ Client flow (`lib/boards/github_integration.dart`):
 3. List `…/installations/{id}/repositories` and link with `POST …/broads/{id}`
 4. Manage with status `GET`, manual `POST …/sync`, and `DELETE` unlink
 
-Task cards show a GitHub issue chip when linked. The task editor opens the
+Linked tasks carry the issue in their card meta line. The task editor opens the
 issue URL and hosts comments (`task_comments.dart`); GitHub-authored comments
 are read-only.
+
+### Board screen conventions
+
+A board is a lane per group (plus a leading `Ungrouped` lane) laid out
+horizontally. Colour on the board is deliberate and narrow:
+
+- **Lane colour** (`_laneColor`, rotated by lane position) marks the lane rail
+  and its done/total meter. It is the only colour that identifies *where* a
+  task is.
+- **Card attention rail** is the only colour on a card and means the task wants
+  attention: overdue (error), urgent/high (their priority tone). A card with no
+  rail is a normal task — absence is information, do not fill it with a default
+  chip.
+- Facts that hold a default value (normal priority, no deadline, no tags) are
+  omitted from the card's meta line rather than printed as "None".
+- Lanes own vertical scrolling; cards are lane drag sources and must keep
+  `Draggable.affinity: Axis.horizontal` so a vertical drag still reaches the
+  lane's list.
 
 ## Validation
 
