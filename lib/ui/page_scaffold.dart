@@ -1,7 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-/// Shared page chrome: title row, optional subtitle/action, and body.
+/// Leading app-bar button that opens the shell's navigation drawer, or null
+/// where the app bar should not carry one.
+///
+/// Must be called from a context *above* the page's own [Scaffold], so the
+/// lookup finds the shell's drawer rather than the page's drawer-less
+/// scaffold. Wide screens return null: the rail already owns the drawer and
+/// the app bar needs the room for its title.
+Widget? appBarDrawerButton(BuildContext context) {
+  if (isWideScreen(context)) return null;
+  final scaffold = Scaffold.maybeOf(context);
+  if (scaffold == null || !scaffold.hasDrawer) return null;
+  return IconButton(
+    tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
+    onPressed: scaffold.openDrawer,
+    icon: const Icon(Symbols.menu),
+  );
+}
+
+/// Shared page chrome: an app bar with the optional subtitle/actions, and a
+/// constrained body.
+///
+/// Pages are rendered inside the shell's scaffold, so the app bar carries the
+/// drawer button on narrow screens; app-level navigation never lives in the
+/// bottom bar.
 class PageScaffold extends StatelessWidget {
   const PageScaffold({
     super.key,
@@ -28,57 +52,36 @@ class PageScaffold extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final trailing = <Widget>[?action, ...actions];
 
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxContentWidth),
-        child: Padding(
-          padding: padding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 24),
-                        Text(
-                          title,
-                          style: text.headlineSmall?.copyWith(
-                            letterSpacing: -0.25,
-                          ),
-                        ),
-                        if (subtitle case final String subtitle) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            style: text.bodyMedium?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (trailing.isNotEmpty)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (var i = 0; i < trailing.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 4),
-                          trailing[i],
-                        ],
-                      ],
-                    ),
-                ],
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      appBar: AppBar(
+        leading: appBarDrawerButton(context),
+        // A subtitle needs a second line, which the default toolbar cannot
+        // hold.
+        toolbarHeight: subtitle == null ? null : 68,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (subtitle case final String subtitle)
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
-              const SizedBox(height: 20),
-              Expanded(child: child),
-            ],
-          ),
+          ],
+        ),
+        actions: [
+          for (final widget in trailing) ...[widget, const SizedBox(width: 4)],
+        ],
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxContentWidth),
+          child: Padding(padding: padding, child: child),
         ),
       ),
     );

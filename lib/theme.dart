@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 
 abstract final class SolWattFonts {
   static const sans = 'Nunito';
@@ -367,3 +368,64 @@ TextTheme _solWattTextTheme(TextTheme base) {
     labelSmall: base.labelSmall?.copyWith(fontWeight: FontWeight.w500),
   );
 }
+
+/// Theme for the `material_ui` fork, which `island_ui_foundation` builds its
+/// chrome from — bottom sheets, snackbars, notification overlays and the
+/// desktop window frame. The fork keeps its own theme system ([mui.Theme],
+/// [mui.ThemeData]) separate from Flutter's, so those widgets read this theme
+/// and not [createSolWattTheme].
+///
+/// Mirror the app's typography, icon settings, dividers and density into it:
+/// without the mirror the fork chrome falls back to its own defaults and
+/// renders in the platform font instead of the app font.
+mui.ThemeData createSolWattForkTheme(ThemeData app) {
+  final brightness = app.brightness;
+  final scheme = app.colorScheme;
+  // The window frame paints the app surface behind the routed app, so the
+  // chrome surface has to match the app's rather than the seed's.
+  final forkScheme = mui.ColorScheme.fromSeed(
+    seedColor: kSolWattSeedColor,
+    brightness: brightness,
+  ).copyWith(surfaceContainer: scheme.surface);
+
+  return mui.ThemeData(
+    brightness: brightness,
+    // Covers fork widgets that build a bare TextStyle, without pulling a slot
+    // out of the text theme.
+    fontFamily: SolWattFonts.sans,
+    colorScheme: forkScheme,
+    textTheme: _forkTextTheme(app.textTheme),
+    primaryTextTheme: _forkTextTheme(app.primaryTextTheme),
+    iconTheme: app.iconTheme,
+    primaryIconTheme: app.primaryIconTheme,
+    dividerTheme: mui.DividerThemeData(
+      color: scheme.outlineVariant,
+      thickness: 1,
+      space: 1,
+    ),
+    visualDensity: mui.VisualDensity(
+      horizontal: app.visualDensity.horizontal,
+      vertical: app.visualDensity.vertical,
+    ),
+  );
+}
+
+/// The fork declares its own [mui.TextTheme] over the shared Flutter
+/// [TextStyle], so the app's slots carry over as they are.
+mui.TextTheme _forkTextTheme(TextTheme source) => mui.TextTheme(
+  displayLarge: source.displayLarge,
+  displayMedium: source.displayMedium,
+  displaySmall: source.displaySmall,
+  headlineLarge: source.headlineLarge,
+  headlineMedium: source.headlineMedium,
+  headlineSmall: source.headlineSmall,
+  titleLarge: source.titleLarge,
+  titleMedium: source.titleMedium,
+  titleSmall: source.titleSmall,
+  bodyLarge: source.bodyLarge,
+  bodyMedium: source.bodyMedium,
+  bodySmall: source.bodySmall,
+  labelLarge: source.labelLarge,
+  labelMedium: source.labelMedium,
+  labelSmall: source.labelSmall,
+);

@@ -55,9 +55,10 @@ class MailListPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isWideScreen(context)) return const SizedBox.shrink();
-    return const SafeArea(
-      child: Padding(padding: EdgeInsets.all(8), child: _MailListWidget()),
-    );
+    // The list brings its own app bar on phones and runs edge to edge: the
+    // card-like pane only reads as a pane next to the detail view on wide
+    // screens.
+    return const _MailListWidget();
   }
 }
 
@@ -249,13 +250,6 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     ref.invalidate(emailsProvider);
   }
 
-  void _selectFolder(String folder) {
-    if (ref.read(selectedFolderProvider) == folder) return;
-    ref.read(selectedFolderProvider.notifier).select(folder);
-    _resetList();
-    ref.invalidate(emailsProvider);
-  }
-
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 500), () {
@@ -263,6 +257,36 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       _resetList();
       ref.invalidate(emailsProvider);
     });
+  }
+
+  /// Opens the inbox picker from the app bar title, so a phone can switch
+  /// inboxes without giving up a bottom-bar slot.
+  Future<void> _openMailboxPickerSheet(
+    List<MailMailbox> mailboxes, {
+    required String? mailHost,
+    required String? mailboxId,
+  }) async {
+    final result = await showMailboxPickerSheet(
+      context,
+      mailboxes: mailboxes,
+      mailHost: mailHost,
+      selectedId: mailboxId,
+    );
+    if (result == null || !mounted) return;
+    if (result.createNew) {
+      await _createMailbox(context);
+    } else if (result.mailboxId != null) {
+      _selectMailbox(result.mailboxId!);
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) _searchController.clear();
+    });
+    if (!_searchOpen) _resetList();
+    ref.invalidate(emailsProvider);
   }
 
   Future<void> _toggleStar(MailEmail email) async {
@@ -293,8 +317,6 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     final selectedMailboxId = ref.watch(selectedMailboxIdProvider);
     final folder = ref.watch(selectedFolderProvider);
     final mailboxId = _effectiveMailboxId(mailboxes.value, selectedMailboxId);
-    final unreadCounts =
-        ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{};
     return _buildEmailList(
       mailHost.value,
       workspaceId: workspaceId,
@@ -305,7 +327,6 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
         mailHost: mailHost.value,
         mailboxId: mailboxId,
       ),
-      inboxUnread: mailboxId == null ? 0 : (unreadCounts[mailboxId] ?? 0),
     );
   }
 
@@ -329,17 +350,41 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
         onRetry: () => ref.invalidate(mailboxesProvider),
       ),
       data: (items) {
-        // Narrow screens switch inboxes from the bottom navigation bar, so
-        // the header only shows the current inbox title.
-        if (items.isNotEmpty && !isWideScreen(context)) {
-          final current =
-              items.where((m) => m.id == mailboxId).firstOrNull ??
-              items.firstWhere((m) => m.isDefault, orElse: () => items.first);
-          return Text(
-            current.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium,
+        // A phone shows the inbox as the app bar title and switches through
+        // the picker sheet, because the bottom bar carries the folders.
+        if (!isWideScreen(context)) {
+          final current = items.isEmpty
+              ? null
+              : items.where((m) => m.id == mailboxId).firstOrNull ??
+                    items.firstWhere(
+                      (m) => m.isDefault,
+                      orElse: () => items.first,
+                    );
+          return InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _openMailboxPickerSheet(
+              items,
+              mailHost: mailHost,
+              mailboxId: mailboxId,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      current?.displayName ?? 'noMailboxes'.tr(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Symbols.expand_more, size: 20),
+                ],
+              ),
+            ),
           );
         }
         return _MailboxSelector(
@@ -431,83 +476,143 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     String? mailboxId,
     required String folder,
     required Widget mailboxSelector,
-    required int inboxUnread,
   }) {
+    final wide = isWideScreen(context);
+    final compose = FloatingActionButton(
+      heroTag: 'mail-compose-fab',
+      tooltip: 'compose'.tr(),
+      onPressed: () => _compose(context),
+      child: const Icon(Symbols.edit),
+    );
+    final list = Column(
+      children: [
+        if (wide) ...[
+          Material(
+            color: Theme.of(context).colorScheme.surfaceContainerHigh,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: _MailListHeader(
+                mailboxSelector: mailboxSelector,
+                searchField: _buildSearchField(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                searchOpen: _searchOpen,
+                onToggleSearch: _toggleSearch,
+                hasDiscoveryFilters: _hasDiscoveryFilters,
+                onOpenSettings: () => _openSettings(context),
+                onShowFilters: () => _showEmailFilters(context),
+              ),
+            ),
+          ),
+        ],
+        Expanded(
+          // Crossfade between lists when the rail (or bottom bar) switches
+          // mailbox or folder, so the reload doesn't blink from a stale list
+          // to a spinner.
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: _EmailList(
+              key: ValueKey('$mailboxId/$folder'),
+              mailboxId: mailboxId,
+              workspaceId: workspaceId,
+              filter: _emailFilter(
+                mailboxId: mailboxId,
+                workspaceId: workspaceId,
+                folder: folder,
+              ),
+              mailHost: mailHost,
+              selectedEmail: _selectedEmail,
+              onOpen: (email) => _openEmail(context, email),
+              onToggleStar: _toggleStar,
+              onDelete: (context, ref, email) =>
+                  _deleteEmail(context, ref, email, closeDetail: false),
+              onMove: (ref, email, folder) =>
+                  _moveEmailFromList(ref, email, folder),
+              onRefresh: () => _refreshEmails(ref),
+              onLoadMore: () => _loadMoreEmails(ref),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    // A phone gets the bare list under an app bar: the inset card only reads
+    // as a pane when the detail view sits next to it.
+    if (!wide) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        appBar: _buildMailAppBar(mailboxSelector),
+        body: list,
+        floatingActionButton: compose,
+      );
+    }
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(8),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
-          Column(
-            children: [
-              _MailListHeader(
-                mailboxSelector: mailboxSelector,
-                searchController: _searchController,
-                searchOpen: _searchOpen,
-                onToggleSearch: () {
-                  setState(() {
-                    _searchOpen = !_searchOpen;
-                    if (!_searchOpen) _searchController.clear();
-                  });
-                  if (!_searchOpen) _resetList();
-                  ref.invalidate(emailsProvider);
-                },
-                onSearchChanged: _onSearchChanged,
-                folder: folder,
-                inboxUnread: inboxUnread,
-                onSelectFolder: _selectFolder,
-                hasDiscoveryFilters: _hasDiscoveryFilters,
-                onOpenSettings: () => _openSettings(context),
-                onShowFilters: () => _showEmailFilters(context),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                // Crossfade between lists when the rail (or bottom bar/folder
-                // chips) switches mailbox or folder, so the reload doesn't
-                // blink from a stale list to a spinner.
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  child: _EmailList(
-                    key: ValueKey('$mailboxId/$folder'),
-                    mailboxId: mailboxId,
-                    workspaceId: workspaceId,
-                    filter: _emailFilter(
-                      mailboxId: mailboxId,
-                      workspaceId: workspaceId,
-                      folder: folder,
-                    ),
-                    mailHost: mailHost,
-                    selectedEmail: _selectedEmail,
-                    onOpen: (email) => _openEmail(context, email),
-                    onToggleStar: _toggleStar,
-                    onDelete: (context, ref, email) =>
-                        _deleteEmail(context, ref, email, closeDetail: false),
-                    onMove: (ref, email, folder) =>
-                        _moveEmailFromList(ref, email, folder),
-                    onRefresh: () => _refreshEmails(ref),
-                    onLoadMore: () => _loadMoreEmails(ref),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: FloatingActionButton(
-              heroTag: 'mail-compose-fab',
-              tooltip: 'compose'.tr(),
-              onPressed: () => _compose(context),
-              child: const Icon(Symbols.edit),
-            ),
-          ),
+          list,
+          Positioned(right: 16, bottom: 16, child: compose),
         ],
       ),
     );
   }
+
+  /// Search input, decorated for the wide header box or bare for the app bar.
+  Widget _buildSearchField({InputBorder? border}) => TextField(
+    controller: _searchController,
+    onChanged: _onSearchChanged,
+    autofocus: true,
+    decoration: InputDecoration(
+      isDense: true,
+      hintText: 'searchEmailsHint'.tr(),
+      prefixIcon: const Icon(Symbols.search, size: 20),
+      border: border,
+    ),
+  );
+
+  /// Phone chrome: the drawer, the active inbox and the header actions live in
+  /// an app bar instead of the wide header row.
+  PreferredSizeWidget _buildMailAppBar(Widget mailboxSelector) => AppBar(
+    leading: _searchOpen
+        ? IconButton(
+            tooltip: 'clearSearch'.tr(),
+            onPressed: _toggleSearch,
+            icon: const Icon(Symbols.close),
+          )
+        : appBarDrawerButton(context),
+    titleSpacing: 0,
+    title: _searchOpen
+        ? _buildSearchField(border: InputBorder.none)
+        : mailboxSelector,
+    actions: _searchOpen
+        ? const []
+        : [
+            IconButton(
+              tooltip: 'searchEmails'.tr(),
+              onPressed: _toggleSearch,
+              icon: const Icon(Symbols.search, size: 20),
+            ),
+            IconButton(
+              tooltip: 'mailSettings'.tr(),
+              onPressed: () => _openSettings(context),
+              icon: const Icon(Symbols.settings, size: 20),
+            ),
+            IconButton(
+              tooltip: 'emailFilters'.tr(),
+              onPressed: () => _showEmailFilters(context),
+              icon: Badge(
+                isLabelVisible: _hasDiscoveryFilters,
+                child: const Icon(Symbols.filter_alt, size: 20),
+              ),
+            ),
+          ],
+  );
 
   Future<void> _refreshEmails(WidgetRef ref) async {
     setState(() {
@@ -917,26 +1022,18 @@ Future<void> _deleteEmail(
 class _MailListHeader extends StatelessWidget {
   const _MailListHeader({
     required this.mailboxSelector,
-    required this.searchController,
+    required this.searchField,
     required this.searchOpen,
     required this.onToggleSearch,
-    required this.onSearchChanged,
-    required this.folder,
-    required this.inboxUnread,
-    required this.onSelectFolder,
     required this.hasDiscoveryFilters,
     required this.onOpenSettings,
     required this.onShowFilters,
   });
 
   final Widget mailboxSelector;
-  final TextEditingController searchController;
+  final Widget searchField;
   final bool searchOpen;
   final VoidCallback onToggleSearch;
-  final ValueChanged<String> onSearchChanged;
-  final String folder;
-  final int inboxUnread;
-  final ValueChanged<String> onSelectFolder;
   final bool hasDiscoveryFilters;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowFilters;
@@ -978,83 +1075,9 @@ class _MailListHeader extends StatelessWidget {
         if (searchOpen)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: TextField(
-              controller: searchController,
-              onChanged: onSearchChanged,
-              autofocus: true,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'searchEmailsHint'.tr(),
-                prefixIcon: const Icon(Symbols.search, size: 20),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-          ),
-        // On wide screens the desktop rail already lists every folder, so the
-        // horizontal switcher would be redundant; keep it only where the rail
-        // is absent.
-        if (!isWideScreen(context))
-          _FolderTabs(
-            folder: folder,
-            inboxUnread: inboxUnread,
-            onSelect: onSelectFolder,
+            child: searchField,
           ),
       ],
-    );
-  }
-}
-
-/// Horizontal folder switcher (Inbox, Sent, Drafts, Spam, Trash, Archive),
-/// mirroring the folders of a desktop mail client.
-class _FolderTabs extends StatelessWidget {
-  const _FolderTabs({
-    required this.folder,
-    required this.inboxUnread,
-    required this.onSelect,
-  });
-
-  static const _folders = [
-    'inbox',
-    'sent',
-    'drafts',
-    'spam',
-    'trash',
-    'archive',
-  ];
-
-  final String folder;
-  final int inboxUnread;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        itemCount: _folders.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (context, index) {
-          final id = _folders[index];
-          final selected = id == folder;
-          final label = mailFolderLabel(id);
-          return ChoiceChip(
-            selected: selected,
-            showCheckmark: false,
-            onSelected: (_) => onSelect(id),
-            avatar: id == 'inbox' && inboxUnread > 0
-                ? Badge(
-                    label: Text(inboxUnread > 99 ? '99+' : '$inboxUnread'),
-                    child: const Icon(Symbols.mail, size: 16),
-                  )
-                : null,
-            label: Text(label),
-          );
-        },
-      ),
     );
   }
 }
@@ -1442,7 +1465,6 @@ class _EmailList extends ConsumerWidget {
         return RefreshIndicator(
           onRefresh: () async => onRefresh(),
           child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: items.length + (items.length < page.totalCount ? 1 : 0),
             itemBuilder: (context, index) {
               if (index == items.length) {

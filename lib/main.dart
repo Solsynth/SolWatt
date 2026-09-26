@@ -99,17 +99,16 @@ class SolWattApp extends StatelessWidget {
       ],
       locale: context.locale,
       builder: (context, child) {
-        // DesktopWindowFrame (island_ui_foundation) paints with the
-        // `material_ui` fork's Material, which reads a *separate* theme
-        // system from Flutter's. Without a material_ui Theme in scope it
-        // falls back to the fork's default (always-light) scheme, so the
-        // titlebar never followed the app theme. Mirror the app scheme in a
-        // material_ui theme; the window chrome (titlebar) uses the main
-        // surface color.
+        // DesktopWindowFrame and the other `island_ui_foundation` chrome
+        // (bottom sheets, snackbars, notification overlays) paint with the
+        // `material_ui` fork, which reads a *separate* theme system from
+        // Flutter's. Mirror the app theme into it — colors, typography, icons,
+        // density — or that chrome falls back to the fork's defaults (wrong
+        // font, always-light scheme).
         //
         // The mirroring must happen inside the OverlayEntry builder: Overlay
         // only reads `initialEntries` once, so a closure capturing builder-
-        // scope values would freeze the chrome at launch brightness. Reading
+        // scope values would freeze the chrome at launch theme values. Reading
         // Theme.of(context) here re-runs on every app theme change.
         return Overlay(
           key: globalOverlay,
@@ -117,18 +116,8 @@ class SolWattApp extends StatelessWidget {
             OverlayEntry(
               builder: (context) {
                 final scheme = Theme.of(context).colorScheme;
-                final brightness = Theme.of(context).brightness;
-                final chromeScheme = mui.ColorScheme.fromSeed(
-                  seedColor: kSolWattSeedColor,
-                  brightness: brightness,
-                ).copyWith(surfaceContainer: scheme.surface);
-                final chromeTheme =
-                    (brightness == Brightness.dark
-                            ? mui.ThemeData.dark()
-                            : mui.ThemeData.light())
-                        .copyWith(colorScheme: chromeScheme);
                 return mui.Theme(
-                  data: chromeTheme,
+                  data: createSolWattForkTheme(Theme.of(context)),
                   child: DesktopWindowFrame(
                     isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
                     title: Padding(
@@ -334,12 +323,10 @@ class _NavigationShell extends ConsumerWidget {
       bottomNavigationBar: wide
           ? null
           : isMail
-          ? _MailInboxNavigationBar(
-              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-            )
-          : _FeatureNavigationBar(
-              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-              onGoToMail: () => onSelected(_mailTabIndex),
+          ? const _MailFolderNavigationBar()
+          : _TabNavigationBar(
+              selectedIndex: selectedIndex,
+              onSelected: onSelected,
             ),
     );
   }
@@ -358,14 +345,9 @@ class _GlobalNavigationDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const drawerRoutes = [
-      _mailTabIndex,
-      _boardsTabIndex,
-      _filesTabIndex,
-      _flywheelTabIndex,
-      _profileTabIndex,
-    ];
-    final selectedDrawerIndex = drawerRoutes.indexOf(selectedIndex);
+    final selectedTab = _appTabs.indexWhere(
+      (tab) => tab.index == selectedIndex,
+    );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -390,8 +372,8 @@ class _GlobalNavigationDrawer extends StatelessWidget {
 
     return SafeArea(
       child: NavigationDrawer(
-        selectedIndex: selectedDrawerIndex < 0 ? null : selectedDrawerIndex,
-        onDestinationSelected: (index) => select(drawerRoutes[index]),
+        selectedIndex: selectedTab < 0 ? null : selectedTab,
+        onDestinationSelected: (index) => select(_appTabs[index].index),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -475,34 +457,18 @@ class _GlobalNavigationDrawer extends StatelessWidget {
               ),
             ),
           ),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.mail),
-            selectedIcon: const Icon(Symbols.mail, fill: 1),
-            label: Text('mail'.tr()),
-          ),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.view_kanban),
-            selectedIcon: const Icon(Symbols.view_kanban, fill: 1),
-            label: Text('boards'.tr()),
-          ),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.folder),
-            selectedIcon: const Icon(Symbols.folder, fill: 1),
-            label: Text('files'.tr()),
-          ),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.sync),
-            selectedIcon: const Icon(Symbols.sync, fill: 1),
-            label: Text('flywheel'.tr()),
-          ),
-          // Generous spacing around the divider (height grows, the 1px line
-          // stays thin) so the account entry reads as a separate group.
-          const Divider(height: 32, thickness: 1),
-          NavigationDrawerDestination(
-            icon: const Icon(Symbols.person),
-            selectedIcon: const Icon(Symbols.person, fill: 1),
-            label: Text('profile'.tr()),
-          ),
+          for (final tab in _appTabs) ...[
+            // Profile opens its own group: generous spacing around the divider
+            // (height grows, the 1px line stays thin) so the account entry
+            // reads as a separate group.
+            if (tab.index == _profileTabIndex)
+              const Divider(height: 32, thickness: 1),
+            NavigationDrawerDestination(
+              icon: Icon(tab.icon),
+              selectedIcon: Icon(tab.icon, fill: 1),
+              label: Text(tab.label.tr()),
+            ),
+          ],
         ],
       ),
     );
@@ -515,170 +481,189 @@ const _filesTabIndex = 2;
 const _flywheelTabIndex = 3;
 const _profileTabIndex = 4;
 
-void _selectMailbox(WidgetRef ref, String id) {
-  if (ref.read(selectedMailboxIdProvider) == id) return;
-  ref.read(selectedMailboxIdProvider.notifier).select(id);
-  ref.invalidate(emailsProvider);
+/// Top-level tabs in tab-index order, shared by the drawer, the desktop rail
+/// and the phone bottom bar.
+const _appTabs = [
+  (index: _mailTabIndex, icon: Symbols.mail, label: 'mail'),
+  (index: _boardsTabIndex, icon: Symbols.view_kanban, label: 'boards'),
+  (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
+  (index: _flywheelTabIndex, icon: Symbols.sync, label: 'flywheel'),
+  (index: _profileTabIndex, icon: Symbols.person, label: 'profile'),
+];
+
+/// Tabs the desktop rail carries directly; Flywheel and Profile stay in the
+/// drawer there, which the rail's trailing button opens.
+const _railTabIndexes = {_mailTabIndex, _boardsTabIndex, _filesTabIndex};
+
+/// Mail folders in navigation order, shared by the desktop rail and the mobile
+/// bottom bar so both surfaces list the same destinations.
+const _mailFolders = ['inbox', 'sent', 'drafts', 'spam', 'trash', 'archive'];
+
+/// Unread count of the inbox of the mailbox the user is currently reading.
+int _inboxUnreadFor(
+  List<MailMailbox> mailboxes,
+  String? selectedMailboxId,
+  Map<String, int> unreadCounts,
+) {
+  final mailbox =
+      mailboxes.where((m) => m.id == selectedMailboxId).firstOrNull ??
+      mailboxes.where((m) => m.isDefault).firstOrNull ??
+      (mailboxes.isEmpty ? null : mailboxes.first);
+  return mailbox == null ? 0 : (unreadCounts[mailbox.id] ?? 0);
 }
 
-/// Opens the "all inboxes" picker sheet and applies the result. Used by the
-/// mobile bottom navigation bar and the desktop rail when inboxes overflow.
-Future<void> _openMailboxPicker(
+/// Folder icon for a navigation destination, badged on the inbox.
+Widget _folderDestinationIcon(
+  String folder, {
+  required bool selected,
+  required int unread,
+}) {
+  final icon = Icon(_folderIcon(folder), fill: selected ? 1 : 0);
+  if (folder != 'inbox' || unread <= 0) return icon;
+  return Badge(label: Text(unread > 99 ? '99+' : '$unread'), child: icon);
+}
+
+/// Lists every folder so the ones the bottom bar cuts off stay reachable, and
+/// applies the chosen folder.
+Future<void> _showFolderSheet(
   BuildContext context,
-  WidgetRef ref, {
-  required List<MailMailbox> mailboxes,
-  required String? mailHost,
-  required String? selectedId,
-  VoidCallback? onSelectedMailbox,
-}) async {
-  final result = await showMailboxPickerSheet(
-    context,
-    mailboxes: mailboxes,
-    mailHost: mailHost,
-    selectedId: selectedId,
+  WidgetRef ref,
+  String selected,
+) async {
+  final scheme = Theme.of(context).colorScheme;
+  final folder = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => SheetScaffold(
+      titleText: 'folders'.tr(),
+      heightFactor: 0.7,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 16),
+        children: [
+          for (final folder in _mailFolders)
+            ListTile(
+              leading: Icon(
+                _folderIcon(folder),
+                color: folder == selected
+                    ? scheme.primary
+                    : scheme.onSurfaceVariant,
+                fill: folder == selected ? 1 : 0,
+              ),
+              title: Text(mailFolderLabel(folder)),
+              trailing: folder == selected
+                  ? Icon(Symbols.check, color: scheme.primary)
+                  : null,
+              onTap: () => Navigator.of(sheetContext).pop(folder),
+            ),
+        ],
+      ),
+    ),
   );
-  if (result == null || !context.mounted) return;
-  if (result.createNew) {
-    await createMailboxAction(context, ref);
-  } else if (result.mailboxId != null) {
-    _selectMailbox(ref, result.mailboxId!);
-    onSelectedMailbox?.call();
-  }
+  if (folder == null) return;
+  ref.read(selectedFolderProvider.notifier).select(folder);
 }
 
-/// Bottom navigation shown on mail pages: the app drawer plus one destination
-/// per inbox. When more inboxes exist than fit, the last destination opens a
-/// picker sheet listing them all.
-class _MailInboxNavigationBar extends ConsumerWidget {
-  const _MailInboxNavigationBar({required this.onOpenDrawer});
+/// Bottom navigation shown on mail pages: the mail folders, mirroring the
+/// desktop rail. A phone fits only four folders, so the rest move behind the
+/// trailing "more" destination.
+class _MailFolderNavigationBar extends ConsumerWidget {
+  const _MailFolderNavigationBar();
 
-  static const _maxVisibleMailboxes = 3;
-
-  final VoidCallback onOpenDrawer;
-
-  Future<void> _openPicker(
-    BuildContext context,
-    WidgetRef ref, {
-    required List<MailMailbox> mailboxes,
-    required String? mailHost,
-    required String? selectedId,
-  }) => _openMailboxPicker(
-    context,
-    ref,
-    mailboxes: mailboxes,
-    mailHost: mailHost,
-    selectedId: selectedId,
-  );
+  static const _maxVisible = 4;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final mailboxes =
-        ref.watch(mailboxesProvider).value ?? const <MailMailbox>[];
-    // While inboxes are loading (or none exist yet) fall back to the simple
-    // drawer + Mail bar; NavigationBar requires at least two destinations.
-    if (mailboxes.isEmpty) {
-      return _FeatureNavigationBar(
-        onOpenDrawer: onOpenDrawer,
-        onGoToMail: () {},
-      );
-    }
-    final selectedId = ref.watch(selectedMailboxIdProvider);
-    final mailHost = ref.watch(mailHostProvider).value;
+    final selected = ref.watch(selectedFolderProvider);
+    final unread = _inboxUnreadFor(
+      ref.watch(mailboxesProvider).value ?? const <MailMailbox>[],
+      ref.watch(selectedMailboxIdProvider),
+      ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{},
+    );
 
-    final selected =
-        mailboxes.where((m) => m.id == selectedId).firstOrNull ??
-        mailboxes.firstWhere((m) => m.isDefault, orElse: () => mailboxes.first);
-    final ordered = [selected, ...mailboxes.where((m) => m != selected)];
-    final visible = ordered.take(_maxVisibleMailboxes).toList();
-    final hasOverflow = ordered.length > _maxVisibleMailboxes;
+    final visible = _mailFolders.take(_maxVisible).toList();
+    final hasOverflow = _mailFolders.length > _maxVisible;
+    final visibleIndex = visible.indexOf(selected);
 
-    final index = ordered.indexOf(selected);
-    final current = index < _maxVisibleMailboxes
-        ? index +
-              1 // +1 for the leading drawer destination
-        : _maxVisibleMailboxes + 1; // overflow destination
-
-    return NavigationBar(
-      selectedIndex: current,
-      labelBehavior: .alwaysHide,
-      onDestinationSelected: (index) {
-        if (index == 0) {
-          onOpenDrawer();
-          return;
-        }
-        if (hasOverflow && index == _maxVisibleMailboxes + 1) {
-          _openPicker(
-            context,
-            ref,
-            mailboxes: mailboxes,
-            mailHost: mailHost,
-            selectedId: selectedId,
-          );
-          return;
-        }
-        final mailbox = visible[index - 1];
-        _selectMailbox(ref, mailbox.id);
-      },
-      destinations: [
-        NavigationDestination(
-          icon: const Icon(Symbols.menu),
-          label: MaterialLocalizations.of(context).openAppDrawerTooltip,
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: Padding(
+        padding: .symmetric(horizontal: 8, vertical: 4),
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          labelBehavior: .onlyShowSelected,
+          // A folder outside the visible set keeps the "more" entry highlighted,
+          // so the bar still shows where the current folder came from.
+          selectedIndex: visibleIndex < 0 ? visible.length : visibleIndex,
+          onDestinationSelected: (index) {
+            if (index == visible.length) {
+              _showFolderSheet(context, ref, selected);
+              return;
+            }
+            ref.read(selectedFolderProvider.notifier).select(visible[index]);
+          },
+          destinations: [
+            for (final folder in visible)
+              NavigationDestination(
+                icon: _folderDestinationIcon(
+                  folder,
+                  selected: false,
+                  unread: unread,
+                ),
+                selectedIcon: _folderDestinationIcon(
+                  folder,
+                  selected: true,
+                  unread: unread,
+                ),
+                label: mailFolderLabel(folder),
+              ),
+            if (hasOverflow)
+              NavigationDestination(
+                icon: const Icon(Symbols.stacked_inbox),
+                label: 'more'.tr(),
+              ),
+          ],
         ),
-        for (final mailbox in visible)
-          NavigationDestination(
-            icon: const Icon(Symbols.mail),
-            selectedIcon: const Icon(Symbols.mail, fill: 1),
-            label: mailbox.displayName,
-            tooltip: mailbox.fullAddress(mailHost),
-          ),
-        if (hasOverflow)
-          NavigationDestination(
-            icon: const Icon(Symbols.more_horiz),
-            label: 'allInboxes'.tr(),
-          ),
-      ],
+      ),
     );
   }
 }
 
-/// Bottom navigation shown on non-mail pages: back to Mail plus the app drawer
-/// that holds every other feature.
-class _FeatureNavigationBar extends StatelessWidget {
-  const _FeatureNavigationBar({
-    required this.onOpenDrawer,
-    required this.onGoToMail,
+/// Bottom navigation shown on non-mail pages: every top-level tab, mirroring
+/// the drawer. The mail tab swaps it for the mail folders.
+class _TabNavigationBar extends ConsumerWidget {
+  const _TabNavigationBar({
+    required this.selectedIndex,
+    required this.onSelected,
   });
 
-  final VoidCallback onOpenDrawer;
-  final VoidCallback onGoToMail;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-      child: Material(
-        color: scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        child: SizedBox(
-          height: 56,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
-                onPressed: onOpenDrawer,
-                icon: const Icon(Symbols.menu),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: onGoToMail,
-                icon: const Icon(Symbols.mail),
-                label: Text('mail'.tr()),
-              ),
-            ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = _inboxUnreadFor(
+      ref.watch(mailboxesProvider).value ?? const <MailMailbox>[],
+      ref.watch(selectedMailboxIdProvider),
+      ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{},
+    );
+
+    return NavigationBar(
+      // Tab index and destination index are the same: _appTabs is in tab
+      // order.
+      selectedIndex: selectedIndex,
+      onDestinationSelected: onSelected,
+      destinations: [
+        for (final tab in _appTabs)
+          NavigationDestination(
+            icon: tab.index == _mailTabIndex
+                ? _InboxRailIcon(unread: unread)
+                : Icon(tab.icon),
+            selectedIcon: tab.index == _mailTabIndex
+                ? _InboxRailIcon(unread: unread, selected: true)
+                : Icon(tab.icon, fill: 1),
+            label: tab.label.tr(),
           ),
-        ),
-      ),
+      ],
     );
   }
 }
@@ -691,24 +676,6 @@ class _DesktopNavigation extends ConsumerWidget {
     required this.onOpenDrawer,
     this.workspace,
   });
-
-  static const _folders = [
-    'inbox',
-    'sent',
-    'drafts',
-    'spam',
-    'trash',
-    'archive',
-  ];
-
-  /// Feature destinations shown on the rail when the current tab is not Mail,
-  /// so the mail folders only appear while working in Mail. Flywheel and the
-  /// merged Profile/Settings entry stay reachable through the "more" drawer.
-  static const _features = [
-    (index: _mailTabIndex, icon: Symbols.mail, label: 'mail'),
-    (index: _boardsTabIndex, icon: Symbols.view_kanban, label: 'boards'),
-    (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
-  ];
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
@@ -729,17 +696,21 @@ class _DesktopNavigation extends ConsumerWidget {
         ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{};
 
     // Unread badge on the Inbox folder for the effective mailbox.
-    final effectiveMailbox =
-        mailboxes.where((m) => m.id == selectedMailboxId).firstOrNull ??
-        mailboxes.where((m) => m.isDefault).firstOrNull ??
-        (mailboxes.isEmpty ? null : mailboxes.first);
-    final inboxUnread = effectiveMailbox == null
-        ? 0
-        : (unreadCounts[effectiveMailbox.id] ?? 0);
+    final inboxUnread = _inboxUnreadFor(
+      mailboxes,
+      selectedMailboxId,
+      unreadCounts,
+    );
 
     final isMail = selectedIndex == _mailTabIndex;
-    final folderIndex = _folders.indexOf(selectedFolder);
-    final featureIndex = _features.indexWhere((f) => f.index == selectedIndex);
+    final folderIndex = _mailFolders.indexOf(selectedFolder);
+    // Flywheel and the merged Profile/Settings entry stay behind the drawer,
+    // so only the rail's own tabs are destinations here.
+    final railTabs = [
+      for (final tab in _appTabs)
+        if (_railTabIndexes.contains(tab.index)) tab,
+    ];
+    final tabIndex = railTabs.indexWhere((tab) => tab.index == selectedIndex);
 
     // Leading/trailing chrome is identical for both destination sets and is
     // hoisted out of the animated rails so it never flickers during the
@@ -849,7 +820,7 @@ class _DesktopNavigation extends ConsumerWidget {
                       key: const ValueKey('mail-folders'),
                       selectedIndex: folderIndex >= 0 ? folderIndex : null,
                       destinations: [
-                        for (final folder in _folders)
+                        for (final folder in _mailFolders)
                           NavigationRailDestination(
                             icon: folder == 'inbox'
                                 ? _InboxRailIcon(unread: inboxUnread)
@@ -866,31 +837,30 @@ class _DesktopNavigation extends ConsumerWidget {
                       onDestinationSelected: (index) {
                         ref
                             .read(selectedFolderProvider.notifier)
-                            .select(_folders[index]);
+                            .select(_mailFolders[index]);
                         onSelected(_mailTabIndex);
                       },
                     )
                   : _buildRail(
                       key: const ValueKey('feature-destinations'),
-                      selectedIndex:
-                          featureIndex >= 0 ? featureIndex : null,
+                      selectedIndex: tabIndex >= 0 ? tabIndex : null,
                       destinations: [
-                        for (final feature in _features)
+                        for (final tab in railTabs)
                           NavigationRailDestination(
-                            icon: feature.index == _mailTabIndex
+                            icon: tab.index == _mailTabIndex
                                 ? _InboxRailIcon(unread: inboxUnread)
-                                : Icon(feature.icon),
-                            selectedIcon: feature.index == _mailTabIndex
+                                : Icon(tab.icon),
+                            selectedIcon: tab.index == _mailTabIndex
                                 ? _InboxRailIcon(
                                     unread: inboxUnread,
                                     selected: true,
                                   )
-                                : Icon(feature.icon, fill: 1),
-                            label: Text(feature.label.tr()),
+                                : Icon(tab.icon, fill: 1),
+                            label: Text(tab.label.tr()),
                           ),
                       ],
                       onDestinationSelected: (index) =>
-                          onSelected(_features[index].index),
+                          onSelected(railTabs[index].index),
                     ),
             ),
           ),

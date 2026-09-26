@@ -52,7 +52,7 @@ final _email = MailEmail(
 );
 
 void main() {
-  testWidgets('email-first shell: inbox bottom nav, folder tabs, drawer', (
+  testWidgets('shell chrome: app bars, folder and tab bottom bars, drawer', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -119,27 +119,78 @@ void main() {
     // Email-first: the mail list is the initial surface after sign-in.
     expect(find.text('Alice'), findsOneWidget); // sender on the email tile
 
-    // Folder tabs (proper email client navigation).
-    for (final folder in ['Inbox', 'Sent', 'Drafts', 'Spam']) {
-      expect(find.text(folder), findsOneWidget);
-    }
+    // Phone chrome: an app bar carries the inbox switcher and the drawer,
+    // instead of a burger inside the bottom navigation bar.
+    expect(find.byType(AppBar), findsOneWidget);
+    final appBar = find.byType(AppBar);
+    expect(
+      find.descendant(of: appBar, matching: find.text('Work')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Symbols.menu), findsOneWidget); // drawer, in the app bar
 
-    // Switching a folder keeps the list alive.
-    await tester.tap(find.text('Sent'));
+    // Bottom navigation lists the desktop rail's folders, minus the ones that
+    // do not fit: Trash and Archive live behind the "more" destination.
+    final navBar = find.byType(NavigationBar);
+    expect(navBar, findsOneWidget);
+    for (final folder in ['Inbox', 'Sent', 'Drafts', 'Spam']) {
+      expect(
+        find.descendant(of: navBar, matching: find.text(folder)),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(of: navBar, matching: find.text('Trash')),
+      findsNothing,
+    );
+
+    // No card pane on a phone: the list runs edge to edge, straight under the
+    // app bar, and the compose FAB clears the bottom bar.
+    final listRect = tester.getRect(find.byType(RefreshIndicator));
+    expect(listRect.top, tester.getRect(appBar).bottom);
+    expect(listRect.left, 0);
+    expect(listRect.width, 400);
+    expect(
+      tester.getRect(find.byType(FloatingActionButton)).bottom,
+      lessThanOrEqualTo(tester.getRect(navBar).top),
+    );
+
+    // Switching a folder from the bar keeps the list alive.
+    await tester.tap(find.descendant(of: navBar, matching: find.text('Sent')));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
 
-    // Trash/Archive sit beyond the viewport of the horizontal chip list.
-    await tester.drag(find.byType(ChoiceChip).first, const Offset(-300, 0));
+    // The folders the bar cuts off stay reachable through "more".
+    await tester.tap(find.descendant(of: navBar, matching: find.text('More')));
     await tester.pumpAndSettle();
     expect(find.text('Trash'), findsOneWidget);
     expect(find.text('Archive'), findsOneWidget);
+    // SheetScaffold draws its own chrome with the material_ui fork, which
+    // reads a separate theme system: the app font only reaches it through the
+    // mirrored fork theme.
+    expect(
+      tester.widget<Text>(find.text('Folders')).style?.fontFamily,
+      SolWattFonts.sans,
+    );
+    await tester.tap(find.text('Archive'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
 
-    // Bottom nav shows the inboxes (mailboxes) plus the drawer entry.
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('Work'), findsWidgets); // mailbox destination label
-    expect(find.text('Personal'), findsOneWidget);
-    expect(find.byIcon(Symbols.menu), findsOneWidget);
+    // Search moves into the app bar and resets back to the inbox title.
+    await tester.tap(find.byIcon(Symbols.search));
+    await tester.pumpAndSettle();
+    final searchField = find.descendant(
+      of: appBar,
+      matching: find.byType(TextField),
+    );
+    expect(searchField, findsOneWidget);
+    await tester.enterText(searchField, 'hello');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pumpAndSettle();
+    expect(searchField, findsNothing);
 
     // The mail settings page merges credentials and import.
     await tester.tap(find.byIcon(Symbols.settings));
@@ -148,10 +199,40 @@ void main() {
     expect(find.text('Mail credentials'), findsOneWidget);
     expect(find.text('No credentials'), findsOneWidget);
     expect(find.text('Import emails'), findsWidgets); // section + button
-    expect(find.text('work@example.com'), findsWidgets); // import mailbox
+    // The import section targets the selected inbox, which is still the
+    // default one at this point.
+    expect(find.text('work@example.com'), findsWidgets);
     await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
+
+    // The selected inbox drives the app bar, so it now reads Personal.
+    await tester.tap(find.descendant(of: appBar, matching: find.text('Work')));
+    await tester.pumpAndSettle();
+    expect(find.text('Personal'), findsOneWidget);
+    await tester.tap(find.text('Personal'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    expect(
+      find.descendant(of: appBar, matching: find.text('Personal')),
+      findsOneWidget,
+    );
+
+    // Leave the folder and inbox on their defaults: the pumps below reuse the
+    // same ProviderScope, so the desktop section starts from the default inbox
+    // and folder.
+    await tester.tap(find.descendant(of: navBar, matching: find.text('Inbox')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(of: appBar, matching: find.text('Personal')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Work'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: appBar, matching: find.text('Work')),
+      findsOneWidget,
+    );
 
     // Drawer hides the rest of the app: boards/ideask, files, flywheel, and
     // the merged account entry. Settings and notifications are no longer
@@ -170,6 +251,38 @@ void main() {
     await tester.tapAt(const Offset(350, 400));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
+
+    // ---- Other tabs on a phone ----
+    // Each tab gets the same treatment: an app bar that owns the drawer, and
+    // a bottom bar of top-level tabs instead of a burger.
+    await tester.tap(find.byIcon(Symbols.menu));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Boards'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: find.text('Boards')),
+      findsOneWidget,
+    );
+    final tabBar = find.byType(NavigationBar);
+    for (final tab in ['Mail', 'Boards', 'Files', 'Flywheel', 'Profile']) {
+      expect(
+        find.descendant(of: tabBar, matching: find.text(tab)),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(of: tabBar, matching: find.byIcon(Symbols.menu)),
+      findsNothing,
+    );
+
+    // The tab bar switches back to the mail list and its folder bar.
+    await tester.tap(find.descendant(of: tabBar, matching: find.text('Mail')));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    expect(
+      find.descendant(of: navBar, matching: find.text('Inbox')),
+      findsOneWidget,
+    );
 
     // ---- Desktop (wide) ----
     await pumpApp(const Size(1200, 800));

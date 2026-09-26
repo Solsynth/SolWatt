@@ -418,104 +418,111 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     final tab = _activeTab;
     final scheme = Theme.of(context).colorScheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _DriveTabStrip(
-          tabs: _tabs,
-          activeTabId: _activeTabId,
-          onSelectTab: _selectTab,
-          onCloseTab: _closeTab,
-          onReorderTab: _reorderTab,
-          onAddIndexedTab: () => _createTab(WorkspaceFileMode.indexed),
-          onAddUnindexedTab: () => _createTab(WorkspaceFileMode.unindexed),
-          onRefresh: tab == null ? null : _invalidateDrive,
-          onNewFolder:
-              tab == null ||
-                  tab.isFileDetail ||
-                  tab.isUnindexed ||
-                  workspace == null
-              ? null
-              : () => _createFolder(tab),
-          onUpload: tab == null || tab.isFileDetail || workspace == null
-              ? null
-              : () => _uploadFiles(tab),
-          uploadIsAsset: tab?.isUnindexed == true,
-        ),
-        Expanded(
-          child: ColoredBox(
-            color: scheme.surface,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: tab?.isFileDetail == true ? double.infinity : null,
-                height: tab?.isFileDetail == true ? double.infinity : null,
-                child: ConstrainedBox(
-                  constraints: tab?.isFileDetail == true
-                      ? const BoxConstraints()
-                      : const BoxConstraints(maxWidth: 1100),
-                  child: Padding(
-                    padding: tab?.isFileDetail == true
-                        ? EdgeInsets.zero
-                        : const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                    child: _tabs.isEmpty
-                        ? _EmptyTabsState(
-                            onOpenIndexed: () =>
-                                _createTab(WorkspaceFileMode.indexed),
-                            onOpenUnindexed: () =>
-                                _createTab(WorkspaceFileMode.unindexed),
-                          )
-                        : IndexedStack(
-                            index: _activeTabIndex,
-                            sizing: StackFit.expand,
-                            children: [
-                              for (final t in _tabs)
-                                if (t.isFileDetail)
-                                  _FileDetailTab(
-                                    key: ValueKey(t.id),
-                                    entry: t.file!,
-                                    unindexed: t.isUnindexed,
-                                    onRename: () => _rename(t.file!),
-                                    onDelete: () => _delete(t.file!),
-                                  )
-                                else
-                                  _TabBrowserBody(
-                                    key: ValueKey(t.id),
-                                    tab: t,
-                                    workspace: workspace,
-                                    onChanged: _notifyTabsChanged,
-                                    onInvalidate: _invalidateDrive,
-                                    onUpload: () => _uploadFiles(t),
-                                    onNavigatePath: (keepThrough) =>
-                                        _navigatePath(t, keepThrough),
-                                    onOpenFolder: (entry) =>
-                                        _openFolderInPlace(t, entry),
-                                    onOpenFolderInNewTab: (entry) =>
-                                        _openFolderInNewTab(entry, t),
-                                    onOpenFile: (entry) =>
-                                        _openFileDetailTab(entry, t),
-                                    onInspect: (entry) => _inspect(t, entry),
-                                    onRename: _rename,
-                                    onDelete: _delete,
-                                    applyFilters: (items) =>
-                                        _applyFilters(t, items),
-                                  ),
-                            ],
-                          ),
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      appBar: AppBar(
+        leading: appBarDrawerButton(context),
+        title: Text('files'.tr()),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DriveTabStrip(
+            tabs: _tabs,
+            activeTabId: _activeTabId,
+            onSelectTab: _selectTab,
+            onCloseTab: _closeTab,
+            onReorderTab: _reorderTab,
+            onAddIndexedTab: () => _createTab(WorkspaceFileMode.indexed),
+            onAddUnindexedTab: () => _createTab(WorkspaceFileMode.unindexed),
+            onRefresh: tab == null ? null : _invalidateDrive,
+            onNewFolder:
+                tab == null ||
+                    tab.isFileDetail ||
+                    tab.isUnindexed ||
+                    workspace == null
+                ? null
+                : () => _createFolder(tab),
+            onUpload: tab == null || tab.isFileDetail || workspace == null
+                ? null
+                : () => _uploadFiles(tab),
+            uploadIsAsset: tab?.isUnindexed == true,
+          ),
+          Expanded(
+            child: ColoredBox(
+              color: scheme.surface,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: tab?.isFileDetail == true ? double.infinity : null,
+                  height: tab?.isFileDetail == true ? double.infinity : null,
+                  child: ConstrainedBox(
+                    constraints: tab?.isFileDetail == true
+                        ? const BoxConstraints()
+                        : const BoxConstraints(maxWidth: 1100),
+                    child: Padding(
+                      padding: tab?.isFileDetail == true
+                          ? EdgeInsets.zero
+                          : const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                      child: _tabs.isEmpty
+                          ? _EmptyTabsState(
+                              onOpenIndexed: () =>
+                                  _createTab(WorkspaceFileMode.indexed),
+                              onOpenUnindexed: () =>
+                                  _createTab(WorkspaceFileMode.unindexed),
+                            )
+                          : IndexedStack(
+                              index: _activeTabIndex,
+                              sizing: StackFit.expand,
+                              children: [
+                                for (final t in _tabs)
+                                  if (t.isFileDetail)
+                                    _FileDetailTab(
+                                      key: ValueKey(t.id),
+                                      entry: t.file!,
+                                      unindexed: t.isUnindexed,
+                                      onRename: () => _rename(t.file!),
+                                      onDelete: () => _delete(t.file!),
+                                    )
+                                  else
+                                    _TabBrowserBody(
+                                      key: ValueKey(t.id),
+                                      tab: t,
+                                      workspace: workspace,
+                                      onChanged: _notifyTabsChanged,
+                                      onInvalidate: _invalidateDrive,
+                                      onUpload: () => _uploadFiles(t),
+                                      onNavigatePath: (keepThrough) =>
+                                          _navigatePath(t, keepThrough),
+                                      onOpenFolder: (entry) =>
+                                          _openFolderInPlace(t, entry),
+                                      onOpenFolderInNewTab: (entry) =>
+                                          _openFolderInNewTab(entry, t),
+                                      onOpenFile: (entry) =>
+                                          _openFileDetailTab(entry, t),
+                                      onInspect: (entry) => _inspect(t, entry),
+                                      onRename: _rename,
+                                      onDelete: _delete,
+                                      applyFilters: (items) =>
+                                          _applyFilters(t, items),
+                                    ),
+                              ],
+                            ),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        _DriveStorageStatusBar(
-          usageAsync: usageAsync,
-          onTapDetails: workspace == null
-              ? null
-              : () => showWorkspaceQuota(context, ref, workspace),
-          onRetry: () => ref.invalidate(workspaceDriveUsageProvider),
-        ),
-      ],
+          _DriveStorageStatusBar(
+            usageAsync: usageAsync,
+            onTapDetails: workspace == null
+                ? null
+                : () => showWorkspaceQuota(context, ref, workspace),
+            onRetry: () => ref.invalidate(workspaceDriveUsageProvider),
+          ),
+        ],
+      ),
     );
   }
 }

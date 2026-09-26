@@ -80,13 +80,31 @@ Island's baseline component and platform-transition settings, but uses
 SolWatt's fixed seed color rather than Island's settings-driven theme
 customization.
 
+`island_ui_foundation` builds its chrome — sheets, snackbars, notification
+overlays, `DesktopWindowFrame` — from the `material_ui` fork, which reads its
+own theme system rather than Flutter's. `createSolWattForkTheme()` mirrors the
+app theme (typography including the Nunito family, colors, icons, dividers,
+density) into `mui.ThemeData`, and `main()` provides it as the `mui.Theme`
+ancestor. Without that mirror the fork chrome renders in the fork's Roboto
+default instead of the app font. Any new app-theme token the fork chrome should
+honor belongs in that function.
+
 ## Navigation
 
 `AppRouter` owns the root routes: `GatePage` (initial) and `AppShellPage`.
-`AppShellPage` is an `AutoTabsRouter` shell with home, boards, files, profile,
-and settings. Its desktop rail follows the MaidKit pattern: primary destinations
-are top-aligned and profile/settings trail at the bottom. The narrow layout
-exposes the same routes in a compact `NavigationBar`.
+`AppShellPage` is an `AutoTabsRouter` shell over mail, boards, files, flywheel,
+and profile. Wide screens get a rail that lists the mail folders while Mail is
+active (with the inbox badge) and the top-level tabs otherwise, plus a drawer
+for the rest.
+
+Every tab page owns a top app bar (`PageScaffold`, or the page's own
+`Scaffold`), and app-level navigation lives there, never in a bottom bar: on
+narrow screens the app bar leads with `appBarDrawerButton` and the drawer holds
+the workspace and the tabs the bar does not carry. The mail tab swaps the rail
+for an app bar (drawer, inbox switcher, search, filters, settings) and a bottom
+bar of mail folders — the ones that do not fit on the bar live behind its
+"more" destination. The other tabs swap it for a bottom bar of all five
+top-level tabs.
 
 Workspace Drive uploads always pass `workspace_id` so DysonFS charges the
 workspace plan quota rather than the personal account quota.
