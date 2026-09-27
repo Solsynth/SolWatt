@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
@@ -23,6 +24,10 @@ class _GatePageState extends ConsumerState<GatePage> {
   var _signingIn = false;
   var _enteringShell = false;
   String? _signInError;
+
+  /// The code a device sign-in is waiting on, or null when the platform's flow
+  /// has nothing for the user to type. Only the web build produces one.
+  DeviceAuthorization? _deviceCode;
 
   void _enterShell() {
     if (!mounted || _enteringShell) return;
@@ -49,6 +54,7 @@ class _GatePageState extends ConsumerState<GatePage> {
       error: (error, _) => _GateFrame(
         child: _SignInPanel(
           signingIn: _signingIn,
+          deviceCode: _deviceCode,
           error: error.toString(),
           onSignIn: _signIn,
         ),
@@ -63,6 +69,7 @@ class _GatePageState extends ConsumerState<GatePage> {
             return _GateFrame(
               child: _SignInPanel(
                 signingIn: _signingIn,
+                deviceCode: _deviceCode,
                 error: _signInError,
                 onSignIn: _signIn,
               ),
@@ -83,16 +90,29 @@ class _GatePageState extends ConsumerState<GatePage> {
     setState(() {
       _signingIn = true;
       _signInError = null;
+      _deviceCode = null;
     });
     try {
-      await ref.read(authenticatorProvider).signIn();
+      await ref.read(authenticatorProvider).signIn(
+        // The web needs a code approved while this waits; publishing it is what
+        // puts it on screen. The other platforms never call this.
+        onDeviceCode: (authorization) {
+          if (!mounted) return;
+          setState(() => _deviceCode = authorization);
+        },
+      );
       invalidateSessionScope(ref);
     } catch (error) {
       if (!mounted) return;
       setState(() => _signInError = error.toString());
       showSnackBar(error.toString());
     } finally {
-      if (mounted) setState(() => _signingIn = false);
+      if (mounted) {
+        setState(() {
+          _signingIn = false;
+          _deviceCode = null;
+        });
+      }
     }
   }
 }
@@ -136,11 +156,15 @@ class _SignInPanel extends StatelessWidget {
   const _SignInPanel({
     required this.signingIn,
     required this.onSignIn,
+    this.deviceCode,
     this.error,
   });
 
   final bool signingIn;
   final VoidCallback onSignIn;
+
+  /// The code a web sign-in is waiting on, shown in place of the button.
+  final DeviceAuthorization? deviceCode;
   final String? error;
 
   @override
@@ -206,23 +230,94 @@ class _SignInPanel extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 28),
-        FilledButton.icon(
-          onPressed: signingIn ? null : onSignIn,
-          icon: signingIn
-              ? SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: scheme.onPrimary,
-                  ),
-                )
-              : const Icon(Symbols.login),
-          label: Text(
-            signingIn ? 'signingIn'.tr() : 'continueWithSolarNetwork'.tr(),
+        if (deviceCode case final authorization?)
+          _DeviceCodePanel(authorization: authorization)
+        else
+          FilledButton.icon(
+            onPressed: signingIn ? null : onSignIn,
+            icon: signingIn
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.onPrimary,
+                    ),
+                  )
+                : const Icon(Symbols.login),
+            label: Text(
+              signingIn ? 'signingIn'.tr() : 'continueWithSolarNetwork'.tr(),
+            ),
           ),
-        ),
       ],
+    );
+  }
+}
+
+/// The code a device sign-in is waiting on.
+///
+/// The web build has no callback to bounce through, so the app shows a code and
+/// polls until the user has approved it in a browser. It goes away with the
+/// attempt — approved, declined or expired — because the panel holding it does.
+class _DeviceCodePanel extends StatelessWidget {
+  const _DeviceCodePanel({required this.authorization});
+
+  final DeviceAuthorization authorization;
+
+  Future<void> _openVerificationPage() =>
+      launchUrl(authorization.verificationUriComplete);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'deviceCodeTitle'.tr(),
+            style: text.labelLarge?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 6),
+          SelectableText(
+            authorization.userCode,
+            style: text.headlineSmall?.copyWith(
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w600,
+              letterSpacing: 3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SelectableText(
+            authorization.verificationUri.toString(),
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('deviceCodeWaiting'.tr(), style: text.bodySmall),
+              ),
+              TextButton.icon(
+                onPressed: _openVerificationPage,
+                icon: const Icon(Symbols.open_in_new, size: 18),
+                label: Text('deviceCodeOpenPage'.tr()),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

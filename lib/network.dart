@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -17,6 +18,12 @@ import 'package:solwatt/mail/mail_address_suggestion.dart';
 const _issuer = 'https://api.solian.app';
 const _callbackScheme = 'solwatt';
 const _redirectUri = '$_callbackScheme://oauth/callback';
+
+/// The grant the web build signs in with: RFC 8628's device flow, which needs
+/// no callback at all. A browser cannot hand the `solwatt` scheme back to a
+/// page, and `flutter_web_auth_2` has nothing to listen for there, so the web
+/// takes a code the user approves in a browser instead.
+const _deviceCodeGrant = 'urn:ietf:params:oauth:grant-type:device_code';
 
 /// Public OAuth client for SolWatt. This authorization-code flow uses PKCE and
 /// never includes a client secret.
@@ -85,14 +92,36 @@ class OAuthSession {
   }
 }
 
+/// What the user has to approve before a device sign-in can finish: the code,
+/// and the page that takes it. [verificationUriComplete] carries the code in
+/// the URL, so opening it saves typing it.
+class DeviceAuthorization {
+  const DeviceAuthorization({
+    required this.userCode,
+    required this.verificationUri,
+    required this.verificationUriComplete,
+    required this.expiresAt,
+  });
+
+  final String userCode;
+  final Uri verificationUri;
+  final Uri verificationUriComplete;
+  final DateTime expiresAt;
+}
+
 class _OidcConfiguration {
   const _OidcConfiguration({
     required this.authorizationEndpoint,
     required this.tokenEndpoint,
+    required this.deviceAuthorizationEndpoint,
   });
 
   final Uri authorizationEndpoint;
   final Uri tokenEndpoint;
+
+  /// Where a device-flow sign-in asks for its code. Empty when the deployment
+  /// does not offer one.
+  final Uri deviceAuthorizationEndpoint;
 
   factory _OidcConfiguration.fromJson(Map<String, dynamic> json) =>
       _OidcConfiguration(
@@ -100,14 +129,31 @@ class _OidcConfiguration {
           json['authorization_endpoint'] as String,
         ),
         tokenEndpoint: Uri.parse(json['token_endpoint'] as String),
+        deviceAuthorizationEndpoint: Uri.parse(
+          json['device_authorization_endpoint'] as String? ?? '',
+        ),
       );
 }
 
 class SolarNetworkAuthenticator {
-  SolarNetworkAuthenticator(this._storage);
+  SolarNetworkAuthenticator(
+    this._storage, {
+    bool? isWeb,
+    Dio Function([BaseOptions?])? dioFactory,
+  }) : _isWeb = isWeb ?? kIsWeb,
+       _dioFactory = dioFactory ?? _createLoggedDio;
 
   static const _storageKey = 'solar_network_oauth_session';
   final FlutterSecureStorage _storage;
+
+  /// Whether this build signs in with the device flow, which the web has to:
+  /// nothing in a browser can hand the `solwatt` scheme back to the page.
+  /// Injected rather than read from [kIsWeb] so a test can run either flow.
+  final bool _isWeb;
+
+  /// How the flow builds its clients. Injected so a test can answer the
+  /// provider's endpoints without a network; the app uses the logging factory.
+  final Dio Function([BaseOptions?]) _dioFactory;
 
   Future<OAuthSession?> restore() async {
     final raw = await _storage.read(key: _storageKey);
@@ -120,7 +166,19 @@ class SolarNetworkAuthenticator {
     }
   }
 
-  Future<OAuthSession> signIn() async {
+  /// Signs in, returning the session.
+  ///
+  /// [onDeviceCode] is how the web build tells the user what to approve: the
+  /// device flow has no callback to bounce through, so the provider hands out a
+  /// code and this polls until the user has entered it in a browser. The other
+  /// platforms open a browser window and never call it.
+  Future<OAuthSession> signIn({
+    void Function(DeviceAuthorization authorization)? onDeviceCode,
+  }) => _isWeb ? _authorizeDevice(onDeviceCode) : _authorizeBrowser();
+
+  /// The authorization-code flow: a browser window, a callback on the
+  /// `solwatt` scheme, a PKCE verifier to prove the code is ours.
+  Future<OAuthSession> _authorizeBrowser() async {
     Logger.root.info('[OAuth] Starting authorization-code flow.');
     final configuration = await _discover();
     final verifier = _randomUrlSafe(64);
@@ -214,7 +272,7 @@ class SolarNetworkAuthenticator {
   Future<SolWattProfile?> getCurrentProfile() async {
     final session = await validSession();
     if (session == null) return null;
-    final dio = _createLoggedDio(
+    final dio = _dioFactory(
       BaseOptions(
         baseUrl: _issuer,
         headers: {
@@ -243,7 +301,7 @@ class SolarNetworkAuthenticator {
   }
 
   Future<_OidcConfiguration> _discover() async {
-    final response = await _createLoggedDio().get<Map<String, dynamic>>(
+    final response = await _dioFactory().get<Map<String, dynamic>>(
       '$_issuer/.well-known/openid-configuration',
     );
     final data = response.data;
@@ -258,12 +316,139 @@ class SolarNetworkAuthenticator {
     Map<String, String> fields, {
     OAuthSession? previous,
   }) async {
-    final response = await _createLoggedDio().post<Map<String, dynamic>>(
+    final response = await _dioFactory().post<Map<String, dynamic>>(
       endpoint.toString(),
       data: fields,
       options: Options(contentType: Headers.formUrlEncodedContentType),
     );
+    return _sessionFrom(response.data ?? const <String, dynamic>{},
+        previous: previous);
+  }
+
+  /// Signs in with RFC 8628's device flow: take a code, hand it to the user,
+  /// poll the token endpoint until they have approved it in a browser.
+  ///
+  /// This is the web's flow, and the reason is the callback: nothing in a
+  /// browser can hand the `solwatt` scheme back to the page, so there is no
+  /// callback to wait for. A code the user types on their own screen needs
+  /// none.
+  Future<OAuthSession> _authorizeDevice(
+    void Function(DeviceAuthorization authorization)? onDeviceCode,
+  ) async {
+    Logger.root.info('[OAuth] Starting device-code flow.');
+    final configuration = await _discover();
+    final endpoint = configuration.deviceAuthorizationEndpoint;
+    if (!endpoint.hasScheme) {
+      throw const OAuthException(
+        'This Solar Network deployment does not offer device sign-in.',
+      );
+    }
+    final response = await _dioFactory().post<Map<String, dynamic>>(
+      endpoint.toString(),
+      data: {'client_id': _clientId, 'scope': '*'},
+      options: Options(contentType: Headers.formUrlEncodedContentType),
+    );
     final data = response.data ?? const <String, dynamic>{};
+    final deviceCode = data['device_code'] as String? ?? '';
+    final userCode = data['user_code'] as String? ?? '';
+    final verificationUri = Uri.tryParse(
+      data['verification_uri'] as String? ?? '',
+    );
+    if (deviceCode.isEmpty ||
+        userCode.isEmpty ||
+        verificationUri == null ||
+        !verificationUri.hasScheme) {
+      throw const OAuthException('Invalid device authorization response.');
+    }
+    // The provider may send a URI that carries the code, which saves the user
+    // typing it. Where it does not, the code itself is the whole instruction.
+    final completeUri = Uri.tryParse(
+      data['verification_uri_complete'] as String? ?? '',
+    );
+    final expiresIn = (data['expires_in'] as num?)?.toInt() ?? 600;
+    final authorization = DeviceAuthorization(
+      userCode: userCode,
+      verificationUri: verificationUri,
+      verificationUriComplete: completeUri != null && completeUri.hasScheme
+          ? completeUri
+          : verificationUri,
+      expiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+    );
+    onDeviceCode?.call(authorization);
+    final session = await _awaitDeviceApproval(
+      configuration.tokenEndpoint,
+      deviceCode,
+      interval: (data['interval'] as num?)?.toInt() ?? 5,
+      deadline: authorization.expiresAt,
+    );
+    await _save(session);
+    Logger.root.info('[OAuth] Device authorization completed successfully.');
+    return session;
+  }
+
+  /// Polls [tokenEndpoint] until the user has approved [deviceCode].
+  ///
+  /// RFC 8628's two "not yet" answers are not failures: `authorization_pending`
+  /// means the user has not got there yet, `slow_down` means the provider wants
+  /// the next poll further out. Anything else — approval, refusal, an expired
+  /// code — is the answer, and the loop ends either way.
+  Future<OAuthSession> _awaitDeviceApproval(
+    Uri tokenEndpoint,
+    String deviceCode, {
+    required int interval,
+    required DateTime deadline,
+  }) async {
+    var wait = interval;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(Duration(seconds: wait));
+      Map<String, dynamic>? failure;
+      try {
+        final response = await _dioFactory().post<Map<String, dynamic>>(
+          tokenEndpoint.toString(),
+          data: {
+            'grant_type': _deviceCodeGrant,
+            'device_code': deviceCode,
+            'client_id': _clientId,
+          },
+          options: Options(contentType: Headers.formUrlEncodedContentType),
+        );
+        return _sessionFrom(response.data ?? const <String, dynamic>{});
+      } on DioException catch (error) {
+        // A pending code is a 400 with a JSON body, which dio reports as a
+        // failure; the body is what says whether to keep waiting.
+        final body = error.response?.data;
+        if (body is! Map) rethrow;
+        failure = Map<String, dynamic>.from(body);
+      }
+      final error = failure['error']?.toString();
+      if (error == 'authorization_pending') continue;
+      if (error == 'slow_down') {
+        wait += 5;
+        continue;
+      }
+      if (error == 'expired_token') {
+        throw const OAuthException(
+          'The sign-in code expired before it was approved. Try again.',
+        );
+      }
+      if (error == 'access_denied') {
+        throw const OAuthException('The sign-in was declined.');
+      }
+      throw OAuthException(
+        failure['error_description']?.toString() ??
+            'Solar Network sign-in failed.',
+      );
+    }
+    throw const OAuthException(
+      'The sign-in code expired before it was approved. Try again.',
+    );
+  }
+
+  /// The session a token response describes.
+  OAuthSession _sessionFrom(
+    Map<String, dynamic> data, {
+    OAuthSession? previous,
+  }) {
     final accessToken = (data['access_token'] ?? data['token']) as String?;
     if (accessToken == null || accessToken.isEmpty) {
       throw const OAuthException(
@@ -4080,6 +4265,32 @@ final mailboxUnreadCountsProvider = FutureProvider<Map<String, int>>((
   }
   return counts;
 });
+
+/// Marks every mail surface stale after a write: the conversation list, the
+/// conversations the detail pane can open, the message detail, and the unread
+/// count behind the Inbox badge on the rail and bottom bar.
+///
+/// The badge is easy to miss here — it is its own round-trip per mailbox, not
+/// a view over the thread list.
+void invalidateMailSurfaces(WidgetRef ref) {
+  ref.invalidate(threadsProvider);
+  ref.invalidate(threadProvider);
+  ref.invalidate(emailProvider);
+  ref.invalidate(mailboxUnreadCountsProvider);
+}
+
+/// [invalidateMailSurfaces] for code that holds a provider [Ref] rather than a
+/// [WidgetRef] — the realtime bridge refreshes mail outside a widget build.
+/// Ref and WidgetRef are unrelated types and riverpod does not export the
+/// `ProviderOrFamily` both `invalidate`s take, so the two entries cannot share
+/// a body; keep the lists identical.
+void invalidateMailSurfacesFrom(Ref ref) {
+  ref.invalidate(threadsProvider);
+  ref.invalidate(threadProvider);
+  ref.invalidate(emailProvider);
+  ref.invalidate(mailboxUnreadCountsProvider);
+}
+
 final mailAddressSuggestionsProvider =
     FutureProvider.family<
       List<MailAddressSuggestion>,

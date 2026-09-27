@@ -139,9 +139,7 @@ class RealtimeBridge {
     _mailDebounce?.cancel();
     _mailDebounce = Timer(const Duration(milliseconds: 200), () {
       _log.info('Refreshing mail after realtime update');
-      _ref.invalidate(threadsProvider);
-      _ref.invalidate(threadProvider);
-      _ref.invalidate(emailProvider);
+      invalidateMailSurfacesFrom(_ref);
     });
   }
 

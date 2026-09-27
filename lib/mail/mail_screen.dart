@@ -198,7 +198,7 @@ class MailComposePage extends ConsumerWidget {
             contentType: draft.contentType,
             replyToId: draft.replyToId,
           );
-      _invalidateMail(ref);
+      invalidateMailSurfaces(ref);
       if (context.mounted) {
         context.router.pop();
         showSnackBar(draft.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
@@ -336,7 +336,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       }
       if (!mounted) return;
       _clearSelection();
-      _invalidateMail(ref);
+      invalidateMailSurfaces(ref);
       showSnackBar(
         success.tr(
           namedArgs: {
@@ -831,7 +831,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
             .where((message) => !message.isRead)
             .map((message) => client.markEmailRead(message.id)),
       );
-      _invalidateMail(ref);
+      invalidateMailSurfaces(ref);
     } catch (error) {
       showSnackBar(error.toString());
     }
@@ -1133,14 +1133,6 @@ class MailDetailPage extends ConsumerWidget {
   }
 }
 
-/// Marks every mail surface stale after a write: the conversation list, the
-/// conversations the detail pane can open, and the message detail itself.
-void _invalidateMail(WidgetRef ref) {
-  ref.invalidate(threadsProvider);
-  ref.invalidate(threadProvider);
-  ref.invalidate(emailProvider);
-}
-
 /// Every message of [thread]. Single-message conversations come straight from
 /// the list payload; longer ones are fetched once and cached per thread id.
 Future<List<MailEmail>> _threadMessages(
@@ -1165,7 +1157,7 @@ Future<void> _applyToThread(
     final client = ref.read(wattEngineClientProvider);
     final messages = await _threadMessages(ref, thread);
     await Future.wait(messages.map((message) => action(client, message)));
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -1176,7 +1168,7 @@ Future<void> _toggleEmailStar(WidgetRef ref, MailEmail email) async {
     await ref
         .read(wattEngineClientProvider)
         .starEmail(email.id, starred: !email.isStarred);
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -1218,7 +1210,7 @@ Future<void> _moveEmail(
 ) async {
   try {
     await ref.read(wattEngineClientProvider).moveEmail(email.id, folder);
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
     if (context.mounted) context.router.pop();
     showSnackBar(
       'movedToFolder'.tr(namedArgs: {'folder': mailFolderLabel(folder)}),
@@ -1253,7 +1245,7 @@ void _composeEmail(
 Future<void> _resendEmail(WidgetRef ref, MailEmail email) async {
   try {
     await ref.read(wattEngineClientProvider).resendEmail(email.id);
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
     showSnackBar('emailResent'.tr());
   } catch (error) {
     showSnackBar(error.toString());
@@ -1267,7 +1259,7 @@ Future<void> _toggleEmailRead(WidgetRef ref, MailEmail email) async {
     } else {
       await ref.read(wattEngineClientProvider).markEmailRead(email.id);
     }
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
   } catch (error) {
     showSnackBar(error.toString());
   }
@@ -1300,7 +1292,7 @@ Future<void> _deleteEmail(
     } else {
       await client.deleteEmail(email.id);
     }
-    _invalidateMail(ref);
+    invalidateMailSurfaces(ref);
     if (context.mounted) context.router.pop();
     showSnackBar(
       permanent ? 'emailDeletedPermanently'.tr() : 'emailDeleted'.tr(),
