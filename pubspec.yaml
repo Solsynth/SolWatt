@@ -36,6 +36,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/island_ui_foundation
+      # Every Solian package is pinned to one revision. Pub identifies a git
+      # dependency by url + path + ref, and these packages depend on each other
+      # by path inside that checkout, so a floating HEAD resolves one package
+      # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
+      # Bump all three refs together.
+      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
   material_ui: ^1.4.0
@@ -63,10 +69,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_sdk
+      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_foundation
+      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline

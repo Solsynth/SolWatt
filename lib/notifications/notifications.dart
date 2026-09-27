@@ -138,51 +138,60 @@ class NotificationModal extends HookConsumerWidget {
           icon: const Icon(Symbols.refresh),
         ),
       ],
-      child: Column(
-        children: [
-          if (isMarkingAll.value)
-            LinearProgressIndicator(minHeight: 2, color: scheme.primary),
-          Expanded(
-            child: list.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => _NotificationsError(
-                error: error,
-                onRetry: () {
-                  ref.invalidate(notificationListProvider);
-                  ref.invalidate(notificationUnreadCountProvider);
-                },
-              ),
-              data: (items) {
-                if (items.isEmpty) {
-                  return const _NotificationsEmpty();
-                }
-                return RefreshIndicator(
-                  onRefresh: () async {
+      // `AttentionModalScaffold` paints only a `material_ui` fork
+      // `Material`, which Flutter's own material widgets (`ListTile`,
+      // `InkWell`, ...) do not accept as an ancestor: `Material.maybeOf`
+      // looks for Flutter's private `_RenderInkFeatures` render object and
+      // asserts "No Material widget found" without one. Give the content
+      // the Flutter material surface it needs.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [
+            if (isMarkingAll.value)
+              LinearProgressIndicator(minHeight: 2, color: scheme.primary),
+            Expanded(
+              child: list.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => _NotificationsError(
+                  error: error,
+                  onRetry: () {
                     ref.invalidate(notificationListProvider);
                     ref.invalidate(notificationUnreadCountProvider);
-                    await ref.read(notificationListProvider.future);
                   },
-                  child: ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => Divider(
-                      height: 1,
-                      indent: 72,
-                      color: scheme.outlineVariant.withValues(alpha: 0.5),
-                    ),
-                    itemBuilder: (context, index) {
-                      final notification = items[index];
-                      return NotificationTile(
-                        notification: notification,
-                        onTap: () => openNotification(notification),
-                      );
+                ),
+                data: (items) {
+                  if (items.isEmpty) {
+                    return const _NotificationsEmpty();
+                  }
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      ref.invalidate(notificationListProvider);
+                      ref.invalidate(notificationUnreadCountProvider);
+                      await ref.read(notificationListProvider.future);
                     },
-                  ),
-                );
-              },
+                    child: ListView.separated(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => Divider(
+                        height: 1,
+                        indent: 72,
+                        color: scheme.outlineVariant.withValues(alpha: 0.5),
+                      ),
+                      itemBuilder: (context, index) {
+                        final notification = items[index];
+                        return NotificationTile(
+                          notification: notification,
+                          onTap: () => openNotification(notification),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -411,9 +420,15 @@ String _formatRelative(DateTime value) {
   final now = DateTime.now();
   final diff = now.difference(value);
   if (diff.inSeconds < 45) return 'justNow'.tr();
-  if (diff.inMinutes < 60) return 'minutesAgo'.tr(args: [diff.inMinutes.toString()]);
-  if (diff.inHours < 24) return 'hoursAgo'.tr(args: [diff.inHours.toString()]);
-  if (diff.inDays < 7) return 'daysAgo'.tr(args: [diff.inDays.toString()]);
+  if (diff.inMinutes < 60) {
+    return 'minutesAgo'.tr(namedArgs: {'count': diff.inMinutes.toString()});
+  }
+  if (diff.inHours < 24) {
+    return 'hoursAgo'.tr(namedArgs: {'count': diff.inHours.toString()});
+  }
+  if (diff.inDays < 7) {
+    return 'daysAgo'.tr(namedArgs: {'count': diff.inDays.toString()});
+  }
   final y = value.year.toString().padLeft(4, '0');
   final m = value.month.toString().padLeft(2, '0');
   final d = value.day.toString().padLeft(2, '0');

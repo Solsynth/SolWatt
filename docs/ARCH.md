@@ -103,6 +103,15 @@ ancestor. Without that mirror the fork chrome renders in the fork's Roboto
 default instead of the app font. Any new app-theme token the fork chrome should
 honor belongs in that function.
 
+The fork's `Material` is not Flutter's: `Material.maybeOf` looks for each
+library's own private `_RenderInkFeatures` render object, so a fork `Material`
+ancestor does not satisfy Flutter's `ListTile`, `InkWell`, or M2 `IconButton`
+(`assert(debugCheckHasMaterial(context))` → *No Material widget found*). App
+content rendered inside fork chrome — `AttentionModalScaffold`,
+`SheetScaffold`, … — must therefore bring its own Flutter material surface,
+either a Flutter `Card` or a `Material(type: MaterialType.transparency)`
+wrapper.
+
 ## Navigation
 
 `AppRouter` owns the root routes: `GatePage` (initial) and `AppShellPage`.

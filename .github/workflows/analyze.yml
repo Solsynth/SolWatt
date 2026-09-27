@@ -24,5 +24,11 @@ jobs:
             echo "flutter pub get failed (attempt $attempt); retrying in 10s"
             sleep 10
           done
+      # The Solian packages resolve from the git remote here. A lockfile
+      # pointing at a sibling checkout only exists on a developer machine
+      # (pubspec_overrides.yaml is gitignored) and would re-resolve against
+      # floating revisions on CI, so fail the pull request instead.
+      - name: Check the lockfile came from the git sources
+        run: git diff --exit-code -- pubspec.lock
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze lib
