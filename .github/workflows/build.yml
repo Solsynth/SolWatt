@@ -93,6 +93,12 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y ninja-build libgtk-3-dev
+          # flutter_web_auth_2 pulls desktop_webview_window, whose Linux
+          # CMakeLists probes webkit2gtk-4.1 first and only falls back to
+          # webkit2gtk-4.0. ubuntu-24.04 dropped the 4.0 development package,
+          # so 4.1 dev files (plus the libsoup-3.0 it needs) are what make the
+          # REQUIRED pkg_check_modules succeed on that image.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev
           sudo apt-get install -y libmpv-dev mpv
           sudo apt-get install -y libsecret-1-dev
           sudo apt-get install -y libnotify-dev
