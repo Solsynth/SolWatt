@@ -157,6 +157,8 @@ flutter:
     - assets/flywheel/maidkit.png
     - assets/images/media-offline.webp
     - assets/icons/icon.png
+    - assets/icons/app-icon-default.png
+    - assets/icons/app-icon-cuite.png
     - assets/i18n/en-US.json
     - assets/i18n/zh-CN.json
 

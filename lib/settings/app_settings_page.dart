@@ -1,10 +1,14 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/core/services/app_icon_service.dart';
+import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 
@@ -12,9 +16,10 @@ import 'package:solwatt/ui/page_scaffold.dart';
 /// leading icons sit clear of the card edge.
 const _kSettingsTilePadding = EdgeInsets.only(left: 24, right: 16);
 
-/// App-wide preferences: display language and appearance (theme mode and
-/// accent color). Mirrors Solian's Appearance settings category; preferences
-/// persist in SharedPreferences and the theme/locale apply app-wide.
+/// App-wide preferences: display language, appearance (theme mode and accent
+/// color), and the app icon. Mirrors Solian's Appearance settings category;
+/// preferences persist in SharedPreferences and the theme/locale apply
+/// app-wide, while the icon choice is stored by the iOS/macOS runner.
 @RoutePage()
 class AppSettingsPage extends ConsumerWidget {
   const AppSettingsPage({super.key});
@@ -139,6 +144,27 @@ class AppSettingsPage extends ConsumerWidget {
               ),
             ],
           ),
+          if (AppIconService.instance.isSupported) ...[
+            const SizedBox(height: 16),
+            _SettingsSection(
+              title: 'settingsAppIconSection'.tr(),
+              children: [
+                ListTile(
+                  contentPadding: _kSettingsTilePadding,
+                  leading: const Icon(Symbols.app_shortcut),
+                  title: Text('settingsAppIconStyle'.tr()),
+                  subtitle: Text('settingsAppIconDescription'.tr()),
+                  trailing: const Icon(Symbols.chevron_right),
+                  onTap: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    useSafeArea: true,
+                    builder: (_) => const _AppIconSheet(),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -218,6 +244,122 @@ class _AccentDot extends StatelessWidget {
                     : Colors.white,
               )
             : null,
+      ),
+    );
+  }
+}
+
+/// Grid of bundled app icons; picking one asks the platform runner to switch.
+/// The default tile passes a `null` name, which restores the primary icon.
+class _AppIconSheet extends HookConsumerWidget {
+  const _AppIconSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final currentIcon = useState<String?>(null);
+    final busy = useState(false);
+
+    useEffect(() {
+      AppIconService.instance.getState().then((state) {
+        if (state != null) currentIcon.value = state.iconName;
+      });
+      return null;
+    }, []);
+
+    Future<void> select(String? name) async {
+      if (busy.value) return;
+      busy.value = true;
+      final navigator = Navigator.of(context);
+      try {
+        await AppIconService.instance.setIcon(name);
+        currentIcon.value = name;
+        if (context.mounted) {
+          navigator.pop();
+          showSnackBar('settingsAppIconApplied'.tr());
+        }
+      } catch (err) {
+        if (context.mounted) {
+          navigator.pop();
+          showErrorAlert('settingsAppIconFailed'.tr());
+        }
+      } finally {
+        busy.value = false;
+      }
+    }
+
+    Widget iconTile({
+      required String? name,
+      required String asset,
+      required String label,
+    }) {
+      final selected = name == currentIcon.value;
+      return InkWell(
+        onTap: () => select(name),
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(17),
+                border: Border.all(
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
+                  width: selected ? 3 : 1,
+                ),
+              ),
+              padding: const EdgeInsets.all(2),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(13),
+                child: Image.asset(asset, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: selected ? theme.colorScheme.primary : null,
+                fontWeight: selected ? FontWeight.w600 : null,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SheetScaffold(
+      titleText: 'settingsAppIconStyle'.tr(),
+      heightFactor: 0.45,
+      child: GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.0,
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+        children: [
+          Center(
+            child: iconTile(
+              name: null,
+              asset: AppIconService.defaultIconAsset,
+              label: 'settingsAppIconDefault'.tr(),
+            ),
+          ),
+          Center(
+            child: iconTile(
+              name: AppIconService.cuiteIconName,
+              asset: AppIconService.cuiteIconAsset,
+              label: 'settingsAppIconCuite'.tr(),
+            ),
+          ),
+        ],
       ),
     );
   }
