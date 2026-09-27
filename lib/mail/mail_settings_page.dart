@@ -151,6 +151,7 @@ class _CredentialsSectionState extends ConsumerState<_CredentialsSection> {
   Future<void> _openCreateSheet() async {
     final created = await showModalBottomSheet<MailCredentialCreated>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => const _CreateCredentialSheet(),
     );
@@ -541,6 +542,7 @@ class _MailboxSectionState extends ConsumerState<_MailboxSection> {
   Future<void> _createAlias(String mailboxId) async {
     final created = await showModalBottomSheet<bool>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => _CreateAliasSheet(mailboxId: mailboxId),
     );
@@ -574,6 +576,7 @@ class _MailboxSectionState extends ConsumerState<_MailboxSection> {
   Future<void> _createForwarding(String mailboxId) async {
     final created = await showModalBottomSheet<bool>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => _CreateForwardingSheet(mailboxId: mailboxId),
     );
@@ -1230,6 +1233,7 @@ class _BlockedSendersSectionState
   Future<void> _add() async {
     final created = await showModalBottomSheet<bool>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => const _CreateBlockRuleSheet(),
     );

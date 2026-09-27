@@ -12,6 +12,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 
@@ -85,6 +86,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(
+            await SharedPreferences.getInstance(),
+          ),
           secureStorageProvider.overrideWithValue(FlutterSecureStorage()),
           authSessionProvider.overrideWith(
             (ref) async => const OAuthSession(accessToken: 'tok'),
@@ -144,6 +148,16 @@ void main() {
     expect(find.text('Leave workspace'), findsNothing);
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
+
+    // A page pushed above the tab's root leads with Back, so it can be left.
+    await tester.tap(find.text('Settings').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Theme mode'), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Account and workspaces'), findsOneWidget);
+    expect(find.byType(BackButton), findsNothing);
 
     // Leave from the active workspace -> gate chooser.
     await tester.tap(find.byIcon(Symbols.more_vert).first);

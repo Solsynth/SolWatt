@@ -1,16 +1,34 @@
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-/// Leading app-bar button that opens the shell's navigation drawer, or null
-/// where the app bar should not carry one.
+/// Global key of the shell's root scaffold, used by pages that bring their own
+/// chrome (the drive file list's app bar) to open the navigation drawer.
+///
+/// The shell scaffold is a Flutter `Scaffold` — not the `material_ui` fork's —
+/// so this key is typed against Flutter's `ScaffoldState` and must stay that
+/// way: a key typed against the fork's `ScaffoldState` resolves to `null` for
+/// the shell even while the shell is on screen.
+final shellScaffoldKey = GlobalKey<ScaffoldState>();
+
+/// Leading app-bar button for a page inside the tab's nested stack: Back once
+/// the page sits above the tab's root (mail settings, the profile's settings),
+/// the shell's drawer button at the root, or null where the app bar should
+/// carry neither.
 ///
 /// Must be called from a context *above* the page's own [Scaffold], so the
-/// lookup finds the shell's drawer rather than the page's drawer-less
+/// drawer lookup finds the shell's drawer rather than the page's drawer-less
 /// scaffold. Wide screens return null: the rail already owns the drawer and
 /// the app bar needs the room for its title.
 Widget? appBarDrawerButton(BuildContext context) {
   if (isWideScreen(context)) return null;
+  // Only this stack counts: a parent that could pop (the tabs or the root
+  // router) is not what Back would pop, and the shell's root page has to keep
+  // offering the drawer.
+  if (context.router.canPop(ignoreParentRoutes: true)) {
+    return BackButton(onPressed: () => context.router.maybePop());
+  }
   final scaffold = Scaffold.maybeOf(context);
   if (scaffold == null || !scaffold.hasDrawer) return null;
   return IconButton(

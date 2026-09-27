@@ -218,6 +218,22 @@ void main() {
       lessThanOrEqualTo(tester.getRect(navBar).top),
     );
 
+    // A device status bar stays the page's business: its app bar takes the
+    // inset into its own height and paints that strip, instead of being pushed
+    // down and leaving the shell's bare background above it.
+    final barWithoutInset = tester.getRect(appBar);
+    tester.view.padding = const FakeViewPadding(top: 24);
+    addTearDown(tester.view.reset);
+    await pumpApp(const Size(400, 800));
+    final barWithInset = tester.getRect(appBar);
+    // Still pinned to the top of the window's content area…
+    expect(barWithInset.top, barWithoutInset.top);
+    // …now taller by the inset it paints.
+    expect(barWithInset.height, barWithoutInset.height + 24);
+    // Hand the rest of the test back a bar-inset-free view.
+    tester.view.padding = const FakeViewPadding();
+    await tester.pump();
+
     // Switching a folder from the bar keeps the list alive.
     await tester.tap(find.descendant(of: navBar, matching: find.text('Sent')));
     await tester.pumpAndSettle();
@@ -369,7 +385,13 @@ void main() {
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Boards'));
+    // The tab switch rebuilds the shell while the drawer is still sliding
+    // shut: the drawer has to survive that rebuild and finish its exit
+    // instead of being dropped with the scaffold that owned it.
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.byType(Drawer), findsWidgets);
     await tester.pumpAndSettle();
+    expect(find.byType(Drawer), findsNothing);
     expect(
       find.descendant(of: find.byType(AppBar), matching: find.text('Boards')),
       findsOneWidget,

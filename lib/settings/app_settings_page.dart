@@ -157,6 +157,7 @@ class AppSettingsPage extends ConsumerWidget {
                   trailing: const Icon(Symbols.chevron_right),
                   onTap: () => showModalBottomSheet(
                     context: context,
+                    useRootNavigator: true,
                     isScrollControlled: true,
                     useSafeArea: true,
                     builder: (_) => const _AppIconSheet(),

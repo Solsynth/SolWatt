@@ -168,6 +168,7 @@ Future<T?> showCloudFilePicker<T>({
 }) {
   return showModalBottomSheet<T>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _CloudFilePickerSheet(
       allowMultiple: allowMultiple,
@@ -368,6 +369,7 @@ Future<T?> showWorkspaceLinkAttachment<T>({
 }) {
   return showModalBottomSheet<T>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _WorkspaceLinkAttachmentSheet(
       allowMultiple: allowMultiple,

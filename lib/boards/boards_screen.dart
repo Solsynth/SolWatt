@@ -404,6 +404,7 @@ Future<void> _boardForm(
   if (!context.mounted) return;
   final draft = await showModalBottomSheet<_BoardDraft>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _BoardEditorSheet(board: board),
   );

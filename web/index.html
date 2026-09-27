@@ -116,6 +116,13 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!--
+    The web view's browser implementation is an iframe whose scroll position,
+    lifecycle events and JavaScript calls travel over this bridge. Without it
+    the plugin still renders a document, but reports nothing back — the message
+    pane's scroll-driven footer and its own scroll calls go silent.
+  -->
+  <script type="application/javascript" src="assets/packages/flutter_inappwebview_web/assets/web/web_support.js" defer></script>
   <script src="flutter_bootstrap.js" async=""></script>
 
 

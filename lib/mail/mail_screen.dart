@@ -977,6 +977,7 @@ Future<void> createMailboxAction(BuildContext context, WidgetRef ref) async {
   }
   final draft = await showModalBottomSheet<_MailboxDraft>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => const _CreateMailboxSheet(),
   );
@@ -1007,6 +1008,7 @@ Future<MailboxPickerResult?> showMailboxPickerSheet(
 }) {
   return showModalBottomSheet<MailboxPickerResult>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _MailboxPickerSheet(
       mailboxes: mailboxes,

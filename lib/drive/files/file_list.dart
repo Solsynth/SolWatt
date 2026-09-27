@@ -24,6 +24,7 @@ import 'package:solwatt/core/services/responsive.dart';
 import 'package:solwatt/core/network.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
+import 'package:solwatt/ui/page_scaffold.dart' show shellScaffoldKey;
 import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_actions_sheet.dart';
 import 'package:solwatt/core/widgets/content/file_viewer_contents.dart';
@@ -859,7 +860,7 @@ class FileListScreen extends HookConsumerWidget {
         leading: IconButton(
           icon: const Icon(Symbols.menu),
           onPressed: () {
-            rootScaffoldKey.currentState?.openDrawer();
+            shellScaffoldKey.currentState?.openDrawer();
           },
         ),
         title: SearchBar(
@@ -1347,6 +1348,7 @@ class FileListScreen extends HookConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       builder: (context) => Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
@@ -1408,6 +1410,7 @@ class FileListScreen extends HookConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (context) => SheetScaffold(
         titleText: 'usageOverview'.tr(),

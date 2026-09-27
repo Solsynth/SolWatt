@@ -16,6 +16,7 @@ Future<String?> showNameInputSheet(
 }) {
   return showModalBottomSheet<String>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _NameInputSheet(
       title: title,

@@ -76,6 +76,7 @@ class _FlywheelWorkspacePageState
   Future<void> _openApp(FlywheelOwnerApp app) async {
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) =>
           _FlywheelAppSheet(workspaceId: widget.workspaceId, app: app),

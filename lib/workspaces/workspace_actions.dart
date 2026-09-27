@@ -142,6 +142,7 @@ Future<void> showWorkspaceQuota(
   Workspace workspace,
 ) => showModalBottomSheet<void>(
   context: context,
+  useRootNavigator: true,
   isScrollControlled: true,
   builder: (_) => _WorkspacePlanQuotaSheet(workspace: workspace),
 );
@@ -638,6 +639,7 @@ String _formatDate(DateTime value) {
 Future<void> showWorkspaceMembers(BuildContext context, Workspace workspace) =>
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => _WorkspaceMembersSheet(workspace: workspace),
     );
@@ -669,6 +671,7 @@ class _WorkspaceMembersSheetState
   Future<void> _invite() async {
     final account = await showModalBottomSheet<SnAccount>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) =>
           _AccountPickerSheet(client: ref.read(wattEngineClientProvider)),
@@ -843,6 +846,7 @@ Future<int?> _selectRole(
   int? selectedRole,
 }) => showModalBottomSheet<int>(
   context: context,
+  useRootNavigator: true,
   isScrollControlled: true,
   builder: (context) => SheetScaffold(
     titleText: title,
@@ -1025,6 +1029,7 @@ Future<WorkspaceDraft?> showWorkspaceEditor(
 }) {
   return showModalBottomSheet<WorkspaceDraft>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) =>
         _WorkspaceEditorSheet(workspace: workspace, profile: profile),

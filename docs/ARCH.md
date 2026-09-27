@@ -249,6 +249,19 @@ directly, so the mail tab is conversation-first:
   or their server chose, never Gravatar's stand-in for an address without a
   Gravatar account, which would say nothing about the contact. Failing both,
   the chip shows the address over the contact's initial.
+- The reading pane's frame holds the same document everywhere, loaded
+  differently: native platforms hand the markup over inline with the API base,
+  and the browser loads it from a same-origin `blob:` URL — a frame built from
+  a `data:` URL has an opaque origin, and neither the plugin's injected scroll
+  listener nor this pane's own scroll calls can reach into it.
+  `lib/mail/email_body_platform.{dart,native,web}.dart` carries those pieces:
+  the font faces (the bundled faces over `appfont://` on native; the same
+  family from Google Fonts in a browser, which has no custom schemes) and, on
+  the web, `<base target="_blank">` — the plugin implements no
+  `shouldOverrideUrlLoading` there, and a link left to the frame would replace
+  the message with the page it points at. `web/index.html` loads the plugin's
+  `web_support.js` bridge; without it the frame still renders but reports
+  nothing back.
 - HTML bodies are repaired for dark mode before they render
   (`withReadableEmailColors`, `lib/mail/email_contrast.dart`). A message with
   no stylesheet of its own renders on the reading pane, but its inline colours

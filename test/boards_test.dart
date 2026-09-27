@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
@@ -187,12 +188,19 @@ void main() {
     // ---- Phone ----
     await _pumpApp(tester, const Size(400, 800));
     await _openBoardsTab(tester);
+
+    // The tab's root keeps the drawer's edge swipe.
+    expect(_shellScaffold(tester).drawerEnableOpenDragGesture, isTrue);
+
     await tester.tap(find.text('Roadmap'));
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationRail), findsNothing);
     // The shell's bottom bar still owns navigation under the board.
     expect(find.byType(NavigationBar), findsOneWidget);
+    // A pushed board leads with Back, so the drawer's edge swipe is off: it
+    // would otherwise slide over the page the user is trying to leave.
+    expect(_shellScaffold(tester).drawerEnableOpenDragGesture, isFalse);
     expect(find.text('Task 1'), findsOneWidget);
     expect(find.byIcon(Symbols.arrow_back), findsOneWidget);
 
@@ -200,6 +208,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Chores'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
+
+    // ---- Task detail on a phone: a sheet, not an empty backdrop ----
+    await tester.tap(find.text('Roadmap'));
+    await tester.pumpAndSettle();
+    // The lanes scroll sideways: bring the first card into reach before
+    // tapping it.
+    await tester.ensureVisible(find.text('Task 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Task 1'));
+    // The detail pulls its comment thread, so its body keeps an indicator
+    // turning: pump the sheet's entrance instead of settling the tree.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // The record itself is on screen, and it took the bottom of the window:
+    // the sheet rides the root navigator, so it covers the shell's bottom bar
+    // rather than stopping above it.
+    expect(find.text('Task details'), findsOneWidget);
+    expect(find.text('Mark completed'), findsOneWidget);
+    final sheetRect = tester.getRect(find.byType(mui.BottomSheet));
+    expect(sheetRect.bottom, 800);
+    expect(
+      sheetRect.bottom,
+      greaterThan(tester.getRect(find.byType(NavigationBar)).top),
+    );
+
+    // Dismissing it hands the board back.
+    await tester.tapAt(const Offset(20, 40));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(mui.BottomSheet), findsNothing);
+    expect(find.text('Mark completed'), findsNothing);
 
     // ---- Lanes on a phone: drag to move, drag to scroll ----
     await tester.tap(find.text('Roadmap'));
@@ -243,3 +284,8 @@ bool _isDraggingCard(Widget widget) =>
     widget is Opacity &&
     widget.opacity == 0.35 &&
     widget.child is IgnorePointer;
+
+/// The app shell's scaffold: the page scaffolds around it own no drawer.
+Scaffold _shellScaffold(WidgetTester tester) => tester
+    .widgetList<Scaffold>(find.byType(Scaffold))
+    .firstWhere((scaffold) => scaffold.drawer != null);

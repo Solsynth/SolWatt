@@ -21,6 +21,7 @@ Future<void> _taskForm(
 
   final result = await showModalBottomSheet<_TaskFormResult>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _TaskEditorSheet(
       broadId: broadId,
@@ -236,6 +237,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     if (!mounted) return;
     final choice = await showModalBottomSheet<_AssigneeChoice>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) => _AssigneePickerSheet(
         client: ref.read(wattEngineClientProvider),
@@ -797,6 +799,7 @@ Future<void> _manageGroups(
 ) {
   return showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) => _TaskGroupsSheet(broadId: broadId),
   );

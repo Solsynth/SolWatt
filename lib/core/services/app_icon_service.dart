@@ -54,6 +54,11 @@ class AppIconService {
         iconName: result?['current'] as String?,
       );
     } on PlatformException {
+      // The runner answered with an error, e.g. an unknown method call.
+      return null;
+    } on MissingPluginException {
+      // No runner wired the channel (test host, or a platform whose runner
+      // predates it); the primary icon is the only one to show.
       return null;
     }
   }

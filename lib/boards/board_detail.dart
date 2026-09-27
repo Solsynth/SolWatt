@@ -20,9 +20,13 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
   /// a card show up in the lane it was dropped into before the round trip.
   final Map<String, String?> _groupOverrides = {};
   final ValueNotifier<bool> _showTaskDetail = ValueNotifier(false);
+
+  /// The task the detail surface is showing, or null when none is open. A
+  /// notifier because the phone sheet and the wide panel are both built once
+  /// and then have to follow the detail fetch and lane moves.
+  final ValueNotifier<WorkTask?> _selectedTask = ValueNotifier(null);
   final TextEditingController _search = TextEditingController();
   Timer? _searchDebounce;
-  WorkTask? _selectedTask;
   TaskListFilters _filters = const TaskListFilters();
 
   String get _broadId => widget.broadId;
@@ -34,6 +38,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     _searchDebounce?.cancel();
     _search.dispose();
     _showTaskDetail.dispose();
+    _selectedTask.dispose();
     super.dispose();
   }
 
@@ -50,11 +55,12 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     });
   }
 
+  /// Opens the task detail: a resizable panel beside the board on wide
+  /// screens, a sheet over it on phones. `ResponsiveSidebar` picks the form
+  /// factor; [_taskDetailSheet] supplies the phone sheet's chrome.
   Future<void> _openTask(WorkTask task) async {
-    setState(() {
-      _selectedTask = task;
-      _showTaskDetail.value = true;
-    });
+    _selectedTask.value = task;
+    _showTaskDetail.value = true;
 
     // Cards carry what the list endpoint returns; the detail view wants the
     // full record. Keep the card's copy if the fetch fails.
@@ -62,9 +68,48 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
       final detailed = await ref
           .read(wattEngineClientProvider)
           .getTask(task.id);
-      if (!mounted || _selectedTask?.id != task.id) return;
-      setState(() => _selectedTask = detailed);
+      if (!mounted || _selectedTask.value?.id != task.id) return;
+      _selectedTask.value = detailed;
     } catch (_) {}
+  }
+
+  /// The phone detail sheet. Taller than the panel convention because a task
+  /// record is long, and sized here rather than in the shared sidebar so the
+  /// board controls how much of the board stays visible behind it.
+  Widget _taskDetailSheet(BuildContext sheetContext) {
+    return SheetScaffold(
+      showHeader: false,
+      heightFactor: 0.85,
+      // The shared sidebar opens this sheet through the `material_ui` fork's
+      // `showModalBottomSheet`, so the sheet's own Material is the fork's. The
+      // detail body is built from Flutter widgets that assert a Flutter
+      // `Material` ancestor (the group dropdown, the comment field), so it
+      // brings its own.
+      child: Material(
+        color: Colors.transparent,
+        child: _taskDetail(onClose: () => Navigator.of(sheetContext).pop()),
+      ),
+    );
+  }
+
+  /// The detail body, shared by the wide panel and the phone sheet. It follows
+  /// [_selectedTask] so the detail fetch and lane moves land on screen without
+  /// reopening the surface; [onClose] closes whichever one is showing it.
+  Widget _taskDetail({required VoidCallback onClose}) {
+    return ValueListenableBuilder<WorkTask?>(
+      valueListenable: _selectedTask,
+      builder: (context, task, _) => task == null
+          ? const SizedBox.shrink()
+          : _TaskDetailSidebar(
+              task: task,
+              broadId: _broadId,
+              onClose: onClose,
+              onEdit: () => _taskForm(context, ref, _broadId, task: task),
+              onToggleComplete: () =>
+                  _toggleTaskComplete(context, ref, _broadId, task),
+              onMoveTask: (groupId) => _onMoveTask(task, groupId),
+            ),
+    );
   }
 
   List<WorkTask> _effectiveTasks(List<WorkTask> serverTasks) {
@@ -86,8 +131,8 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
 
     setState(() {
       _groupOverrides[task.id] = targetGroupId;
-      if (_selectedTask?.id == task.id) {
-        _selectedTask = _selectedTask!.withGroupId(targetGroupId);
+      if (_selectedTask.value?.id == task.id) {
+        _selectedTask.value = _selectedTask.value!.withGroupId(targetGroupId);
       }
     });
 
@@ -219,18 +264,10 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
         sidebarWidth: 460,
         minWideSidebarWidth: 360,
         minMainContentWidth: 320,
-        sidebarContent: switch (_selectedTask) {
-          final WorkTask task => _TaskDetailSidebar(
-            task: task,
-            broadId: _broadId,
-            onClose: () => _showTaskDetail.value = false,
-            onEdit: () => _taskForm(context, ref, _broadId, task: task),
-            onToggleComplete: () =>
-                _toggleTaskComplete(context, ref, _broadId, task),
-            onMoveTask: (groupId) => _onMoveTask(task, groupId),
-          ),
-          null => const SizedBox.shrink(),
-        },
+        drawerBuilder: _taskDetailSheet,
+        sidebarContent: _taskDetail(
+          onClose: () => _showTaskDetail.value = false,
+        ),
         mainContent: Column(
           children: [
             _BoardToolbar(

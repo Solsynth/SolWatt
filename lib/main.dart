@@ -256,13 +256,12 @@ class AppShellPage extends ConsumerWidget {
 }
 
 class _NavigationShell extends ConsumerWidget {
-  _NavigationShell({
+  const _NavigationShell({
     required this.selectedIndex,
     required this.onSelected,
     required this.child,
   });
 
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
   static final _desktopNavigationKey = GlobalKey(
     debugLabel: 'desktop-navigation',
   );
@@ -276,9 +275,22 @@ class _NavigationShell extends ConsumerWidget {
     final wide = isWideScreen(context);
     final scheme = Theme.of(context).colorScheme;
     final isMail = selectedIndex == _mailTabIndex;
+    // A page pushed inside the active tab's stack (a board, mail settings, the
+    // profile's settings) leads with Back, so the drawer's edge swipe must not
+    // reach over it: the shell only offers it at the tab's root. The tabs
+    // router rebuilds this shell on every nested push, so the flag stays
+    // current.
+    final nestedPage = AutoTabsRouter.of(context).activeRouterCanPop();
 
     return Scaffold(
-      key: _scaffoldKey,
+      drawerEnableOpenDragGesture: !nestedPage,
+      // Switching tabs rebuilds this shell, and the drawer is still sliding
+      // shut while it does. A `GlobalKey()` field would hand the scaffold a
+      // new key on every rebuild, remounting it and dropping the drawer
+      // mid-transition; `shellScaffoldKey` is stable for the app's lifetime and
+      // is also what pages without their own scaffold (the drive file list)
+      // use to open the drawer.
+      key: shellScaffoldKey,
       backgroundColor: scheme.surface,
       drawer: Drawer(
         child: _GlobalNavigationDrawer(
@@ -288,25 +300,36 @@ class _NavigationShell extends ConsumerWidget {
         ),
       ),
       body: SafeArea(
+        // The top inset belongs to the page's app bar: the page's own scaffold
+        // adds it to the bar's height and paints the strip behind the status
+        // bar. Claiming it here would leave that strip showing the shell's
+        // bare background instead of the bar's color. Bottom and side insets
+        // stay here, because the bars around the body are the shell's.
+        top: false,
         child: Column(
           children: [
             Expanded(
               child: wide
                   ? Row(
                       children: [
-                        _DesktopNavigation(
-                          // Switching tabs re-keys the shell route's page
-                          // (auto_route keys AutoRoutePage by the route
-                          // matchId), which remounts this whole subtree. The
-                          // rail keeps a stable GlobalKey so the
-                          // AnimatedSwitcher below survives the remount and
-                          // can cross-fade the destination sets.
-                          key: _desktopNavigationKey,
-                          selectedIndex: selectedIndex,
-                          onSelected: onSelected,
-                          workspace: workspace,
-                          onOpenDrawer: () =>
-                              _scaffoldKey.currentState?.openDrawer(),
+                        // The rail is the one child with no app bar above it,
+                        // so it claims the top inset for itself.
+                        SafeArea(
+                          bottom: false,
+                          child: _DesktopNavigation(
+                            // Switching tabs re-keys the shell route's page
+                            // (auto_route keys AutoRoutePage by the route
+                            // matchId), which remounts this whole subtree. The
+                            // rail keeps a stable GlobalKey so the
+                            // AnimatedSwitcher below survives the remount and
+                            // can cross-fade the destination sets.
+                            key: _desktopNavigationKey,
+                            selectedIndex: selectedIndex,
+                            onSelected: onSelected,
+                            workspace: workspace,
+                            onOpenDrawer: () =>
+                                shellScaffoldKey.currentState?.openDrawer(),
+                          ),
                         ),
                         Expanded(
                           child: Padding(
@@ -542,6 +565,7 @@ Future<void> _showFolderSheet(
   final scheme = Theme.of(context).colorScheme;
   final folder = await showModalBottomSheet<String>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (sheetContext) => SheetScaffold(
       titleText: 'folders'.tr(),
@@ -593,46 +617,38 @@ class _MailFolderNavigationBar extends ConsumerWidget {
     final hasOverflow = _mailFolders.length > _maxVisible;
     final visibleIndex = visible.indexOf(selected);
 
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      child: Padding(
-        padding: .symmetric(horizontal: 8, vertical: 4),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          labelBehavior: .onlyShowSelected,
-          // A folder outside the visible set keeps the "more" entry highlighted,
-          // so the bar still shows where the current folder came from.
-          selectedIndex: visibleIndex < 0 ? visible.length : visibleIndex,
-          onDestinationSelected: (index) {
-            if (index == visible.length) {
-              _showFolderSheet(context, ref, selected);
-              return;
-            }
-            ref.read(selectedFolderProvider.notifier).select(visible[index]);
-          },
-          destinations: [
-            for (final folder in visible)
-              NavigationDestination(
-                icon: _folderDestinationIcon(
-                  folder,
-                  selected: false,
-                  unread: unread,
-                ),
-                selectedIcon: _folderDestinationIcon(
-                  folder,
-                  selected: true,
-                  unread: unread,
-                ),
-                label: mailFolderLabel(folder),
-              ),
-            if (hasOverflow)
-              NavigationDestination(
-                icon: const Icon(Symbols.all_inbox),
-                label: 'more'.tr(),
-              ),
-          ],
-        ),
-      ),
+    return _BottomNavigationBar(
+      // A folder outside the visible set keeps the "more" entry highlighted,
+      // so the bar still shows where the current folder came from.
+      selectedIndex: visibleIndex < 0 ? visible.length : visibleIndex,
+      onDestinationSelected: (index) {
+        if (index == visible.length) {
+          _showFolderSheet(context, ref, selected);
+          return;
+        }
+        ref.read(selectedFolderProvider.notifier).select(visible[index]);
+      },
+      destinations: [
+        for (final folder in visible)
+          NavigationDestination(
+            icon: _folderDestinationIcon(
+              folder,
+              selected: false,
+              unread: unread,
+            ),
+            selectedIcon: _folderDestinationIcon(
+              folder,
+              selected: true,
+              unread: unread,
+            ),
+            label: mailFolderLabel(folder),
+          ),
+        if (hasOverflow)
+          NavigationDestination(
+            icon: const Icon(Symbols.all_inbox),
+            label: 'more'.tr(),
+          ),
+      ],
     );
   }
 }
@@ -656,7 +672,7 @@ class _TabNavigationBar extends ConsumerWidget {
       ref.watch(mailboxUnreadCountsProvider).value ?? const <String, int>{},
     );
 
-    return NavigationBar(
+    return _BottomNavigationBar(
       // Tab index and destination index are the same: _appTabs is in tab
       // order.
       selectedIndex: selectedIndex,
@@ -673,6 +689,40 @@ class _TabNavigationBar extends ConsumerWidget {
             label: tab.label.tr(),
           ),
       ],
+    );
+  }
+}
+
+/// Shared chrome for the phone bottom bars — both the mail folder bar and the
+/// tab bar render through it, so their surface, insets and label behavior
+/// cannot drift apart. The tonal surface is painted across the full width, the
+/// destinations sit inset from the edges, and only the active destination
+/// keeps its label.
+class _BottomNavigationBar extends StatelessWidget {
+  const _BottomNavigationBar({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.destinations,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final List<Widget> destinations;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      child: Padding(
+        padding: .symmetric(horizontal: 8, vertical: 4),
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          labelBehavior: .onlyShowSelected,
+          selectedIndex: selectedIndex,
+          onDestinationSelected: onDestinationSelected,
+          destinations: destinations,
+        ),
+      ),
     );
   }
 }

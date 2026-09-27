@@ -3,10 +3,6 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Global scaffold key of the shell's root [Scaffold], used by child pages
-/// (e.g. the drive file list) to open the navigation drawer.
-final rootScaffoldKey = GlobalKey<ScaffoldState>();
-
 /// Shared page scaffold: reserves the app-bar height (extendBodyBehindAppBar),
 /// keeps the body scrollable under the app bar, and pops on Escape.
 ///

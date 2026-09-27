@@ -19,6 +19,7 @@ Future<void> showGitHubIntegrationSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    useRootNavigator: true,
     isScrollControlled: true,
     builder: (_) =>
         _GitHubIntegrationSheet(broadId: broadId, broadName: broadName),

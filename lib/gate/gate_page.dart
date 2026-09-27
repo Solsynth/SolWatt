@@ -6,6 +6,7 @@ import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:solwatt/core/services/app_icon_service.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
@@ -28,6 +29,24 @@ class _GatePageState extends ConsumerState<GatePage> {
   /// The code a device sign-in is waiting on, or null when the platform's flow
   /// has nothing for the user to type. Only the web build produces one.
   DeviceAuthorization? _deviceCode;
+
+  /// Artwork for the icon the platform is currently using, so the card matches
+  /// what the user sees on their home screen or in the Dock.
+  var _iconAsset = AppIconService.defaultIconAsset;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveIconAsset();
+  }
+
+  /// Swaps in the alternate artwork when the user picked one. Platforms without
+  /// alternate icons (and any platform that cannot answer) keep the default.
+  Future<void> _resolveIconAsset() async {
+    final state = await AppIconService.instance.getState();
+    if (!mounted || state?.iconName != AppIconService.cuiteIconName) return;
+    setState(() => _iconAsset = AppIconService.cuiteIconAsset);
+  }
 
   void _enterShell() {
     if (!mounted || _enteringShell) return;
@@ -53,6 +72,7 @@ class _GatePageState extends ConsumerState<GatePage> {
           const _GateFrame(child: Center(child: CircularProgressIndicator())),
       error: (error, _) => _GateFrame(
         child: _SignInPanel(
+          iconAsset: _iconAsset,
           signingIn: _signingIn,
           deviceCode: _deviceCode,
           error: error.toString(),
@@ -68,6 +88,7 @@ class _GatePageState extends ConsumerState<GatePage> {
           case AppAccess.needsSignIn:
             return _GateFrame(
               child: _SignInPanel(
+                iconAsset: _iconAsset,
                 signingIn: _signingIn,
                 deviceCode: _deviceCode,
                 error: _signInError,
@@ -154,12 +175,15 @@ class _GateFrame extends StatelessWidget {
 
 class _SignInPanel extends StatelessWidget {
   const _SignInPanel({
+    required this.iconAsset,
     required this.signingIn,
     required this.onSignIn,
     this.deviceCode,
     this.error,
   });
 
+  /// Artwork of the icon the platform is currently using.
+  final String iconAsset;
   final bool signingIn;
   final VoidCallback onSignIn;
 
@@ -178,19 +202,11 @@ class _SignInPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Align(
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: scheme.primaryContainer,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Symbols.solar_power,
-              size: 36,
-              color: scheme.onPrimaryContainer,
-              fill: 1,
-            ),
+          child: Image.asset(
+            iconAsset,
+            width: 96,
+            height: 96,
+            fit: BoxFit.contain,
           ),
         ),
         const SizedBox(height: 24),
