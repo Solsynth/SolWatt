@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SolWatt
+GenericName=Mail Client
+Comment=Mail, boards, and workspace Drive for Solar Network
+
+Exec=solwatt %U
+Icon=icon-padded
+Terminal=false
+Categories=Network;Email;Office;
+StartupNotify=true
+StartupWMClass=dev.solsynth.solarwatt
+
+# Helps with search in application menus
+Keywords=solwatt;mail;email;inbox;boards;tasks;drive;workspace;solar network;

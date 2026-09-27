@@ -1,0 +1,317 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to build"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - android
+
+jobs:
+  build-windows:
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # super_native_extensions ships its Rust sources compiled through Dart
+      # native-assets hooks (native_toolchain_rust), which shells out to rustup;
+      # the crate pins its own channel and target list in rust/rust-toolchain.toml.
+      - name: Set up Rust (super_native_extensions native build)
+        uses: dtolnay/rust-toolchain@stable
+      # Retry + HTTP/1.1: git deps clone from src.solsynth.dev behind
+      # Cloudflare, which intermittently resets large pack transfers (curl 56).
+      - name: flutter pub get
+        shell: bash
+        run: |
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3; do
+            flutter pub get && break
+            echo "flutter pub get failed (attempt $attempt); retrying in 10s"
+            sleep 10
+          done
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter build windows --release
+      - name: Extract Version
+        id: extract_version
+        run: |
+          $pubspec = Get-Content pubspec.yaml -Raw
+          if ($pubspec -match 'version:\s*(\d+\.\d+\.\d+)\+(\d+)') {
+            $appVersion = $matches[1]
+            $buildNumber = $matches[2]
+            Write-Host "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+            Write-Host "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          }
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-windows
+          path: build/windows/x64/runner/Release/
+      - name: Compile Installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: setup.iss
+          options: "/DAppVersion=${{ steps.extract_version.outputs.app_version }} /DBuildNumber=${{ steps.extract_version.outputs.build_number }}"
+      - name: Archive installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-windows-installer
+          path: Installer/windows-x86_64-setup.exe
+
+  build-linux:
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # super_native_extensions ships its Rust sources compiled through Dart
+      # native-assets hooks (native_toolchain_rust), which shells out to rustup;
+      # the crate pins its own channel and target list in rust/rust-toolchain.toml.
+      - name: Set up Rust (super_native_extensions native build)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev
+          sudo apt-get install -y libmpv-dev mpv
+          sudo apt-get install -y libsecret-1-dev
+          sudo apt-get install -y libnotify-dev
+          sudo apt-get install -y libcurl4-openssl-dev
+      # Retry + HTTP/1.1: git deps clone from src.solsynth.dev behind
+      # Cloudflare, which intermittently resets large pack transfers (curl 56).
+      - name: flutter pub get
+        shell: bash
+        run: |
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3; do
+            flutter pub get && break
+            echo "flutter pub get failed (attempt $attempt); retrying in 10s"
+            sleep 10
+          done
+      - run: dart run build_runner build --delete-conflicting-outputs
+      # Icons are chosen at runtime (IconData parameters, file/status icon
+      # helpers), so the icon tree shaker cannot prove which glyphs are live.
+      - run: flutter build linux --release --no-tree-shake-icons
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-linux
+          path: build/linux/x64/release/bundle/
+      - name: Build AppImage
+        run: bash buildtools/build-appimage.sh
+      - name: Archive AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-linux-appimage
+          path: "./*.AppImage*"
+
+  build-android:
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # super_native_extensions ships its Rust sources compiled through Dart
+      # native-assets hooks (native_toolchain_rust), which shells out to rustup;
+      # the crate pins its own channel and target list in rust/rust-toolchain.toml.
+      - name: Set up Rust (super_native_extensions native build)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Android build dependencies
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          # The Rust android targets link against the NDK that the Flutter
+          # Gradle plugin requests, so install exactly that version instead of
+          # pinning one that drifts with the stable channel.
+          flutter_root="$(dirname "$(dirname "$(command -v flutter)")")"
+          ndk_version="$(sed -nE 's/.*ndkVersion: String = "([0-9.]+)".*/\1/p' \
+            "$flutter_root/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt")"
+          test -n "$ndk_version"
+          sdkmanager "ndk;$ndk_version"
+      - name: Configure Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEYSTORE_PASSWORD"
+          } > android/key.properties
+      # Retry + HTTP/1.1: git deps clone from src.solsynth.dev behind
+      # Cloudflare, which intermittently resets large pack transfers (curl 56).
+      - name: flutter pub get
+        shell: bash
+        run: |
+          git config --global http.version HTTP/1.1
+          for attempt in 1 2 3; do
+            flutter pub get && break
+            echo "flutter pub get failed (attempt $attempt); retrying in 10s"
+            sleep 10
+          done
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter build apk --release --split-per-abi
+      - name: Archive Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-android
+          path: build/app/outputs/flutter-apk/app-*-release.apk
+
+  # Configure repository variables DISTRIBUTION_API_BASE_URL and
+  # DISTRIBUTION_PRODUCT_ID, plus secret DISTRIBUTION_UPLOAD_KEY.
+  upload-to-distribution:
+    needs: [build-windows, build-linux, build-android]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      # SolsynthExpressUpload@v2 reads hyphenated inputs using underscores.
+      INPUT_API_BASE_URL: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+      INPUT_PRODUCT_ID: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+      INPUT_API_KEY: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve distribution version
+        id: distribution_version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/* ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="$(git tag --sort=-creatordate | sed -n '1p')"
+          fi
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - if: needs.build-windows.result == 'success'
+        name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-windows-installer
+          path: ./artifacts/windows
+      - if: needs.build-linux.result == 'success'
+        name: Download AppImage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-linux-appimage
+          path: ./artifacts/linux
+      - if: needs.build-android.result == 'success'
+        name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-android
+          path: ./artifacts/android
+      - if: needs.build-windows.result == 'success'
+        name: Zip Windows installer
+        run: |
+          cd ./artifacts/windows
+          zip -r ../build-output-windows-installer.zip .
+      - if: needs.build-linux.result == 'success'
+        name: Zip Linux AppImage
+        run: |
+          cd ./artifacts/linux
+          zip -r ../build-output-linux-appimage.zip .
+      - if: needs.build-windows.result == 'success'
+        name: Upload Windows installer to Solsynth Express
+        uses: Solsynth/SolsynthExpressUpload@v2
+        with:
+          api-base-url: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+          product-id: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+          api-key: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+          version: ${{ steps.distribution_version.outputs.version }}
+          file: ./artifacts/build-output-windows-installer.zip
+          platform: windows
+          architecture: amd64
+          mime-type: application/zip
+          channel: stable
+      - if: needs.build-linux.result == 'success'
+        name: Upload Linux AppImage to Solsynth Express
+        uses: Solsynth/SolsynthExpressUpload@v2
+        with:
+          api-base-url: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+          product-id: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+          api-key: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+          version: ${{ steps.distribution_version.outputs.version }}
+          file: ./artifacts/build-output-linux-appimage.zip
+          platform: linux
+          architecture: amd64
+          mime-type: application/zip
+          channel: stable
+      - if: needs.build-android.result == 'success'
+        name: Upload Android arm64 artifact to Solsynth Express
+        uses: Solsynth/SolsynthExpressUpload@v2
+        with:
+          api-base-url: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+          product-id: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+          api-key: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+          version: ${{ steps.distribution_version.outputs.version }}
+          file: ./artifacts/android/app-arm64-v8a-release.apk
+          platform: android
+          architecture: arm64
+          mime-type: application/vnd.android.package-archive
+          channel: stable
+      - if: needs.build-android.result == 'success'
+        name: Upload Android armeabi-v7a artifact to Solsynth Express
+        uses: Solsynth/SolsynthExpressUpload@v2
+        with:
+          api-base-url: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+          product-id: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+          api-key: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+          version: ${{ steps.distribution_version.outputs.version }}
+          file: ./artifacts/android/app-armeabi-v7a-release.apk
+          platform: android
+          architecture: armeabi-v7a
+          mime-type: application/vnd.android.package-archive
+          channel: stable
+      - if: needs.build-android.result == 'success'
+        name: Upload Android x86_64 artifact to Solsynth Express
+        uses: Solsynth/SolsynthExpressUpload@v2
+        with:
+          api-base-url: ${{ vars.DISTRIBUTION_API_BASE_URL }}
+          product-id: ${{ vars.DISTRIBUTION_PRODUCT_ID }}
+          api-key: ${{ secrets.DISTRIBUTION_UPLOAD_KEY }}
+          version: ${{ steps.distribution_version.outputs.version }}
+          file: ./artifacts/android/app-x86_64-release.apk
+          platform: android
+          architecture: x86_64
+          mime-type: application/vnd.android.package-archive
+          channel: stable

@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Release packaging output (buildtools/appimagetool-*.AppImage stays tracked)
+/Installer/
+/SolWatt*.AppImage
+SolWatt.AppDir/
+
 # Symbolication related
 app.*.symbols
 
