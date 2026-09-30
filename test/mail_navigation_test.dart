@@ -150,6 +150,8 @@ void main() {
             mailSenderIndexProvider.overrideWith(
               (ref) async => senders,
             ),
+            emailProvider.overrideWith((ref, emailId) async => _email),
+            threadProvider.overrideWith((ref, threadId) async => [_email]),
             broadsProvider.overrideWith((ref) async => const <Broad>[]),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
             websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
@@ -271,12 +273,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(searchField, findsNothing);
 
+    // ---- A conversation on a phone ----
+    // Opening a message pushes a page inside the mail tab: the shell hands the
+    // screen over, so the folder bar goes away.
+    await tester.tap(find.text('Alice'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBar), findsNothing);
+    expect(navBar, findsNothing);
+
+    // The pane's toolbar is not an app bar, so it has to take the status bar
+    // into its own height: growing the inset by 24 pushes its buttons down by
+    // exactly that.
+    final detailToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
+    tester.view.padding = const FakeViewPadding(top: 24);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byIcon(Symbols.close)).top - detailToolbarTop,
+      24,
+    );
+    tester.view.padding = const FakeViewPadding();
+    await tester.pumpAndSettle();
+
+    // Back out of the conversation: the folder bar returns.
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    expect(navBar, findsOneWidget);
+
+    // ---- Compose on a phone ----
+    // The composer is a page of the same kind: no folder bar over it, and its
+    // own header takes the status bar.
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBar), findsNothing);
+    expect(navBar, findsNothing);
+
+    // Same for the composer's header.
+    final composeToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
+    tester.view.padding = const FakeViewPadding(top: 24);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byIcon(Symbols.close)).top - composeToolbarTop,
+      24,
+    );
+    tester.view.padding = const FakeViewPadding();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice'), findsOneWidget);
+    expect(navBar, findsOneWidget);
+
     // The mail settings page merges credentials, mailbox settings, blocked
     // senders, and import. The page is a lazy list on a phone, so scroll to
     // each section before asserting it.
     await tester.tap(find.byIcon(Symbols.settings));
     await tester.pumpAndSettle();
     expect(find.text('Mail settings'), findsOneWidget);
+    // This page carries no app bar either: its title row keeps out of the
+    // status bar the same way.
+    final settingsToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
+    tester.view.padding = const FakeViewPadding(top: 24);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byIcon(Symbols.close)).top - settingsToolbarTop,
+      24,
+    );
+    tester.view.padding = const FakeViewPadding();
+    await tester.pumpAndSettle();
     expect(find.text('Notification preferences'), findsOneWidget);
     expect(find.text('Mail credentials'), findsOneWidget);
     expect(find.text('No credentials'), findsOneWidget);

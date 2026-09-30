@@ -196,8 +196,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationRail), findsNothing);
-    // The shell's bottom bar still owns navigation under the board.
-    expect(find.byType(NavigationBar), findsOneWidget);
+    // A pushed board owns the screen: the shell's bottom bar stays behind at
+    // the tab's root.
+    expect(find.byType(NavigationBar), findsNothing);
     // A pushed board leads with Back, so the drawer's edge swipe is off: it
     // would otherwise slide over the page the user is trying to leave.
     expect(_shellScaffold(tester).drawerEnableOpenDragGesture, isFalse);
@@ -224,16 +225,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     // The record itself is on screen, and it took the bottom of the window:
-    // the sheet rides the root navigator, so it covers the shell's bottom bar
-    // rather than stopping above it.
+    // the sheet rides the root navigator, so it reaches the window edge rather
+    // than stopping at the shell's chrome.
     expect(find.text('Task details'), findsOneWidget);
     expect(find.text('Mark completed'), findsOneWidget);
     final sheetRect = tester.getRect(find.byType(mui.BottomSheet));
     expect(sheetRect.bottom, 800);
-    expect(
-      sheetRect.bottom,
-      greaterThan(tester.getRect(find.byType(NavigationBar)).top),
-    );
+    // The board underneath carries no bottom bar to sit above.
+    expect(find.byType(NavigationBar), findsNothing);
 
     // Dismissing it hands the board back.
     await tester.tapAt(const Offset(20, 40));
@@ -250,7 +249,8 @@ void main() {
     // on a card that is actually hit-testable.
     tester.view.physicalSize = const Size(700, 800);
     await tester.pumpAndSettle();
-    expect(find.byType(NavigationBar), findsOneWidget);
+    // Still the pushed board, so still no shell chrome over it.
+    expect(find.byType(NavigationBar), findsNothing);
 
     // A horizontal drag still picks the card up for a lane move.
     final card = find.text('Task 1');

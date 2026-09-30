@@ -32,35 +32,40 @@ class MailSettingsPage extends ConsumerWidget {
       color: scheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(8),
       clipBehavior: Clip.antiAlias,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'mailSettings'.tr(),
-                  style: Theme.of(context).textTheme.titleLarge,
+      // The title row stands in for an app bar: the list keeps out of the
+      // status bar and the surface behind it paints the strip.
+      child: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'mailSettings'.tr(),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
-              ),
-              IconButton(
-                tooltip: 'close'.tr(),
-                onPressed: () => context.router.pop(),
-                icon: const Icon(Symbols.close),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const _NotificationSection(),
-          const SizedBox(height: 16),
-          const _CredentialsSection(),
-          const SizedBox(height: 16),
-          const _MailboxSection(),
-          const SizedBox(height: 16),
-          const _BlockedSendersSection(),
-          const SizedBox(height: 16),
-          const _ImportSection(),
-        ],
+                IconButton(
+                  tooltip: 'close'.tr(),
+                  onPressed: () => context.router.pop(),
+                  icon: const Icon(Symbols.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const _NotificationSection(),
+            const SizedBox(height: 16),
+            const _CredentialsSection(),
+            const SizedBox(height: 16),
+            const _MailboxSection(),
+            const SizedBox(height: 16),
+            const _BlockedSendersSection(),
+            const SizedBox(height: 16),
+            const _ImportSection(),
+          ],
+        ),
       ),
     );
   }

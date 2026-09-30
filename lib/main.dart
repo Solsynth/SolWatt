@@ -275,11 +275,12 @@ class _NavigationShell extends ConsumerWidget {
     final wide = isWideScreen(context);
     final scheme = Theme.of(context).colorScheme;
     final isMail = selectedIndex == _mailTabIndex;
-    // A page pushed inside the active tab's stack (a board, mail settings, the
-    // profile's settings) leads with Back, so the drawer's edge swipe must not
-    // reach over it: the shell only offers it at the tab's root. The tabs
-    // router rebuilds this shell on every nested push, so the flag stays
-    // current.
+    // A page pushed inside the active tab's stack (a board, a mail detail or
+    // settings page, the profile's settings) leads with Back and owns the
+    // screen: the drawer's edge swipe and the phone bottom bar both belong to
+    // the tab's root, so the shell drops them once the stack is deeper than
+    // one. The tabs router rebuilds this shell on every nested push, so the
+    // flag stays current.
     final nestedPage = AutoTabsRouter.of(context).activeRouterCanPop();
 
     return Scaffold(
@@ -352,7 +353,11 @@ class _NavigationShell extends ConsumerWidget {
           ],
         ),
       ),
-      bottomNavigationBar: wide
+      // The bar is handed back to the page rather than collapsed in place:
+      // the scaffold gives the body's bottom inset to whatever bottom bar it
+      // is given, so hiding has to remove the bar to return the home-indicator
+      // inset to the page that now owns the screen.
+      bottomNavigationBar: wide || nestedPage
           ? null
           : isMail
           ? const _MailFolderNavigationBar()

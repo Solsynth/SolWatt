@@ -127,6 +127,12 @@ its list, and the boards tab pushes one board (`/boards/:broadId`) above the
 board list. Push through `context.router` inside such a tab, never through
 `Navigator.of(context)` on the root navigator.
 
+Once a tab's stack is deeper than its root, the shell drops the phone bottom
+bar (and the drawer's edge swipe) — the pushed page owns the screen. The bar is
+removed from the scaffold rather than collapsed in place, because the scaffold
+gives the body's bottom inset to whichever bottom bar it is handed: the page
+keeps the home-indicator inset only while the bar is absent.
+
 Every tab page owns a top app bar (`PageScaffold`, or the page's own
 `Scaffold`), and app-level navigation lives there, never in a bottom bar: on
 narrow screens the app bar leads with `appBarDrawerButton` and the drawer holds
@@ -135,6 +141,12 @@ for an app bar (drawer, inbox switcher, search, filters, settings) and a bottom
 bar of mail folders — the ones that do not fit on the bar live behind its
 "more" destination. The other tabs swap it for a bottom bar of all five
 top-level tabs.
+
+The shell's body claims the side and bottom insets only; the top inset belongs
+to whatever chrome the page puts there. The mail panes that carry a toolbar
+instead of a `Scaffold` app bar (the detail pane, the composer, mail settings)
+wrap that chrome in `SafeArea(bottom: false)`, so it grows by the status bar and
+their surface paints the strip behind it.
 
 Workspace Drive uploads always pass `workspace_id` so DysonFS charges the
 workspace plan quota rather than the personal account quota.

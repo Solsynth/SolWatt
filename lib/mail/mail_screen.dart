@@ -2948,66 +2948,80 @@ class _EmailToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return SizedBox(
-      height: height,
-      child: Padding(
-        padding: isWideScreen(context) ? const EdgeInsets.symmetric(horizontal: 8) : .zero,
-        child: Row(
-          children: [
-            IconButton(
-              tooltip: 'close'.tr(),
-              onPressed: onClose,
-              icon: const Icon(Symbols.close),
-            ),
-            const Spacer(),
-            IconButton(
-              tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
-              onPressed: onToggleStar,
-              icon: Icon(
-                email.isStarred ? Symbols.star : Symbols.star_outline,
-                color: email.isStarred
-                    ? Colors.amber.shade600
-                    : scheme.onSurfaceVariant,
-                fill: email.isStarred ? 1 : 0,
+    // The pane's toolbars stand in for an app bar, so this one takes the
+    // status bar into its own height the way the pages with a real app bar do.
+    // The panel's surface sits behind it and paints the strip.
+    return SafeArea(
+      bottom: false,
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: isWideScreen(context)
+              ? const EdgeInsets.symmetric(horizontal: 8)
+              : .zero,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'close'.tr(),
+                onPressed: onClose,
+                icon: const Icon(Symbols.close),
               ),
-            ),
-            IconButton(
-              tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
-              onPressed: onToggleRead,
-              icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
-            ),
-            PopupMenuButton<String>(
-              tooltip: 'more'.tr(),
-              icon: const Icon(Symbols.more_vert),
-              onSelected: (value) {
-                if (value == 'archive') onMove('archive');
-                if (value == 'spam') onMove('spam');
-                if (value == 'trash') onMove('trash');
-                if (value == 'download-eml') onDownloadEml();
-              },
-              itemBuilder: (_) => [
-                if (email.folder != 'archive')
-                  PopupMenuItem(
-                    value: 'archive',
-                    child: Text('folderArchive'.tr()),
-                  ),
-                if (email.folder != 'spam')
-                  PopupMenuItem(value: 'spam', child: Text('folderSpam'.tr())),
-                if (email.folder != 'trash')
-                  PopupMenuItem(value: 'trash', child: Text('folderTrash'.tr())),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'download-eml',
-                  child: Text('downloadEml'.tr()),
+              const Spacer(),
+              IconButton(
+                tooltip: email.isStarred ? 'unstar'.tr() : 'star'.tr(),
+                onPressed: onToggleStar,
+                icon: Icon(
+                  email.isStarred ? Symbols.star : Symbols.star_outline,
+                  color: email.isStarred
+                      ? Colors.amber.shade600
+                      : scheme.onSurfaceVariant,
+                  fill: email.isStarred ? 1 : 0,
                 ),
-              ],
-            ),
-            IconButton(
-              tooltip: 'delete'.tr(),
-              onPressed: onDelete,
-              icon: Icon(Symbols.delete, color: scheme.error),
-            ),
-          ],
+              ),
+              IconButton(
+                tooltip: email.isRead ? 'markUnread'.tr() : 'markRead'.tr(),
+                onPressed: onToggleRead,
+                icon: Icon(email.isRead ? Symbols.mail : Symbols.drafts),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'more'.tr(),
+                icon: const Icon(Symbols.more_vert),
+                onSelected: (value) {
+                  if (value == 'archive') onMove('archive');
+                  if (value == 'spam') onMove('spam');
+                  if (value == 'trash') onMove('trash');
+                  if (value == 'download-eml') onDownloadEml();
+                },
+                itemBuilder: (_) => [
+                  if (email.folder != 'archive')
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Text('folderArchive'.tr()),
+                    ),
+                  if (email.folder != 'spam')
+                    PopupMenuItem(
+                      value: 'spam',
+                      child: Text('folderSpam'.tr()),
+                    ),
+                  if (email.folder != 'trash')
+                    PopupMenuItem(
+                      value: 'trash',
+                      child: Text('folderTrash'.tr()),
+                    ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'download-eml',
+                    child: Text('downloadEml'.tr()),
+                  ),
+                ],
+              ),
+              IconButton(
+                tooltip: 'delete'.tr(),
+                onPressed: onDelete,
+                icon: Icon(Symbols.delete, color: scheme.error),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4775,42 +4789,47 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header: close, title, save draft, send.
-              SizedBox(
-                height: 56,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'close'.tr(),
-                        onPressed: widget.onClose,
-                        icon: const Icon(Symbols.close),
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'compose'.tr(),
-                          style: textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+              // Header: close, title, save draft, send. It stands in for an
+              // app bar, so it takes the status bar into its own height and
+              // the sheet's surface behind it paints the strip.
+              SafeArea(
+                bottom: false,
+                child: SizedBox(
+                  height: 56,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'close'.tr(),
+                          onPressed: widget.onClose,
+                          icon: const Icon(Symbols.close),
                         ),
-                      ),
-                      IconButton(
-                        tooltip: 'saveDraft'.tr(),
-                        onPressed: () => _submit(draft: true),
-                        icon: const Icon(Symbols.bookmark_add),
-                      ),
-                      const SizedBox(width: 4),
-                      Tooltip(
-                        message: 'sendShortcut'.tr(),
-                        child: FilledButton.icon(
-                          onPressed: () => _submit(),
-                          icon: const Icon(Symbols.send, size: 18),
-                          label: Text('send'.tr()),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'compose'.tr(),
+                            style: textTheme.titleMedium,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                    ],
+                        IconButton(
+                          tooltip: 'saveDraft'.tr(),
+                          onPressed: () => _submit(draft: true),
+                          icon: const Icon(Symbols.bookmark_add),
+                        ),
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: 'sendShortcut'.tr(),
+                          child: FilledButton.icon(
+                            onPressed: () => _submit(),
+                            icon: const Icon(Symbols.send, size: 18),
+                            label: Text('send'.tr()),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

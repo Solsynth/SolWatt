@@ -41,7 +41,7 @@ dependencies:
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
       # Bump all three refs together.
-      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
+      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
   material_ui: ^1.4.0
@@ -69,12 +69,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_sdk
-      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
+      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Solian.git
       path: packages/solar_network_foundation
-      ref: feaa6da2f77907b0c5a336fdb84dbf4be8b3fb97
+      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
@@ -101,7 +101,9 @@ dependencies:
 
   # --- Drive (ported from Solian lib/drive, workspace-scoped) ---
   animations: ^3.0.0
-  cached_network_image: ^3.4.1
+  # Pinned to the 4.x line that solar_network_foundation (Solian) requires:
+  # it renders through the material_ui fork this app already depends on.
+  cached_network_image: ^4.0.4
   collection: ^1.19.1
   convert: ^3.1.2
   desktop_drop: ^0.8.4
