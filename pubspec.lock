@@ -141,10 +141,10 @@ packages:
     dependency: transitive
     description:
       name: built_collection
-      sha256: "376e3dd27b51ea877c28d525560790aee2e6fbb5f20e2f85d5081027d94e2100"
+      sha256: "44922ecebd8e3d0cef743dadd3b54df4e87e2a4c52a29465a1872aa9e192caa8"
       url: "https://pub.dev"
     source: hosted
-    version: "5.1.1"
+    version: "5.1.2"
   built_value:
     dependency: transitive
     description:
@@ -277,10 +277,10 @@ packages:
     dependency: "direct main"
     description:
       name: cupertino_icons
-      sha256: "41e005c33bd814be4d3096aff55b1908d419fde52ca656c8c47719ec745873cd"
+      sha256: b7cc2390aac296c083bea762859413eb1cf5b630c70e0c7e4d831018f762a8b2
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.9"
+    version: "2.0.0"
   cupertino_ui:
     dependency: transitive
     description:
@@ -1104,11 +1104,9 @@ packages:
   island_ui_foundation:
     dependency: "direct main"
     description:
-      path: "packages/island_ui_foundation"
-      ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      resolved-ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/island_ui_foundation"
+      relative: true
+    source: path
     version: "1.0.0"
   jni:
     dependency: transitive
@@ -1242,10 +1240,10 @@ packages:
     dependency: "direct main"
     description:
       name: material_ui
-      sha256: "134ab2f0843545c4e661e4ba2753fe1bcf0753cb690d5a9ee4870638a40411e9"
+      sha256: "32d98f11cf5942a095a8c3e01b03e4de3b17941437713dcf36b1088fb62e23d2"
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.5.0"
   media_kit:
     dependency: "direct main"
     description:
@@ -1362,10 +1360,10 @@ packages:
     dependency: transitive
     description:
       name: octo_image
-      sha256: "66e8f59a538a9f9f53141bc22ec0a12f8e85f2ca3bfcacab6dd30315b2fc256d"
+      sha256: "49c4f93afc10f1ad4fdef9db88fed9c65a8eb5d9ad0a4fa9b128d7fedeb41418"
       url: "https://pub.dev"
     source: hosted
-    version: "2.1.1"
+    version: "2.1.2"
   package_config:
     dependency: transitive
     description:
@@ -1458,10 +1456,10 @@ packages:
     dependency: transitive
     description:
       name: petitparser
-      sha256: "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675"
+      sha256: "2f1564aadb14215e478563b5406cb80729d022158c01dc50c96013c2f7eb4790"
       url: "https://pub.dev"
     source: hosted
-    version: "7.0.2"
+    version: "7.1.0"
   photo_view:
     dependency: "direct main"
     description:
@@ -1830,20 +1828,16 @@ packages:
   solar_network_foundation:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_foundation"
-      ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      resolved-ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/solar_network_foundation"
+      relative: true
+    source: path
     version: "0.1.0"
   solar_network_sdk:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_sdk"
-      ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      resolved-ref: "4d8de432ff1f5a9cc02796226fc45b4fdba73b56"
-      url: "https://src.solsynth.dev/SoSYS/Solian.git"
-    source: git
+      path: "../Solian/packages/solar_network_sdk"
+      relative: true
+    source: path
     version: "1.0.0"
   source_gen:
     dependency: transitive
