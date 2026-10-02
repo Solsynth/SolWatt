@@ -31,7 +31,7 @@ void main() {
               locale: context.locale,
               supportedLocales: context.supportedLocales,
               localizationsDelegates: context.localizationDelegates,
-              home: const Scaffold(body: AppSettingsPage()),
+              home: const Scaffold(body: AppSettingsHomePage()),
             ),
           ),
         ),

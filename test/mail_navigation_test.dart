@@ -425,9 +425,8 @@ void main() {
       findsOneWidget,
     );
 
-    // Drawer hides the rest of the app: boards/ideask, files, flywheel, and
-    // the merged account entry. Settings and notifications are no longer
-    // separate drawer entries.
+    // The drawer carries every destination, Settings included. Notifications
+    // is not one of them.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     expect(find.text('Boards'), findsOneWidget);
@@ -435,7 +434,7 @@ void main() {
     expect(find.text('Flywheel'), findsOneWidget);
     expect(find.text('Mail'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
-    expect(find.text('Settings'), findsNothing);
+    expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Notifications'), findsNothing);
 
     // Close the drawer via the scrim; the mail list is still there.
@@ -461,10 +460,18 @@ void main() {
       findsOneWidget,
     );
     final tabBar = find.byType(NavigationBar);
-    for (final tab in ['Mail', 'Boards', 'Files', 'Flywheel', 'Profile']) {
+    // The bar carries the primary tabs only: Flywheel, Profile and Settings
+    // are drawer destinations on a phone.
+    for (final tab in ['Mail', 'Boards', 'Files']) {
       expect(
         find.descendant(of: tabBar, matching: find.text(tab)),
         findsOneWidget,
+      );
+    }
+    for (final tab in ['Flywheel', 'Profile', 'Settings']) {
+      expect(
+        find.descendant(of: tabBar, matching: find.text(tab)),
+        findsNothing,
       );
     }
     expect(
@@ -632,11 +639,10 @@ void main() {
     final lightTitleText = tester.widget<Text>(find.text('appName'.tr()));
     expect(lightTitleText.style?.color, lightScheme.onSurface);
 
-    // Profile absorbs Settings: the merged page carries the connection card,
-    // the app-settings and about entries, and sign-out from the former
-    // Settings page. The real session providers resolve to null in this
-    // harness, so the page settles with the static content only — bounded
-    // pumps keep the drawer transition honest.
+    // Profile is the account page: the profile card, sign-out, and the
+    // workspace list. Settings lives in the drawer, not here. The real session
+    // providers resolve to null in this harness, so the page settles with the
+    // static content only — bounded pumps keep the drawer transition honest.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Profile'));
@@ -644,12 +650,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Account and workspaces'), findsOneWidget);
     expect(find.text('Your workspaces'), findsOneWidget);
-    expect(find.text('App settings'), findsOneWidget);
-    expect(find.text('About'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
+    expect(find.text('Settings'), findsNothing);
+    expect(find.text('About'), findsNothing);
+    // Profile has no bar destination, so the shell drops the bottom bar.
+    expect(find.byType(NavigationBar), findsNothing);
 
-    // The App settings page offers language and appearance.
-    await tester.tap(find.text('Settings').last);
+    // Settings is its own drawer destination, and offers language and
+    // appearance. The profile page keeps a pending profile request spinning in
+    // this harness, so the drawer is driven with bounded pumps.
+    await tester.tap(find.byIcon(Symbols.menu));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Settings'));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Language'), findsOneWidget);
@@ -658,11 +671,8 @@ void main() {
     expect(find.text('Accent color'), findsOneWidget);
     expect(find.text('Display language'), findsOneWidget);
 
-    // And the About page carries app info and legal links.
-    await tester.tap(find.byType(BackButton));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump(const Duration(milliseconds: 400));
-    final aboutTile = find.widgetWithText(ListTile, 'About');
+    // About is nested under Settings: the row pushes a page with Back.
+    final aboutTile = find.widgetWithText(ListTile, 'SolWatt');
     await tester.ensureVisible(aboutTile);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(aboutTile);
@@ -672,5 +682,6 @@ void main() {
     expect(find.text('Links'), findsOneWidget);
     expect(find.text('Open-source licenses'), findsOneWidget);
     expect(find.text('Developer'), findsOneWidget);
+    expect(find.byType(BackButton), findsOneWidget);
   });
 }

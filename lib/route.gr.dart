@@ -27,6 +27,22 @@ class AboutRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [AppSettingsHomePage]
+class AppSettingsHomeRoute extends PageRouteInfo<void> {
+  const AppSettingsHomeRoute({List<PageRouteInfo>? children})
+    : super(AppSettingsHomeRoute.name, initialChildren: children);
+
+  static const String name = 'AppSettingsHomeRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const AppSettingsHomePage();
+    },
+  );
+}
+
+/// generated route for
 /// [AppSettingsPage]
 class AppSettingsRoute extends PageRouteInfo<void> {
   const AppSettingsRoute({List<PageRouteInfo>? children})
@@ -374,22 +390,6 @@ class MailSettingsRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const MailSettingsPage();
-    },
-  );
-}
-
-/// generated route for
-/// [ProfileHomePage]
-class ProfileHomeRoute extends PageRouteInfo<void> {
-  const ProfileHomeRoute({List<PageRouteInfo>? children})
-    : super(ProfileHomeRoute.name, initialChildren: children);
-
-  static const String name = 'ProfileHomeRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const ProfileHomePage();
     },
   );
 }

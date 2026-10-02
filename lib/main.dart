@@ -10,8 +10,6 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:solar_network_foundation/solar_network_foundation.dart'
-    as foundation;
 import 'package:window_manager/window_manager.dart';
 
 import 'package:solwatt/app_logging.dart';
@@ -234,12 +232,14 @@ class AppShellPage extends ConsumerWidget {
           );
         }
         return AutoTabsRouter(
+          // Order is the tab indices in [_appTabs]: append here, add there.
           routes: const [
             MailRoute(),
             BoardsRoute(),
             FileListRoute(),
             FlywheelRoute(),
             ProfileRoute(),
+            AppSettingsRoute(),
           ],
           builder: (context, child) {
             final tabs = AutoTabsRouter.of(context);
@@ -276,12 +276,17 @@ class _NavigationShell extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final isMail = selectedIndex == _mailTabIndex;
     // A page pushed inside the active tab's stack (a board, a mail detail or
-    // settings page, the profile's settings) leads with Back and owns the
+    // settings page, the profile's about page) leads with Back and owns the
     // screen: the drawer's edge swipe and the phone bottom bar both belong to
     // the tab's root, so the shell drops them once the stack is deeper than
     // one. The tabs router rebuilds this shell on every nested push, so the
     // flag stays current.
     final nestedPage = AutoTabsRouter.of(context).activeRouterCanPop();
+    // Where the active tab sits in the bar, or -1 when it has no destination
+    // there at all (Flywheel, Profile, Settings).
+    final primaryIndex = _primaryTabs.indexWhere(
+      (tab) => tab.index == selectedIndex,
+    );
 
     return Scaffold(
       drawerEnableOpenDragGesture: !nestedPage,
@@ -298,6 +303,10 @@ class _NavigationShell extends ConsumerWidget {
           workspace: workspace,
           selectedIndex: selectedIndex,
           onSelected: onSelected,
+          // Activation runs on the shell's ref: the drawer is already closing
+          // when it starts, and its own ref dies with the widget.
+          onWorkspaceSelected: (target) =>
+              activateWorkspaceAction(ref, target),
         ),
       ),
       body: SafeArea(
@@ -357,50 +366,46 @@ class _NavigationShell extends ConsumerWidget {
       // the scaffold gives the body's bottom inset to whatever bottom bar it
       // is given, so hiding has to remove the bar to return the home-indicator
       // inset to the page that now owns the screen.
-      bottomNavigationBar: wide || nestedPage
+      //
+      // A secondary tab (Flywheel, Profile, Settings) has no destination in
+      // the bar, so the bar goes away there too — the page's app bar carries
+      // the drawer button instead.
+      bottomNavigationBar: wide || nestedPage || primaryIndex < 0
           ? null
           : isMail
           ? const _MailFolderNavigationBar()
           : _TabNavigationBar(
-              selectedIndex: selectedIndex,
+              selectedIndex: primaryIndex,
               onSelected: onSelected,
             ),
     );
   }
 }
 
-class _GlobalNavigationDrawer extends StatelessWidget {
+class _GlobalNavigationDrawer extends ConsumerWidget {
   const _GlobalNavigationDrawer({
     required this.workspace,
     required this.selectedIndex,
     required this.onSelected,
+    required this.onWorkspaceSelected,
   });
 
   final Workspace? workspace;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final ValueChanged<Workspace> onWorkspaceSelected;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final selectedTab = _appTabs.indexWhere(
       (tab) => tab.index == selectedIndex,
     );
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
 
-    // The header shows the workspace background as a cover image (Island
-    // style); the info row then needs light text over the dark gradient.
-    final background = workspace?.background;
-    final backgroundImage = background == null
-        ? null
-        : foundation.cloudFileImageProvider(
-            serverUrl: kSolarNetworkApiBase,
-            id: background.id,
-            storageUrl: background.storageUrl,
-            workspaceId: workspace?.id,
-          );
-    final onHeader = backgroundImage == null ? null : Colors.white;
-    final onHeaderMuted = backgroundImage == null ? null : Colors.white70;
+    // The workspace list rides along with the rest of the drawer: while it
+    // loads, fails or is empty the row falls back to the active workspace
+    // alone, so the top of the drawer never collapses.
+    final workspaces =
+        ref.watch(workspacesProvider).value ?? const <Workspace>[];
 
     void select(int index) {
       Navigator.of(context).pop();
@@ -412,87 +417,18 @@ class _GlobalNavigationDrawer extends StatelessWidget {
         selectedIndex: selectedTab < 0 ? null : selectedTab,
         onDestinationSelected: (index) => select(_appTabs[index].index),
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Material(
-              color: scheme.secondaryContainer,
-              borderRadius: BorderRadius.circular(16),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () => select(_profileTabIndex),
-                child: SizedBox(
-                  height: 96,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (backgroundImage != null)
-                        Image(
-                          image: backgroundImage,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                        ),
-                      if (backgroundImage != null)
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: 0.12),
-                                Colors.black.withValues(alpha: 0.48),
-                              ],
-                            ),
-                          ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            CloudFileAvatar(
-                              file: workspace?.picture,
-                              workspaceId: workspace?.id,
-                              fallbackIcon: Symbols.workspaces,
-                              size: 28,
-                              selected: true,
-                              borderRadius: _workspaceAvatarBorderRadius(
-                                workspace,
-                              ),
-                              assumeImage: true,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    workspace?.name ?? 'workspace'.tr(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: text.titleSmall?.copyWith(
-                                      color: onHeader,
-                                    ),
-                                  ),
-                                  Text(
-                                    'manageWorkspaces'.tr(),
-                                    style: text.bodySmall?.copyWith(
-                                      color: onHeaderMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Icon(
-                              Symbols.chevron_right,
-                              color: onHeader,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          _WorkspaceQuickSwitch(
+            // The active workspace leads when the full list is not available
+            // yet, so the switcher is never empty for a signed-in user.
+            workspaces: workspaces.isEmpty && workspace != null
+                ? [workspace!]
+                : workspaces,
+            selectedId: workspace?.id,
+            onSelected: (target) {
+              Navigator.of(context).pop();
+              if (target.id == workspace?.id) return;
+              onWorkspaceSelected(target);
+            },
           ),
           for (final tab in _appTabs) ...[
             // Profile opens its own group: generous spacing around the divider
@@ -512,11 +448,149 @@ class _GlobalNavigationDrawer extends StatelessWidget {
   }
 }
 
+/// Horizontal workspace picker at the top of the drawer: one avatar per
+/// workspace, the active one ringed in the primary color. Tapping a workspace
+/// makes it active and closes the drawer.
+class _WorkspaceQuickSwitch extends StatelessWidget {
+  const _WorkspaceQuickSwitch({
+    required this.workspaces,
+    required this.selectedId,
+    required this.onSelected,
+  });
+
+  final List<Workspace> workspaces;
+  final String? selectedId;
+  final ValueChanged<Workspace> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (workspaces.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: SizedBox(
+        height: 72,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: workspaces.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
+          itemBuilder: (context, index) {
+            final workspace = workspaces[index];
+            return _WorkspaceQuickSwitchItem(
+              key: ValueKey('workspace-switch-${workspace.id}'),
+              workspace: workspace,
+              selected: workspace.id == selectedId,
+              onTap: () => onSelected(workspace),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkspaceQuickSwitchItem extends StatelessWidget {
+  const _WorkspaceQuickSwitchItem({
+    super.key,
+    required this.workspace,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Workspace workspace;
+  final bool selected;
+  final VoidCallback onTap;
+
+  static const _avatarSize = 36.0;
+  static const _ringWidth = 2.0;
+  static const _ringGap = 2.0;
+  static const _labelWidth = 56.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    final avatarRadius = workspace.isIndividual
+        ? BorderRadius.circular(_avatarSize)
+        : BorderRadius.circular(_avatarSize * .28);
+
+    return Tooltip(
+      message: workspace.name,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+          child: SizedBox(
+            width: _labelWidth,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // The ring sits outside the avatar with a gap, so selection
+                // reads as an outline around the picture rather than a frame
+                // painted on it.
+                Container(
+                  padding: const EdgeInsets.all(_ringGap),
+                  decoration: BoxDecoration(
+                    borderRadius: _inflateBorderRadius(
+                      avatarRadius,
+                      _ringGap + _ringWidth,
+                    ),
+                    border: Border.all(
+                      color: selected ? scheme.primary : Colors.transparent,
+                      width: _ringWidth,
+                    ),
+                  ),
+                  child: CloudFileAvatar(
+                    file: workspace.picture,
+                    workspaceId: workspace.id,
+                    fallbackIcon: Symbols.workspaces,
+                    size: _avatarSize,
+                    borderRadius: avatarRadius,
+                    assumeImage: true,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  workspace.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: text.labelSmall?.copyWith(
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Grows [radius] outward by [delta] on every corner, matching the ring's
+/// padding and stroke so the outline follows the avatar's own shape.
+BorderRadius _inflateBorderRadius(BorderRadius radius, double delta) {
+  Radius inflate(Radius corner) =>
+      Radius.elliptical(corner.x + delta, corner.y + delta);
+  return BorderRadius.only(
+    topLeft: inflate(radius.topLeft),
+    topRight: inflate(radius.topRight),
+    bottomLeft: inflate(radius.bottomLeft),
+    bottomRight: inflate(radius.bottomRight),
+  );
+}
+
 const _mailTabIndex = 0;
 const _boardsTabIndex = 1;
 const _filesTabIndex = 2;
 const _flywheelTabIndex = 3;
 const _profileTabIndex = 4;
+const _settingsTabIndex = 5;
 
 /// Top-level tabs in tab-index order, shared by the drawer, the desktop rail
 /// and the phone bottom bar.
@@ -526,11 +600,20 @@ const _appTabs = [
   (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
   (index: _flywheelTabIndex, icon: Symbols.sync, label: 'flywheel'),
   (index: _profileTabIndex, icon: Symbols.person, label: 'profile'),
+  (index: _settingsTabIndex, icon: Symbols.settings, label: 'settings'),
 ];
 
-/// Tabs the desktop rail carries directly; Flywheel and Profile stay in the
-/// drawer there, which the rail's trailing button opens.
-const _railTabIndexes = {_mailTabIndex, _boardsTabIndex, _filesTabIndex};
+/// Tabs the desktop rail and the phone bottom bar carry directly. Flywheel,
+/// Profile and Settings stay in the drawer on both: the drawer is one tap away
+/// either way, and a six-destination bar would crowd a phone.
+const _primaryTabIndexes = {_mailTabIndex, _boardsTabIndex, _filesTabIndex};
+
+/// [_appTabs] narrowed to the primary destinations, in bar/rail order. Bar and
+/// rail indices are positions in this list, not tab indices.
+final _primaryTabs = [
+  for (final tab in _appTabs)
+    if (_primaryTabIndexes.contains(tab.index)) tab,
+];
 
 /// Mail folders in navigation order, shared by the desktop rail and the mobile
 /// bottom bar so both surfaces list the same destinations.
@@ -658,14 +741,16 @@ class _MailFolderNavigationBar extends ConsumerWidget {
   }
 }
 
-/// Bottom navigation shown on non-mail pages: every top-level tab, mirroring
-/// the drawer. The mail tab swaps it for the mail folders.
+/// Bottom navigation shown on the primary tabs: Mail, Boards and Files,
+/// matching the desktop rail. The mail tab swaps it for the mail folders;
+/// Flywheel, Profile and Settings are drawer-driven on a phone.
 class _TabNavigationBar extends ConsumerWidget {
   const _TabNavigationBar({
     required this.selectedIndex,
     required this.onSelected,
   });
 
+  /// Position within [_primaryTabs], not a tab index.
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
@@ -678,12 +763,12 @@ class _TabNavigationBar extends ConsumerWidget {
     );
 
     return _BottomNavigationBar(
-      // Tab index and destination index are the same: _appTabs is in tab
-      // order.
       selectedIndex: selectedIndex,
-      onDestinationSelected: onSelected,
+      // The bar lists a subset of the tabs, so a destination index has to be
+      // mapped back before it can switch tabs.
+      onDestinationSelected: (index) => onSelected(_primaryTabs[index].index),
       destinations: [
-        for (final tab in _appTabs)
+        for (final tab in _primaryTabs)
           NavigationDestination(
             icon: tab.index == _mailTabIndex
                 ? _InboxRailIcon(unread: unread)
@@ -768,13 +853,11 @@ class _DesktopNavigation extends ConsumerWidget {
 
     final isMail = selectedIndex == _mailTabIndex;
     final folderIndex = _mailFolders.indexOf(selectedFolder);
-    // Flywheel and the merged Profile/Settings entry stay behind the drawer,
-    // so only the rail's own tabs are destinations here.
-    final railTabs = [
-      for (final tab in _appTabs)
-        if (_railTabIndexes.contains(tab.index)) tab,
-    ];
-    final tabIndex = railTabs.indexWhere((tab) => tab.index == selectedIndex);
+    // Flywheel, Profile and Settings stay behind the drawer, so only the
+    // rail's own tabs are destinations here.
+    final tabIndex = _primaryTabs.indexWhere(
+      (tab) => tab.index == selectedIndex,
+    );
 
     // Leading/trailing chrome is identical for both destination sets and is
     // hoisted out of the animated rails so it never flickers during the
@@ -909,7 +992,7 @@ class _DesktopNavigation extends ConsumerWidget {
                       key: const ValueKey('feature-destinations'),
                       selectedIndex: tabIndex >= 0 ? tabIndex : null,
                       destinations: [
-                        for (final tab in railTabs)
+                        for (final tab in _primaryTabs)
                           NavigationRailDestination(
                             icon: tab.index == _mailTabIndex
                                 ? _InboxRailIcon(unread: inboxUnread)
@@ -924,7 +1007,7 @@ class _DesktopNavigation extends ConsumerWidget {
                           ),
                       ],
                       onDestinationSelected: (index) =>
-                          onSelected(railTabs[index].index),
+                          onSelected(_primaryTabs[index].index),
                     ),
             ),
           ),
@@ -1103,18 +1186,6 @@ class ProfilePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Nested stack host: settings and about push onto the profile tab instead
-    // of replacing the whole shell (mirrors MailPage hosting its children).
-    return const AutoRouter();
-  }
-}
-
-@RoutePage()
-class ProfileHomePage extends ConsumerWidget {
-  const ProfileHomePage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -1189,32 +1260,9 @@ class ProfileHomePage extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                SectionHeader(title: 'appSettingsGroup'.tr()),
-                const SizedBox(height: 8),
-                Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: const IconBadge(icon: Symbols.settings),
-                        title: Text('settings'.tr()),
-                        subtitle: Text('settingsSubtitle'.tr()),
-                        trailing: const Icon(Symbols.chevron_right),
-                        onTap: () =>
-                            context.router.push(const AppSettingsRoute()),
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const IconBadge(icon: Symbols.info),
-                        title: Text('about'.tr()),
-                        subtitle: Text('aboutSubtitle'.tr()),
-                        trailing: const Icon(Symbols.chevron_right),
-                        onTap: () => context.router.push(const AboutRoute()),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Sign-out, merged in from the former Settings page.
+                // Sign-out, merged in from the former Settings page. Settings
+                // and About are their own destinations (the Settings tab and
+                // its About child), so the account page carries neither.
                 Card(
                   child: ListTile(
                     leading: const IconBadge(icon: Symbols.logout),

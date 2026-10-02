@@ -19,12 +19,11 @@ import 'package:solwatt/route.dart';
 class _TestRouter extends RootStackRouter {
   @override
   List<AutoRoute> get routes => [
+    AutoRoute(page: ProfileRoute.page, initial: true),
     AutoRoute(
-      page: ProfileRoute.page,
-      initial: true,
+      page: AppSettingsRoute.page,
       children: [
-        AutoRoute(page: ProfileHomeRoute.page, path: '', initial: true),
-        AutoRoute(page: AppSettingsRoute.page, path: 'settings'),
+        AutoRoute(page: AppSettingsHomeRoute.page, path: '', initial: true),
         AutoRoute(page: AboutRoute.page, path: 'about'),
       ],
     ),
@@ -123,12 +122,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // No connection tile, no bottom leave button. The only divider is the one
-    // between the App settings and About rows inside the settings card.
+    // No connection tile, no bottom leave button. Settings and About are their
+    // own destinations now, so the account page carries neither row — and with
+    // the settings card gone, no divider remains either.
     expect(find.text('Connected to Solar Network'), findsNothing);
     expect(find.text('Not signed in'), findsNothing);
-    expect(find.byType(Divider), findsOneWidget);
+    expect(find.byType(Divider), findsNothing);
     expect(find.text('Leave workspace'), findsNothing);
+    expect(find.text('Settings'), findsNothing);
+    expect(find.text('About'), findsNothing);
     // Profile card renders (title = nick, subtitle = @name).
     expect(find.text('tester'), findsWidgets);
     expect(find.textContaining('@Test User'), findsWidgets);
@@ -148,16 +150,6 @@ void main() {
     expect(find.text('Leave workspace'), findsNothing);
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
-
-    // A page pushed above the tab's root leads with Back, so it can be left.
-    await tester.tap(find.text('Settings').last);
-    await tester.pumpAndSettle();
-    expect(find.text('Theme mode'), findsOneWidget);
-    expect(find.byType(BackButton), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
-    await tester.pumpAndSettle();
-    expect(find.text('Account and workspaces'), findsOneWidget);
-    expect(find.byType(BackButton), findsNothing);
 
     // Leave from the active workspace -> gate chooser.
     await tester.tap(find.byIcon(Symbols.more_vert).first);

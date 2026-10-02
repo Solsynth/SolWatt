@@ -8,6 +8,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/services/app_icon_service.dart';
+import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
@@ -16,13 +17,23 @@ import 'package:solwatt/ui/page_scaffold.dart';
 /// leading icons sit clear of the card edge.
 const _kSettingsTilePadding = EdgeInsets.only(left: 24, right: 16);
 
+/// Settings tab host: the settings list is the tab's root and About pushes on
+/// top of it, so opening About keeps the shell and comes back to the list.
+@RoutePage()
+class AppSettingsPage extends StatelessWidget {
+  const AppSettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const AutoRouter();
+}
+
 /// App-wide preferences: display language, appearance (theme mode and accent
 /// color), and the app icon. Mirrors Solian's Appearance settings category;
 /// preferences persist in SharedPreferences and the theme/locale apply
 /// app-wide, while the icon choice is stored by the iOS/macOS runner.
 @RoutePage()
-class AppSettingsPage extends ConsumerWidget {
-  const AppSettingsPage({super.key});
+class AppSettingsHomePage extends ConsumerWidget {
+  const AppSettingsHomePage({super.key});
 
   static String languageDisplayName(BuildContext context, Locale locale) {
     // Show each language in its own name so the choice reads identically in
@@ -60,7 +71,7 @@ class AppSettingsPage extends ConsumerWidget {
                         DropdownMenuItem<Locale?>(
                           value: locale,
                           child: Text(
-                            AppSettingsPage.languageDisplayName(
+                            AppSettingsHomePage.languageDisplayName(
                               context,
                               locale,
                             ),
@@ -166,6 +177,20 @@ class AppSettingsPage extends ConsumerWidget {
               ],
             ),
           ],
+          const SizedBox(height: 16),
+          _SettingsSection(
+            title: 'about'.tr(),
+            children: [
+              ListTile(
+                contentPadding: _kSettingsTilePadding,
+                leading: const Icon(Symbols.info),
+                title: Text('appName'.tr()),
+                subtitle: Text('aboutSubtitle'.tr()),
+                trailing: const Icon(Symbols.chevron_right),
+                onTap: () => context.router.push(const AboutRoute()),
+              ),
+            ],
+          ),
         ],
       ),
     );

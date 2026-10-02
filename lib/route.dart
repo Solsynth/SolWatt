@@ -53,11 +53,14 @@ class AppRouter extends RootStackRouter {
         ),
         AutoRoute(page: FileListRoute.page),
         AutoRoute(page: FlywheelRoute.page),
+        AutoRoute(page: ProfileRoute.page),
+        // Settings is a top-level destination of its own. It used to be pushed
+        // onto the profile tab, which buried an app-wide page inside the
+        // account tab; About is its child now.
         AutoRoute(
-          page: ProfileRoute.page,
+          page: AppSettingsRoute.page,
           children: [
-            AutoRoute(page: ProfileHomeRoute.page, path: '', initial: true),
-            AutoRoute(page: AppSettingsRoute.page, path: 'settings'),
+            AutoRoute(page: AppSettingsHomeRoute.page, path: '', initial: true),
             AutoRoute(page: AboutRoute.page, path: 'about'),
           ],
         ),
