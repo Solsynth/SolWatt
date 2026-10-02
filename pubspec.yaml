@@ -34,14 +34,14 @@ dependencies:
   # Shared desktop frame, responsive helpers, and UI primitives.
   island_ui_foundation:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_ui_foundation
-      # Every Solian package is pinned to one revision. Pub identifies a git
+      # Every Socommon package is pinned to one revision. Pub identifies a git
       # dependency by url + path + ref, and these packages depend on each other
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
       # Bump all three refs together.
-      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
+      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
   material_ui: ^1.5.0
@@ -67,14 +67,14 @@ dependencies:
   path_provider: ^2.1.6
   solar_network_sdk:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
+      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
   solar_network_foundation:
     git:
-      url: https://src.solsynth.dev/SoSYS/Solian.git
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: 4d8de432ff1f5a9cc02796226fc45b4fdba73b56
+      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline

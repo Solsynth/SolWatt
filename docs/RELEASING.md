@@ -43,17 +43,17 @@ Xcode/Flutter build, matching the sibling repositories.
 
 ## Dependencies
 
-The Solian packages (`island_ui_foundation`, `solar_network_sdk`,
+The Socommon packages (`island_ui_foundation`, `solar_network_sdk`,
 `solar_network_foundation`) are git dependencies of
-`https://src.solsynth.dev/SoSYS/Solian.git`, each pinned to one `ref`. Keep the
+`https://src.solsynth.dev/SoSYS/Socommon.git`, each pinned to one `ref`. Keep the
 pins on the same revision: pub identifies a git dependency by url + path + ref,
 and the packages depend on each other by path inside that checkout, so a
 floating HEAD resolves one package from two sources (`at HEAD` vs
 `at <commit>`) and version solving fails.
 
 `pubspec.lock` is resolved from those git sources, which is what CI checks out.
-The local `pubspec_overrides.yaml` points the packages at a sibling Solian
-checkout for day-to-day work (it is gitignored), but every `flutter pub get`
+The local `pubspec_overrides.yaml` points the packages at the sibling
+`Solian/socommon` submodule checkout for day-to-day work (it is gitignored), but every `flutter pub get`
 then rewrites the lockfile to `source: path`. Restore it with
 `git checkout pubspec.lock` before committing, or CI re-resolves against
 floating revisions; the `analyze.yml` workflow rejects a pull request whose
