@@ -116,7 +116,6 @@ class SolWattApp extends ConsumerWidget {
 
     return MaterialApp.router(
       title: 'SolWatt',
-      debugShowCheckedModeBanner: false,
       theme: createSolWattTheme(Brightness.light, seedColor: accentSeed),
       darkTheme: createSolWattTheme(Brightness.dark, seedColor: accentSeed),
       themeMode: themeMode,

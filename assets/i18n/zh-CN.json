@@ -43,6 +43,7 @@
   "aboutLicenseContent": "GNU Affero 通用公共许可证 v3.0",
   "aboutCopyright": "版权所有 © {year} Solsynth。保留所有权利。",
   "copyToClipboard": "复制到剪贴板",
+  "brokenLink": "无法打开链接 {}。",
   "mail": "邮件",
   "flywheel": "飞轮",
   "more": "更多",

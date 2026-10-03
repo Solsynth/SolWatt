@@ -43,6 +43,7 @@
   "aboutLicenseContent": "GNU Affero General Public License v3.0",
   "aboutCopyright": "Copyright © {year} Solsynth. All rights reserved.",
   "copyToClipboard": "Copy to clipboard",
+  "brokenLink": "Could not open the link {}.",
   "mail": "Mail",
   "flywheel": "Flywheel",
   "more": "More",

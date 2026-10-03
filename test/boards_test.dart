@@ -52,8 +52,13 @@ final _tasks = [
       id: 'task-$index',
       name: 'Task $index',
       broadId: 'board-a',
-      taskKey: 'RM-$index',
+      taskKey: index == 6 ? null : 'RM-$index',
       groupId: 'group-1',
+      description: index == 1 ? 'Notes with *emphasis*' : null,
+      content: index == 1 ? '**Bold** detail\n\n- item' : null,
+      tags: index == 2 ? const ['design', 'urgent', 'api'] : const [],
+      priority: index == 3 ? 2 : 0,
+      deadlineAt: index == 4 ? DateTime(2026, 1, 1) : null,
     ),
 ];
 
@@ -160,6 +165,35 @@ void main() {
     expect(find.text('Ungrouped'), findsOneWidget);
     expect(find.text('Doing'), findsOneWidget);
     expect(find.text('Task 1'), findsOneWidget);
+    // A bare tile (no key stamp, no meta line) hugs its single title line: the
+    // floating actions must not pad it with an empty band under the title.
+    final bareTile = tester.getSize(
+      find
+          .ancestor(of: find.text('Task 6'), matching: find.byType(Material))
+          .first,
+    );
+    expect(bareTile.height, lessThan(52));
+
+    // Wide screens keep the detail inline: tapping a card slides the panel in
+    // beside the board instead of pushing a route.
+    await tester.tap(find.text('Task 1'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Task details'), findsOneWidget);
+    expect(find.text('Mark completed'), findsOneWidget);
+    // The detail's body renders authored Markdown, not its raw markers.
+    expect(find.textContaining('Bold', findRichText: true), findsWidgets);
+    expect(find.textContaining('**Bold**', findRichText: true), findsNothing);
+    expect(find.textContaining('emphasis', findRichText: true), findsWidgets);
+    expect(find.textContaining('*emphasis*', findRichText: true), findsNothing);
+    // Still the board's own route: the rail never moved.
+    expect(find.byType(NavigationRail), findsOneWidget);
+
+    // The panel's close button hands the board back.
+    await tester.tap(find.byIcon(Symbols.close));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Task details'), findsNothing);
 
     // Back pops the tab's own stack: the list comes back, the rail never moved.
     await tester.tap(find.byIcon(Symbols.arrow_back));
@@ -184,6 +218,23 @@ void main() {
     );
     expect(find.text('RM'), findsNothing);
     expect(find.byType(NavigationRail), findsOneWidget);
+
+    // A board without groups shows its tasks directly: no lane card, no group
+    // header, and its cards drop the move action that has nothing to target.
+    expect(find.text('Ungrouped'), findsNothing);
+    expect(find.text('Task 1'), findsOneWidget);
+    // A waterfall, not one column: the first two cards sit side by side.
+    expect(
+      tester.getTopLeft(find.text('Task 1')).dx,
+      isNot(tester.getTopLeft(find.text('Task 2')).dx),
+    );
+    await tester.tap(find.byIcon(Symbols.more_vert).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Open task'), findsOneWidget);
+    expect(find.text('Move to group'), findsNothing);
+    await tester.tap(find.byType(ModalBarrier).last);
+    await tester.pumpAndSettle();
+    expect(find.text('Open task'), findsNothing);
 
     // ---- Phone ----
     await _pumpApp(tester, const Size(400, 800));
@@ -210,7 +261,7 @@ void main() {
     expect(find.text('Chores'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
 
-    // ---- Task detail on a phone: a sheet, not an empty backdrop ----
+    // ---- Task detail on a phone: a pushed screen, not a sheet ----
     await tester.tap(find.text('Roadmap'));
     await tester.pumpAndSettle();
     // The lanes scroll sideways: bring the first card into reach before
@@ -218,28 +269,24 @@ void main() {
     await tester.ensureVisible(find.text('Task 1'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Task 1'));
-    // The detail pulls its comment thread, so its body keeps an indicator
-    // turning: pump the sheet's entrance instead of settling the tree.
+    // The container transform runs, then the detail pulls its comment thread:
+    // pump the entrance instead of settling the whole tree.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 500));
 
-    // The record itself is on screen, and it took the bottom of the window:
-    // the sheet rides the root navigator, so it reaches the window edge rather
-    // than stopping at the shell's chrome.
+    // The record is its own route over the board: title in the app bar, the
+    // completion action in the body, and no sheet anywhere.
     expect(find.text('Task details'), findsOneWidget);
     expect(find.text('Mark completed'), findsOneWidget);
-    final sheetRect = tester.getRect(find.byType(mui.BottomSheet));
-    expect(sheetRect.bottom, 800);
-    // The board underneath carries no bottom bar to sit above.
-    expect(find.byType(NavigationBar), findsNothing);
-
-    // Dismissing it hands the board back.
-    await tester.tapAt(const Offset(20, 40));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(mui.BottomSheet), findsNothing);
+
+    // Back hands the board back.
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Task details'), findsNothing);
     expect(find.text('Mark completed'), findsNothing);
+    expect(find.text('Task 1'), findsOneWidget);
 
     // ---- Lanes on a phone: drag to move, drag to scroll ----
     await tester.tap(find.text('Roadmap'));
@@ -276,6 +323,33 @@ void main() {
     await tester.drag(card, const Offset(0, -80));
     await tester.pumpAndSettle();
     expect(laneOffset(), greaterThan(before + 30));
+
+    // ---- A group-less board on a phone: one full-width column ----
+    tester.view.physicalSize = const Size(400, 800);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Symbols.arrow_back));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chores'));
+    await tester.pumpAndSettle();
+
+    // One column, not the desktop waterfall: the tile spans the board width.
+    final tile = tester.getSize(
+      find
+          .ancestor(of: find.text('Task 1'), matching: find.byType(Material))
+          .first,
+    );
+    expect(tile.width, greaterThan(320));
+    // The container transform must not paint the package's default opaque sheet
+    // behind the tile.
+    final container = tester.widget(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget.runtimeType.toString().startsWith('OpenContainer<'),
+          )
+          .first,
+    );
+    expect((container as dynamic).closedColor.a, 0);
   });
 }
 

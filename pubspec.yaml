@@ -80,6 +80,9 @@ dependencies:
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
   # colours in place, which needs a real parse rather than a regex.
   html: ^0.15.7
+  # Task and board bodies render Markdown with the same pipeline the Solar
+  # Network packages use; declared directly so the import is first-party.
+  flutter_markdown_plus: ^1.0.12
   url_launcher: ^6.3.2
   qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.3

@@ -804,7 +804,7 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_markdown_plus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: flutter_markdown_plus
       sha256: fce641d6c2106cc495de1cd603f97a4f9d615a97a64011928ded380dbdade935
@@ -1104,11 +1104,9 @@ packages:
   island_ui_foundation:
     dependency: "direct main"
     description:
-      path: "packages/island_ui_foundation"
-      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      resolved-ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/island_ui_foundation"
+      relative: true
+    source: path
     version: "1.0.0"
   jni:
     dependency: transitive
@@ -1830,20 +1828,16 @@ packages:
   solar_network_foundation:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_foundation"
-      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      resolved-ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/solar_network_foundation"
+      relative: true
+    source: path
     version: "0.1.0"
   solar_network_sdk:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_sdk"
-      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      resolved-ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/solar_network_sdk"
+      relative: true
+    source: path
     version: "1.0.0"
   source_gen:
     dependency: transitive

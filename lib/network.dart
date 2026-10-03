@@ -2884,6 +2884,29 @@ class WorkTask {
     gitHubIssue: gitHubIssue,
   );
 
+  /// Copy with the completion flag flipped, timestamped when first completed.
+  /// The pushed detail screen owns its task copy, so it can show the toggle
+  /// before the round trip; [withGroupId] mirrors the same fields.
+  WorkTask withCompletion(bool completed) => WorkTask(
+    id: id,
+    name: name,
+    description: description,
+    content: content,
+    attachments: attachments,
+    tags: tags,
+    priority: priority,
+    serialNumber: serialNumber,
+    taskKey: taskKey,
+    deadlineAt: deadlineAt,
+    completedAt: completed ? (completedAt ?? DateTime.now()) : null,
+    completeReason: completed ? (completeReason ?? 0) : null,
+    broadId: broadId,
+    parentTaskId: parentTaskId,
+    groupId: groupId,
+    assignees: assignees,
+    gitHubIssue: gitHubIssue,
+  );
+
   factory WorkTask.fromJson(Map<String, dynamic> json) {
     final issueRaw = json['git_hub_issue'] ?? json['github_issue'];
     return WorkTask(

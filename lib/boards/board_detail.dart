@@ -1,7 +1,8 @@
 part of 'boards_screen.dart';
 
 /// One board: a header that names it, a toolbar that narrows it, the lanes,
-/// and the task detail sidebar.
+/// and the task detail — an inline panel beside the board on wide screens, a
+/// pushed screen on narrow ones.
 ///
 /// Reached through the boards tab's nested stack, so the app shell (navigation
 /// rail / bottom bar) stays visible and Back returns to the board list.
@@ -55,9 +56,9 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     });
   }
 
-  /// Opens the task detail: a resizable panel beside the board on wide
-  /// screens, a sheet over it on phones. `ResponsiveSidebar` picks the form
-  /// factor; [_taskDetailSheet] supplies the phone sheet's chrome.
+  /// Opens the task detail in the wide-screen panel beside the board. Narrow
+  /// screens push [_TaskDetailPage] straight from the card
+  /// ([_TaskDetailLauncher]), so this is only reached on wide layouts.
   Future<void> _openTask(WorkTask task) async {
     _selectedTask.value = task;
     _showTaskDetail.value = true;
@@ -73,28 +74,8 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     } catch (_) {}
   }
 
-  /// The phone detail sheet. Taller than the panel convention because a task
-  /// record is long, and sized here rather than in the shared sidebar so the
-  /// board controls how much of the board stays visible behind it.
-  Widget _taskDetailSheet(BuildContext sheetContext) {
-    return SheetScaffold(
-      showHeader: false,
-      heightFactor: 0.85,
-      // The shared sidebar opens this sheet through the `material_ui` fork's
-      // `showModalBottomSheet`, so the sheet's own Material is the fork's. The
-      // detail body is built from Flutter widgets that assert a Flutter
-      // `Material` ancestor (the group dropdown, the comment field), so it
-      // brings its own.
-      child: Material(
-        color: Colors.transparent,
-        child: _taskDetail(onClose: () => Navigator.of(sheetContext).pop()),
-      ),
-    );
-  }
-
-  /// The detail body, shared by the wide panel and the phone sheet. It follows
-  /// [_selectedTask] so the detail fetch and lane moves land on screen without
-  /// reopening the surface; [onClose] closes whichever one is showing it.
+  /// The wide-screen panel body. It follows [_selectedTask] so the detail
+  /// fetch and lane moves land on screen without reopening the panel.
   Widget _taskDetail({required VoidCallback onClose}) {
     return ValueListenableBuilder<WorkTask?>(
       valueListenable: _selectedTask,
@@ -259,88 +240,128 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
           ],
         ],
       ),
-      body: ResponsiveSidebar(
-        showSidebar: _showTaskDetail,
-        sidebarWidth: 460,
-        minWideSidebarWidth: 360,
-        minMainContentWidth: 320,
-        drawerBuilder: _taskDetailSheet,
-        sidebarContent: _taskDetail(
-          onClose: () => _showTaskDetail.value = false,
-        ),
-        mainContent: Column(
-          children: [
-            _BoardToolbar(
-              controller: _search,
-              onSearchChanged: _onSearchChanged,
-              onSearchCleared: () {
-                _search.clear();
-                _onSearchChanged('');
-              },
-              filters: _filters,
-              groups: groupItems,
-              taskCount: taskCount,
-              onFiltersChanged: _setFilters,
-              onOpenFilters: openFilters,
-            ),
-            Expanded(
-              child: tasks.when(
-                loading: () => const PageLoading(),
-                error: (error, _) => PageError(
-                  message: error.toString(),
-                  onRetry: () {
-                    ref.invalidate(tasksProvider(_taskRequest));
-                    ref.invalidate(taskGroupsProvider(_broadId));
-                  },
-                ),
-                data: (taskItems) => groups.when(
+      body: Builder(
+        builder: (context) {
+          final boardContent = Column(
+            children: [
+              _BoardToolbar(
+                controller: _search,
+                onSearchChanged: _onSearchChanged,
+                onSearchCleared: () {
+                  _search.clear();
+                  _onSearchChanged('');
+                },
+                filters: _filters,
+                groups: groupItems,
+                taskCount: taskCount,
+                onFiltersChanged: _setFilters,
+                onOpenFilters: openFilters,
+              ),
+              Expanded(
+                child: tasks.when(
                   loading: () => const PageLoading(),
                   error: (error, _) => PageError(
                     message: error.toString(),
-                    onRetry: () => ref.invalidate(taskGroupsProvider(_broadId)),
+                    onRetry: () {
+                      ref.invalidate(tasksProvider(_taskRequest));
+                      ref.invalidate(taskGroupsProvider(_broadId));
+                    },
                   ),
-                  data: (groupItems) {
-                    final columns = _buildColumns(
-                      groupItems,
-                      _effectiveTasks(taskItems),
-                    );
-                    if (columns.every((column) => column.tasks.isEmpty) &&
-                        _filters.isEmpty) {
-                      return EmptyState(
-                        icon: Symbols.task_alt,
-                        title: 'noTasksYet'.tr(),
-                        message: 'addTaskOrCreateGroups'.tr(),
-                        action: FilledButton.icon(
-                          onPressed: newTask,
-                          icon: const Icon(Symbols.add_task),
-                          label: Text('newTask'.tr()),
-                        ),
+                  data: (taskItems) => groups.when(
+                    loading: () => const PageLoading(),
+                    error: (error, _) => PageError(
+                      message: error.toString(),
+                      onRetry: () =>
+                          ref.invalidate(taskGroupsProvider(_broadId)),
+                    ),
+                    data: (groupItems) {
+                      final columns = _buildColumns(
+                        groupItems,
+                        _effectiveTasks(taskItems),
                       );
-                    }
-                    // An empty board lands here only when a filter is what
-                    // emptied it: an unfiltered board always shows its lanes
-                    // so a task can be created straight into one.
-                    if (columns.every((column) => column.tasks.isEmpty)) {
-                      return EmptyState(
-                        icon: Symbols.filter_alt_off,
-                        title: 'noMatchingTasks'.tr(),
-                        message: 'noMatchingTasksDetail'.tr(),
-                        action: FilledButton.icon(
-                          onPressed: () => _setFilters(const TaskListFilters()),
-                          icon: const Icon(Symbols.filter_alt_off),
-                          label: Text('clearFilters'.tr()),
-                        ),
-                      );
-                    }
+                      if (columns.every((column) => column.tasks.isEmpty) &&
+                          _filters.isEmpty) {
+                        return EmptyState(
+                          icon: Symbols.task_alt,
+                          title: 'noTasksYet'.tr(),
+                          message: 'addTaskOrCreateGroups'.tr(),
+                          action: FilledButton.icon(
+                            onPressed: newTask,
+                            icon: const Icon(Symbols.add_task),
+                            label: Text('newTask'.tr()),
+                          ),
+                        );
+                      }
+                      // An empty board lands here only when a filter is what
+                      // emptied it: an unfiltered board always shows its lanes
+                      // so a task can be created straight into one.
+                      if (columns.every((column) => column.tasks.isEmpty)) {
+                        return EmptyState(
+                          icon: Symbols.filter_alt_off,
+                          title: 'noMatchingTasks'.tr(),
+                          message: 'noMatchingTasksDetail'.tr(),
+                          action: FilledButton.icon(
+                            onPressed: () =>
+                                _setFilters(const TaskListFilters()),
+                            icon: const Icon(Symbols.filter_alt_off),
+                            label: Text('clearFilters'.tr()),
+                          ),
+                        );
+                      }
 
-                    if (groupItems.isEmpty) {
-                      final only = columns.single;
-                      return Center(
-                        child: SizedBox(
-                          width: _TaskLane.width,
-                          child: _TaskLane(
-                            column: only,
-                            color: _laneColor(0),
+                      // A board with no groups has nothing to lane: no card, no
+                      // column chrome, just the tasks — one full-width column
+                      // on a phone, a waterfall where the width affords it.
+                      if (groupItems.isEmpty) {
+                        final tasks = columns.single.tasks;
+                        Widget tile(WorkTask task) => _TaskDetailLauncher(
+                          task: task,
+                          broadId: _broadId,
+                          openWide: () => _openTask(task),
+                          cardBuilder: (onOpen) => _TaskCard(
+                            task: task,
+                            onOpen: onOpen,
+                            onToggleComplete: () => _toggleTaskComplete(
+                              context,
+                              ref,
+                              _broadId,
+                              task,
+                            ),
+                            onDelete: () =>
+                                _deleteTask(context, ref, _broadId, task),
+                            onMove: null,
+                          ),
+                        );
+                        if (!wide) {
+                          return ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                            itemCount: tasks.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) => tile(tasks[index]),
+                          );
+                        }
+                        return MasonryGridView.extent(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          maxCrossAxisExtent: 320,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          itemCount: tasks.length,
+                          itemBuilder: (context, index) => tile(tasks[index]),
+                        );
+                      }
+
+                      return ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        itemCount: columns.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
+                          final column = columns[index];
+                          return _TaskLane(
+                            broadId: _broadId,
+                            column: column,
+                            color: _laneColor(index),
                             onOpenTask: _openTask,
                             onToggleComplete: (task) => _toggleTaskComplete(
                               context,
@@ -352,41 +373,29 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                                 _deleteTask(context, ref, _broadId, task),
                             onMoveTask: (task, groupId) =>
                                 _onMoveTask(task, groupId),
-                            onAddTask: () => newTask(groupId: only.groupId),
+                            onAddTask: () => newTask(groupId: column.groupId),
                             laneOptions: columns,
-                          ),
-                        ),
+                          );
+                        },
                       );
-                    }
-
-                    return ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                      itemCount: columns.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 12),
-                      itemBuilder: (context, index) {
-                        final column = columns[index];
-                        return _TaskLane(
-                          column: column,
-                          color: _laneColor(index),
-                          onOpenTask: _openTask,
-                          onToggleComplete: (task) =>
-                              _toggleTaskComplete(context, ref, _broadId, task),
-                          onDeleteTask: (task) =>
-                              _deleteTask(context, ref, _broadId, task),
-                          onMoveTask: (task, groupId) =>
-                              _onMoveTask(task, groupId),
-                          onAddTask: () => newTask(groupId: column.groupId),
-                          laneOptions: columns,
-                        );
-                      },
-                    );
-                  },
+                    },
+                  ),
                 ),
               ),
+            ],
+          );
+          if (!wide) return boardContent;
+          return ResponsiveSidebar(
+            showSidebar: _showTaskDetail,
+            sidebarWidth: 460,
+            minWideSidebarWidth: 360,
+            minMainContentWidth: 320,
+            sidebarContent: _taskDetail(
+              onClose: () => _showTaskDetail.value = false,
             ),
-          ],
-        ),
+            mainContent: boardContent,
+          );
+        },
       ),
     );
   }
@@ -625,6 +634,7 @@ class _BoardToolbar extends StatelessWidget {
 /// One lane: its identity rail, how much of it is done, and its tasks.
 class _TaskLane extends StatelessWidget {
   const _TaskLane({
+    required this.broadId,
     required this.column,
     required this.color,
     required this.onOpenTask,
@@ -635,6 +645,7 @@ class _TaskLane extends StatelessWidget {
     required this.laneOptions,
   });
 
+  final String broadId;
   final _TaskColumn column;
   final Color color;
   final ValueChanged<WorkTask> onOpenTask;
@@ -757,13 +768,18 @@ class _TaskLane extends StatelessWidget {
                           separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final task = column.tasks[index];
-                            return _DraggableTaskCard(
-                              width: width - _bodyPadding * 2,
+                            return _TaskDetailLauncher(
                               task: task,
-                              onOpen: () => onOpenTask(task),
-                              onToggleComplete: () => onToggleComplete(task),
-                              onDelete: () => onDeleteTask(task),
-                              onMove: () => _pickLane(context, task),
+                              broadId: broadId,
+                              openWide: () => onOpenTask(task),
+                              cardBuilder: (onOpen) => _DraggableTaskCard(
+                                width: width - _bodyPadding * 2,
+                                task: task,
+                                onOpen: onOpen,
+                                onToggleComplete: () => onToggleComplete(task),
+                                onDelete: () => onDeleteTask(task),
+                                onMove: () => _pickLane(context, task),
+                              ),
                             );
                           },
                         ),
@@ -871,20 +887,27 @@ class _DraggableTaskCard extends StatelessWidget {
 /// A task, as a ticket: identity stamp, title, and one dense meta line. The
 /// card's left rail is the only colour on it and it is only there when the task
 /// asks for attention (overdue, urgent, high) — a silent rail means "normal".
+///
+/// The complete and overflow actions float over the tile instead of sharing a
+/// row with the title: that row is as tall as its largest control, which padded
+/// every bare task with an empty band under its title.
 class _TaskCard extends StatelessWidget {
   const _TaskCard({
     required this.task,
     required this.onOpen,
     required this.onToggleComplete,
     required this.onDelete,
-    required this.onMove,
+    this.onMove,
   });
 
   final WorkTask task;
   final VoidCallback onOpen;
   final VoidCallback onToggleComplete;
   final VoidCallback onDelete;
-  final VoidCallback onMove;
+
+  /// Moves the task into another group. Null when the board has no groups, so
+  /// the card leaves the action out instead of offering a dead one.
+  final VoidCallback? onMove;
 
   @override
   Widget build(BuildContext context) {
@@ -906,88 +929,64 @@ class _TaskCard extends StatelessWidget {
         children: [
           InkWell(
             onTap: onOpen,
+            // The text is inset past both corner actions, so the tile takes its
+            // height from the text alone.
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 4, 10),
+              padding: const EdgeInsets.fromLTRB(44, 12, 36, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: IconButton(
-                          tooltip: task.isCompleted
-                              ? 'reopenTask'.tr()
-                              : 'markCompleted'.tr(),
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 28,
-                            minHeight: 28,
-                          ),
-                          onPressed: onToggleComplete,
-                          icon: Icon(
-                            task.isCompleted
-                                ? Symbols.check_circle
-                                : Symbols.radio_button_unchecked,
-                            size: 20,
-                            color: task.isCompleted
-                                ? scheme.tertiary
-                                : scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (task.displayKey case final key?) ...[
-                              _KeyStamp(key),
-                              const SizedBox(height: 2),
-                            ],
-                            Text(
-                              task.name,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                height: 1.25,
-                                decoration: task.isCompleted
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                                color: task.isCompleted
-                                    ? scheme.onSurfaceVariant
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'more'.tr(),
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(
-                          Symbols.more_vert,
-                          size: 18,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                        onPressed: () => _showCardMenu(context),
-                      ),
-                    ],
+                  if (task.displayKey case final key?) ...[
+                    _KeyStamp(key),
+                    const SizedBox(height: 2),
+                  ],
+                  Text(
+                    task.name,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                      decoration: task.isCompleted
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: task.isCompleted ? scheme.onSurfaceVariant : null,
+                    ),
                   ),
                   if (meta.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 34, right: 8),
-                      child: Wrap(spacing: 10, runSpacing: 4, children: meta),
-                    ),
+                    const SizedBox(height: 10),
+                    Wrap(spacing: 12, runSpacing: 6, children: meta),
                   ],
                 ],
               ),
+            ),
+          ),
+          Positioned(
+            top: 6,
+            left: 6,
+            child: _TileAction(
+              tooltip: task.isCompleted
+                  ? 'reopenTask'.tr()
+                  : 'markCompleted'.tr(),
+              onPressed: onToggleComplete,
+              icon: task.isCompleted
+                  ? Symbols.check_circle
+                  : Symbols.radio_button_unchecked,
+              color: task.isCompleted
+                  ? scheme.tertiary
+                  : scheme.onSurfaceVariant,
+            ),
+          ),
+          Positioned(
+            top: 6,
+            right: 2,
+            child: _TileAction(
+              tooltip: 'more'.tr(),
+              onPressed: () => _showCardMenu(context),
+              icon: Symbols.more_vert,
+              iconSize: 18,
+              color: scheme.onSurfaceVariant,
             ),
           ),
           if (attention != null)
@@ -1015,11 +1014,12 @@ class _TaskCard extends StatelessWidget {
               title: Text('openTask'.tr()),
               onTap: () => Navigator.pop(context, 'open'),
             ),
-            ListTile(
-              leading: const Icon(Symbols.swap_horiz),
-              title: Text('moveToGroup'.tr()),
-              onTap: () => Navigator.pop(context, 'move'),
-            ),
+            if (onMove != null)
+              ListTile(
+                leading: const Icon(Symbols.swap_horiz),
+                title: Text('moveToGroup'.tr()),
+                onTap: () => Navigator.pop(context, 'move'),
+              ),
             ListTile(
               leading: const Icon(Symbols.delete),
               title: Text('deleteTask'.tr()),
@@ -1033,10 +1033,39 @@ class _TaskCard extends StatelessWidget {
       case 'open':
         onOpen();
       case 'move':
-        onMove();
+        onMove?.call();
       case 'delete':
         onDelete();
     }
+  }
+}
+
+/// A square, chromeless action for a tile's floating corner buttons.
+class _TileAction extends StatelessWidget {
+  const _TileAction({
+    required this.icon,
+    required this.onPressed,
+    required this.tooltip,
+    this.iconSize = 20,
+    this.color,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String tooltip;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+      iconSize: iconSize,
+      icon: Icon(icon, color: color),
+    );
   }
 }
 
@@ -1228,7 +1257,7 @@ String _initials(String label) {
   return trimmed.characters.first.toUpperCase();
 }
 
-class _TaskDetailSidebar extends ConsumerWidget {
+class _TaskDetailSidebar extends StatelessWidget {
   const _TaskDetailSidebar({
     required this.task,
     required this.broadId,
@@ -1239,8 +1268,6 @@ class _TaskDetailSidebar extends ConsumerWidget {
   });
 
   final WorkTask task;
-
-  /// The board the task belongs to: the list endpoint may omit it on the task.
   final String broadId;
   final VoidCallback onClose;
   final VoidCallback onEdit;
@@ -1248,15 +1275,8 @@ class _TaskDetailSidebar extends ConsumerWidget {
   final ValueChanged<String?> onMoveTask;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
+  Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final groups =
-        ref.watch(taskGroupsProvider(broadId)).asData?.value ??
-        const <TaskGroup>[];
-    final completeLabel = _completeReasonLabel(task.completeReason);
-    final priority = _priorityMeta(task.priority);
-
     return SafeArea(
       child: Column(
         children: [
@@ -1282,202 +1302,386 @@ class _TaskDetailSidebar extends ConsumerWidget {
           ),
           const Divider(height: 1),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (task.displayKey case final key?)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _KeyStamp(key, style: text.labelLarge),
-                    ),
-                  const SizedBox(height: 8),
-                  Text(
-                    task.name,
-                    style: text.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      decoration: task.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.tonalIcon(
-                    onPressed: onToggleComplete,
-                    icon: Icon(
-                      task.isCompleted
-                          ? Symbols.radio_button_unchecked
-                          : Symbols.check_circle,
-                      size: 20,
-                    ),
-                    label: Text(
-                      task.isCompleted
-                          ? 'reopenTask'.tr()
-                          : 'markCompleted'.tr(),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _PropertyRow(
-                    icon: Symbols.hub,
-                    label: 'status'.tr(),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: StatusChip(
-                        label: completeLabel ?? 'open'.tr(),
-                        icon: task.isCompleted
-                            ? Symbols.done_all
-                            : Symbols.pending,
-                        tone: task.isCompleted
-                            ? StatusChipTone.secondary
-                            : StatusChipTone.neutral,
-                      ),
-                    ),
-                  ),
-                  _PropertyRow(
-                    icon: priority.icon,
-                    label: 'priority'.tr(),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: StatusChip(
-                        label: priority.label,
-                        icon: priority.icon,
-                        tone: priority.tone,
-                      ),
-                    ),
-                  ),
-                  _PropertyRow(
-                    icon: Symbols.view_column,
-                    label: 'group'.tr(),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String?>(
-                        isDense: true,
-                        isExpanded: true,
-                        value: groups.any((group) => group.id == task.groupId)
-                            ? task.groupId
-                            : null,
-                        items: [
-                          DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('ungrouped'.tr()),
-                          ),
-                          for (final group in groups)
-                            DropdownMenuItem<String?>(
-                              value: group.id,
-                              child: Text(group.name),
-                            ),
-                        ],
-                        onChanged: onMoveTask,
-                      ),
-                    ),
-                  ),
-                  if (task.deadlineAt case final deadline?)
-                    _PropertyRow(
-                      icon: Symbols.event,
-                      label: 'deadline'.tr(),
-                      child: Text(
-                        _formatDeadline(deadline),
-                        style: text.bodyMedium?.copyWith(
-                          color: _isOverdue(task)
-                              ? scheme.error
-                              : scheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  if (task.displayDescription case final description?) ...[
-                    const SizedBox(height: 12),
-                    Text('description'.tr(), style: text.titleSmall),
-                    const SizedBox(height: 8),
-                    Text(description),
-                  ],
-                  if (task.displayContent case final content?) ...[
-                    const SizedBox(height: 24),
-                    Text('details'.tr(), style: text.titleSmall),
-                    const SizedBox(height: 8),
-                    MarkdownTextContent(content: content),
-                  ],
-                  if (task.assignees.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    Text('assigneesLabel'.tr(), style: text.titleSmall),
-                    const SizedBox(height: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final assignee in task.assignees)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 14,
-                                  backgroundColor: scheme.primaryContainer,
-                                  foregroundColor: scheme.onPrimaryContainer,
-                                  child: Text(
-                                    _initials(assignee.label),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    assignee.label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: text.bodyMedium,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                  if (task.attachments.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    Text('attachments'.tr(), style: text.titleSmall),
-                    const SizedBox(height: 8),
-                    CloudFileAttachmentList(
-                      files: task.attachments,
-                      workspaceId: ref
-                          .watch(selectedWorkspaceProvider)
-                          .value
-                          ?.id,
-                    ),
-                  ],
-                  if (task.gitHubIssue case final issue?) ...[
-                    const SizedBox(height: 20),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        issue.isPullRequest ? Symbols.call_split : Symbols.hub,
-                        color: scheme.primary,
-                      ),
-                      title: Text(issue.label),
-                      subtitle: Text(
-                        issue.htmlUrl,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: const Icon(Symbols.open_in_new),
-                      onTap: () => _openExternalUrl(issue.htmlUrl),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  // Keyed by task id: the comment composer is per-task state and
-                  // must not carry a draft from the previously opened task.
-                  TaskCommentsSection(key: ValueKey(task.id), taskId: task.id),
-                ],
-              ),
+            child: _TaskDetailBody(
+              task: task,
+              broadId: broadId,
+              onToggleComplete: onToggleComplete,
+              onMoveTask: onMoveTask,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The task record itself: key, title, completion toggle, properties, body,
+/// assignees, attachments, GitHub link and comments. Shared by the wide panel
+/// ([_TaskDetailSidebar]) and the pushed narrow screen ([_TaskDetailPage]).
+class _TaskDetailBody extends ConsumerWidget {
+  const _TaskDetailBody({
+    required this.task,
+    required this.broadId,
+    required this.onToggleComplete,
+    required this.onMoveTask,
+  });
+
+  final WorkTask task;
+
+  /// The board the task belongs to: the list endpoint may omit it on the task.
+  final String broadId;
+  final VoidCallback onToggleComplete;
+  final ValueChanged<String?> onMoveTask;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final groups =
+        ref.watch(taskGroupsProvider(broadId)).asData?.value ??
+        const <TaskGroup>[];
+    final completeLabel = _completeReasonLabel(task.completeReason);
+    final priority = _priorityMeta(task.priority);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (task.displayKey case final key?)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _KeyStamp(key, style: text.labelLarge),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            task.name,
+            style: text.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: onToggleComplete,
+            icon: Icon(
+              task.isCompleted
+                  ? Symbols.radio_button_unchecked
+                  : Symbols.check_circle,
+              size: 20,
+            ),
+            label: Text(
+              task.isCompleted ? 'reopenTask'.tr() : 'markCompleted'.tr(),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _PropertyRow(
+            icon: Symbols.hub,
+            label: 'status'.tr(),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                label: completeLabel ?? 'open'.tr(),
+                icon: task.isCompleted ? Symbols.done_all : Symbols.pending,
+                tone: task.isCompleted
+                    ? StatusChipTone.secondary
+                    : StatusChipTone.neutral,
+              ),
+            ),
+          ),
+          _PropertyRow(
+            icon: priority.icon,
+            label: 'priority'.tr(),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusChip(
+                label: priority.label,
+                icon: priority.icon,
+                tone: priority.tone,
+              ),
+            ),
+          ),
+          _PropertyRow(
+            icon: Symbols.view_column,
+            label: 'group'.tr(),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String?>(
+                isDense: true,
+                isExpanded: true,
+                value: groups.any((group) => group.id == task.groupId)
+                    ? task.groupId
+                    : null,
+                items: [
+                  DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('ungrouped'.tr()),
+                  ),
+                  for (final group in groups)
+                    DropdownMenuItem<String?>(
+                      value: group.id,
+                      child: Text(group.name),
+                    ),
+                ],
+                onChanged: onMoveTask,
+              ),
+            ),
+          ),
+          if (task.deadlineAt case final deadline?)
+            _PropertyRow(
+              icon: Symbols.event,
+              label: 'deadline'.tr(),
+              child: Text(
+                _formatDeadline(deadline),
+                style: text.bodyMedium?.copyWith(
+                  color: _isOverdue(task) ? scheme.error : scheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (task.displayDescription case final description?) ...[
+            const SizedBox(height: 12),
+            Text('description'.tr(), style: text.titleSmall),
+            const SizedBox(height: 8),
+            MarkdownTextContent(content: description),
+          ],
+          if (task.displayContent case final content?) ...[
+            const SizedBox(height: 24),
+            Text('details'.tr(), style: text.titleSmall),
+            const SizedBox(height: 8),
+            MarkdownTextContent(content: content),
+          ],
+          if (task.assignees.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Text('assigneesLabel'.tr(), style: text.titleSmall),
+            const SizedBox(height: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final assignee in task.assignees)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: scheme.primaryContainer,
+                          foregroundColor: scheme.onPrimaryContainer,
+                          child: Text(
+                            _initials(assignee.label),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            assignee.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodyMedium,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (task.attachments.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Text('attachments'.tr(), style: text.titleSmall),
+            const SizedBox(height: 8),
+            CloudFileAttachmentList(
+              files: task.attachments,
+              workspaceId: ref.watch(selectedWorkspaceProvider).value?.id,
+            ),
+          ],
+          if (task.gitHubIssue case final issue?) ...[
+            const SizedBox(height: 20),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                issue.isPullRequest ? Symbols.call_split : Symbols.hub,
+                color: scheme.primary,
+              ),
+              title: Text(issue.label),
+              subtitle: Text(
+                issue.htmlUrl,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Symbols.open_in_new),
+              onTap: () => _openExternalUrl(issue.htmlUrl),
+            ),
+          ],
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 12),
+          // Keyed by task id: the comment composer is per-task state and
+          // must not carry a draft from the previously opened task.
+          TaskCommentsSection(key: ValueKey(task.id), taskId: task.id),
+        ],
+      ),
+    );
+  }
+}
+
+/// Narrow-screen task detail: a full route pushed from the card
+/// ([_TaskDetailLauncher]). It owns its task copy so the completion toggle and
+/// lane move land before the round trip; [_TaskDetailBody] renders the record.
+class _TaskDetailPage extends ConsumerStatefulWidget {
+  const _TaskDetailPage({required this.broadId, required this.task});
+
+  final String broadId;
+  final WorkTask task;
+
+  @override
+  ConsumerState<_TaskDetailPage> createState() => _TaskDetailPageState();
+}
+
+class _TaskDetailPageState extends ConsumerState<_TaskDetailPage> {
+  late WorkTask _task = widget.task;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadDetail());
+  }
+
+  /// Cards carry what the list endpoint returns; the detail view wants the
+  /// full record. Keep the card's copy if the fetch fails.
+  Future<void> _loadDetail() async {
+    try {
+      final detailed = await ref
+          .read(wattEngineClientProvider)
+          .getTask(_task.id);
+      if (!mounted) return;
+      setState(() => _task = detailed);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleComplete() async {
+    final before = _task;
+    final complete = !before.isCompleted;
+    setState(() => _task = before.withCompletion(complete));
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .updateTask(
+            before.id,
+            WorkTaskDraft(
+              name: before.name,
+              description: before.displayDescription,
+              content: before.displayContent,
+              priority: before.priority,
+              attachmentIds: before.attachments.map((file) => file.id).toList(),
+              tags: before.tags,
+              deadlineAt: before.deadlineAt,
+              completeReason: complete ? 0 : null,
+              groupId: before.groupId,
+            ),
+          );
+      ref.invalidate(tasksProvider);
+      if (!mounted) return;
+      showSnackBar(complete ? 'taskCompleted'.tr() : 'taskReopened'.tr());
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _task = before);
+      showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _moveTask(String? targetGroupId) async {
+    final before = _task;
+    final alreadyThere = targetGroupId == null
+        ? before.groupId == null
+        : before.groupId == targetGroupId;
+    if (alreadyThere) return;
+    setState(() => _task = before.withGroupId(targetGroupId));
+    try {
+      await ref
+          .read(wattEngineClientProvider)
+          .updateTask(
+            before.id,
+            WorkTaskDraft(
+              name: before.name,
+              description: before.displayDescription,
+              content: before.displayContent,
+              priority: before.priority,
+              attachmentIds: before.attachments.map((file) => file.id).toList(),
+              tags: before.tags,
+              deadlineAt: before.deadlineAt,
+              completeReason: before.completeReason,
+              groupId: targetGroupId,
+              ungroup: targetGroupId == null ? true : null,
+            ),
+          );
+      ref.invalidate(tasksProvider);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _task = before);
+      showSnackBar(error.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('taskDetails'.tr()),
+        actions: [
+          IconButton(
+            tooltip: 'editTask'.tr(),
+            icon: const Icon(Symbols.edit),
+            onPressed: () =>
+                _taskForm(context, ref, widget.broadId, task: _task),
+          ),
+        ],
+      ),
+      body: _TaskDetailBody(
+        task: _task,
+        broadId: widget.broadId,
+        onToggleComplete: _toggleComplete,
+        onMoveTask: _moveTask,
+      ),
+    );
+  }
+}
+
+/// Opens a task in the form factor the width asks for: wide shows the inline
+/// panel through [openWide]; narrow animates the card into a pushed
+/// [_TaskDetailPage] with a container transform.
+class _TaskDetailLauncher extends StatelessWidget {
+  const _TaskDetailLauncher({
+    required this.task,
+    required this.broadId,
+    required this.openWide,
+    required this.cardBuilder,
+  });
+
+  final WorkTask task;
+  final String broadId;
+  final VoidCallback openWide;
+  final Widget Function(VoidCallback onOpen) cardBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isWideScreen(context)) return cardBuilder(openWide);
+    // The container's default white closed fill would sit behind the card as a
+    // pale tile on the board; keep it transparent and let the page surface
+    // carry the opened state.
+    final scheme = Theme.of(context).colorScheme;
+    return OpenContainer(
+      transitionType: ContainerTransitionType.fadeThrough,
+      transitionDuration: const Duration(milliseconds: 300),
+      closedColor: Colors.transparent,
+      openColor: scheme.surface,
+      middleColor: scheme.surface,
+      closedBuilder: (context, open) => cardBuilder(open),
+      openBuilder: (context, _) =>
+          _TaskDetailPage(broadId: broadId, task: task),
     );
   }
 }
