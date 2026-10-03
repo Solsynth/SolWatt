@@ -932,7 +932,7 @@ class _TaskCard extends StatelessWidget {
             // The text is inset past both corner actions, so the tile takes its
             // height from the text alone.
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(44, 12, 36, 12),
+              padding: const EdgeInsets.fromLTRB(50, 12, 36, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
