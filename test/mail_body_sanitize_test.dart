@@ -62,6 +62,29 @@ void main() {
       expect(result, contains('<p>a</p>'));
     });
 
+    test('removes target attributes so every link stays in one frame', () {
+      final result = sanitizeEmailHtml(
+        '<a href="https://example.com/a" target="_blank">a</a>'
+        "<a href='https://example.com/b' TARGET='_blank'>b</a>"
+        '<a href="https://example.com/c" target=_top>c</a>'
+        '<a title="1 > 2" href="https://example.com/d" target="_blank">d</a>'
+        '<base target="_blank">',
+      );
+      expect(result, isNot(contains('target')));
+      expect(result, contains('<a href="https://example.com/a">a</a>'));
+      expect(result, contains("<a href='https://example.com/b'>b</a>"));
+      expect(result, contains('<a href="https://example.com/c">c</a>'));
+      expect(result, contains('<a title="1 > 2" href="https://example.com/d">d</a>'));
+    });
+
+    test('leaves attributes and urls that merely spell target alone', () {
+      const body =
+          '<div data-target="panel">'
+          '<a href="https://example.com/?target=panel">x</a>'
+          '</div>';
+      expect(sanitizeEmailHtml(body), body);
+    });
+
     test('keeps ordinary message markup and links intact', () {
       const body =
           '<div style="color:red"><p>Hi <b>there</b></p>'

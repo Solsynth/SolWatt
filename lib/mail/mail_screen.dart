@@ -3980,9 +3980,12 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
 ///
 /// The message pane needs JavaScript because the plugin reports scroll
 /// positions from a script it injects into the document; without this the
-/// sender's own scripts would run. Styling and links are untouched — `<script>`
-/// bodies, embedded objects, inline event handlers and `javascript:` URLs are
-/// removed.
+/// sender's own scripts would run. Styling and link destinations are untouched
+/// — `<script>` bodies, embedded objects, inline event handlers and
+/// `javascript:` URLs are removed, and a link's `target` goes with them: the
+/// pane has one frame, and `_blank` makes the platform load the destination in
+/// place of the message instead of letting [shouldOpenEmailLinkExternally] hand
+/// it to the system browser.
 String sanitizeEmailHtml(String html) {
   // Paired active elements, contents included.
   var sanitized = html.replaceAll(
@@ -4005,6 +4008,18 @@ String sanitizeEmailHtml(String html) {
   sanitized = sanitized.replaceAll(
     RegExp(
       r'''\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  // `target` attributes, `_blank` above all: they turn a link click into a
+  // new-window request, and the platforms answer one by loading the target in
+  // the pane itself, replacing the message. Without the attribute the click is
+  // an ordinary main-frame navigation — which the pane cancels and hands to the
+  // system browser.
+  sanitized = sanitized.replaceAll(
+    RegExp(
+      r'''\s+target\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''',
       caseSensitive: false,
     ),
     '',
