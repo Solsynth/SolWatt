@@ -52,7 +52,7 @@ Future<void> _taskForm(
     ref.invalidate(tasksProvider);
     showSnackBar(task == null ? 'taskCreated'.tr() : 'taskUpdated'.tr());
   } catch (error) {
-    showSnackBar(error.toString());
+    showSnackBar(wattApiErrorMessage(error));
   }
 }
 
@@ -381,7 +381,7 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
             groups.when(
               loading: () => const LinearProgressIndicator(),
               error: (error, _) => Text(
-                'groupsUnavailable'.tr(args: [error.toString()]),
+                'groupsUnavailable'.tr(args: [wattApiErrorMessage(error)]),
                 style: text.bodySmall?.copyWith(color: scheme.error),
               ),
               data: (items) {
@@ -712,7 +712,7 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: Text(snapshot.error.toString()));
+          return Center(child: Text(wattApiErrorMessage(snapshot.error!)));
         }
         final items = snapshot.data ?? const [];
         if (items.isEmpty) {
@@ -839,7 +839,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
       ref.invalidate(taskGroupsProvider(widget.broadId));
       showSnackBar('groupCreated'.tr());
     } catch (error) {
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -864,7 +864,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
       ref.invalidate(taskGroupsProvider(widget.broadId));
       showSnackBar('groupUpdated'.tr());
     } catch (error) {
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
     }
   }
 
@@ -883,7 +883,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
       ref.invalidate(tasksProvider);
       showSnackBar('groupDeleted'.tr());
     } catch (error) {
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
     }
   }
 
@@ -935,7 +935,7 @@ class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
                 error: (error, _) => EmptyState(
                   icon: Symbols.error,
                   title: 'couldNotLoadGroups'.tr(),
-                  message: error.toString(),
+                  message: wattApiErrorMessage(error),
                   action: FilledButton(
                     onPressed: () =>
                         ref.invalidate(taskGroupsProvider(widget.broadId)),

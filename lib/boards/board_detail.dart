@@ -142,7 +142,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _groupOverrides.remove(task.id));
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
       ref.invalidate(tasksProvider(_taskRequest));
     }
   }
@@ -261,7 +261,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                 child: tasks.when(
                   loading: () => const PageLoading(),
                   error: (error, _) => PageError(
-                    message: error.toString(),
+                    message: wattApiErrorMessage(error),
                     onRetry: () {
                       ref.invalidate(tasksProvider(_taskRequest));
                       ref.invalidate(taskGroupsProvider(_broadId));
@@ -270,7 +270,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                   data: (taskItems) => groups.when(
                     loading: () => const PageLoading(),
                     error: (error, _) => PageError(
-                      message: error.toString(),
+                      message: wattApiErrorMessage(error),
                       onRetry: () =>
                           ref.invalidate(taskGroupsProvider(_broadId)),
                     ),
@@ -1589,7 +1589,7 @@ class _TaskDetailPageState extends ConsumerState<_TaskDetailPage> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _task = before);
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
     }
   }
 
@@ -1622,7 +1622,7 @@ class _TaskDetailPageState extends ConsumerState<_TaskDetailPage> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _task = before);
-      showSnackBar(error.toString());
+      showSnackBar(wattApiErrorMessage(error));
     }
   }
 
@@ -1749,7 +1749,7 @@ Future<void> _toggleTaskComplete(
     ref.invalidate(tasksProvider);
     showSnackBar(complete ? 'taskCompleted'.tr() : 'taskReopened'.tr());
   } catch (error) {
-    showSnackBar(error.toString());
+    showSnackBar(wattApiErrorMessage(error));
   }
 }
 
@@ -1772,7 +1772,7 @@ Future<void> _deleteTask(
     ref.invalidate(tasksProvider);
     showSnackBar('taskDeleted'.tr());
   } catch (error) {
-    showSnackBar(error.toString());
+    showSnackBar(wattApiErrorMessage(error));
   }
 }
 

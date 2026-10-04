@@ -84,7 +84,7 @@ class BoardsListPage extends ConsumerWidget {
       child: boards.when(
         loading: () => const PageLoading(),
         error: (error, _) => PageError(
-          message: error.toString(),
+          message: wattApiErrorMessage(error),
           onRetry: () => ref.invalidate(broadsProvider),
         ),
         data: (items) {

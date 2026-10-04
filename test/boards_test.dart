@@ -1,149 +1,17 @@
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' as mui;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
 
-import 'package:solwatt/core/config.dart';
-import 'package:solwatt/main.dart';
-import 'package:solwatt/network.dart';
-import 'package:solwatt/realtime/realtime.dart';
-import 'package:solwatt/websocket.dart';
-import 'package:solwatt/mail/mail_address_suggestion.dart';
-
-const _workspace = Workspace(
-  id: 'ws-1',
-  slug: 'ws-1',
-  name: 'Test Workspace',
-  isBundled: false,
-);
-
-const _roadmap = Broad(
-  id: 'board-a',
-  name: 'Roadmap',
-  description: 'What ships next',
-  workspaceId: 'ws-1',
-  taskPrefix: 'RM',
-);
-
-const _chores = Broad(id: 'board-b', name: 'Chores', workspaceId: 'ws-1');
-
-const _doing = TaskGroup(id: 'group-1', name: 'Doing', broadId: 'board-a');
-
-/// The Mail tab is where the shell opens, so the harness has to keep it
-/// rendering; its content is irrelevant here.
-const _mailbox = MailMailbox(
-  id: 'mb-1',
-  accountId: 'acc-1',
-  workspaceId: 'ws-1',
-  address: 'work@example.com',
-  name: 'Work',
-  isDefault: true,
-  isVerified: true,
-);
-
-final _tasks = [
-  for (var index = 1; index <= 24; index++)
-    WorkTask(
-      id: 'task-$index',
-      name: 'Task $index',
-      broadId: 'board-a',
-      taskKey: index == 6 ? null : 'RM-$index',
-      groupId: 'group-1',
-      description: index == 1 ? 'Notes with *emphasis*' : null,
-      content: index == 1 ? '**Bold** detail\n\n- item' : null,
-      tags: index == 2 ? const ['design', 'urgent', 'api'] : const [],
-      priority: index == 3 ? 2 : 0,
-      deadlineAt: index == 4 ? DateTime(2026, 1, 1) : null,
-    ),
-];
-
-Future<void> _pumpApp(WidgetTester tester, Size size) async {
-  SharedPreferences.setMockInitialValues({});
-  await EasyLocalization.ensureInitialized();
-  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-    const MethodChannel('window_manager'),
-    (call) async => switch (call.method) {
-      'isMaximized' => false,
-      _ => null,
-    },
-  );
-
-  tester.view.physicalSize = size;
-  tester.view.devicePixelRatio = 1.0;
-  final prefs = await SharedPreferences.getInstance();
-  await tester.pumpWidget(
-    ProviderScope(
-      key: ValueKey('boards-${size.width}x${size.height}'),
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        appAccessProvider.overrideWith(
-          (ref) => const AsyncValue.data(AppAccess.ready),
-        ),
-        selectedWorkspaceProvider.overrideWith((ref) async => _workspace),
-        mailboxesProvider.overrideWith((ref) async => const [_mailbox]),
-        mailHostProvider.overrideWith((ref) async => 'example.com'),
-        mailboxUnreadCountsProvider.overrideWith((ref) async => const {}),
-        mailCredentialsProvider.overrideWith(
-          (ref) async => const <MailCredential>[],
-        ),
-        threadsProvider.overrideWith(
-          (ref, query) async =>
-              const PaginatedResult<MailThread>(items: [], totalCount: 0),
-        ),
-        mailSenderIndexProvider.overrideWith(
-          (ref) async => const <String, MailAddressSuggestion>{},
-        ),
-        broadsProvider.overrideWith((ref) async => const [_roadmap, _chores]),
-        tasksProvider.overrideWith((ref, request) async => _tasks),
-        taskGroupsProvider.overrideWith(
-          (ref, broadId) async =>
-              broadId == _roadmap.id ? const [_doing] : const [],
-        ),
-        realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
-        websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
-      ],
-      child: EasyLocalization(
-        supportedLocales: const [Locale('en', 'US')],
-        path: 'assets/i18n',
-        fallbackLocale: const Locale('en', 'US'),
-        useFallbackTranslations: true,
-        child: SolWattApp(),
-      ),
-    ),
-  );
-  await tester.pumpAndSettle(
-    const Duration(milliseconds: 100),
-    EnginePhase.sendSemanticsUpdate,
-    const Duration(seconds: 10),
-  );
-}
-
-/// The board tabs live behind the burger on every width (the rail shows mail
-/// folders while Mail is active).
-Future<void> _openBoardsTab(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Symbols.menu));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.descendant(
-      of: find.byType(NavigationDrawer),
-      matching: find.text('Boards'),
-    ),
-  );
-  await tester.pumpAndSettle();
-}
+import 'boards_harness.dart';
 
 void main() {
   testWidgets('a board opens inside the boards tab, not above the shell', (
     tester,
   ) async {
     // ---- Desktop ----
-    await _pumpApp(tester, const Size(1200, 800));
-    await _openBoardsTab(tester);
+    await pumpBoardsApp(tester, const Size(1200, 800));
+    await openBoardsTab(tester);
 
     final rail = find.byType(NavigationRail);
     expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
@@ -237,8 +105,8 @@ void main() {
     expect(find.text('Open task'), findsNothing);
 
     // ---- Phone ----
-    await _pumpApp(tester, const Size(400, 800));
-    await _openBoardsTab(tester);
+    await pumpBoardsApp(tester, const Size(400, 800));
+    await openBoardsTab(tester);
 
     // The tab's root keeps the drawer's edge swipe.
     expect(_shellScaffold(tester).drawerEnableOpenDragGesture, isTrue);
