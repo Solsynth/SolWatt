@@ -47,8 +47,15 @@ lib/
   mail/mail_screen.dart           # Mail tab: conversation list, detail pane, compose
   mail/mail_settings_page.dart    # Mail credentials + .eml/.mbox import
   mail/import/                    # EML/mbox parsing and the import service
-  core/widgets/content/           # Drive viewer, image lightbox, file actions
-  files/files_screen.dart         # Workspace Drive tabs (folders, assets, quota, views)
+  core/widgets/content/           # Cloud-file viewer, lightbox, file actions
+  drive/files/file_list.dart      # Drive tab: workspace tabs, uploads, quota bar
+  drive/files/file_detail.dart    # One file: body, metadata, actions
+  drive/widgets/file_list_view.dart    # Columns, list and waterfall presentations
+  drive/widgets/drive_filter_bar.dart  # Kind, media and date filters
+  drive/widgets/usage_overview.dart    # Storage usage panel and service legend
+  drive/widgets/cloud_files.dart       # Avatars, collections, inline file chips
+  drive/screens/file_list.dart         # Drive listing providers and pagination
+  drive/file_permissions.dart          # Who may rename, move or delete a file
   tasks/                          # Background task overlay (uploads, etc.)
   notifications/                  # Ring multi-tenant inbox + unread badge
   realtime/realtime.dart          # Gateway packet routing (notify + Ideask)
@@ -201,6 +208,38 @@ Key providers:
   one conversation's messages, oldest first. A term in the filter's `q` widens
   the query to every mailbox and folder instead
 - `emailProvider` — a single message, which the detail route opens on
+
+## Drive (DysonFS)
+
+The Drive is the app's workspace-scoped file manager, and it is the only
+surface here that predates the rest of the product: it was ported from Solian's
+`lib/drive`, which has since dropped it. The porting rules are the ones the
+whole module follows — every listing and upload passes `workspace_id` so
+DysonFS bills the workspace plan rather than the personal account, and the
+per-tab workspace provider Solian carried is replaced by the app's single
+`selectedWorkspaceProvider`: the Drive seeds its first tab from the workspace
+the user activated, and activating another one from the drawer re-binds the
+open tabs. A tab that has no workspace yet lands on the Drive's welcome state,
+which points at the workspace chooser.
+
+Rows are one of two kinds, and the difference decides what a screen may assume:
+*indexed* entries are folders and files the workspace tree knows about
+(`workspaceFolderChildrenProvider`, paginated by offset), while *unindexed*
+entries are loose assets nobody filed (`workspaceUnindexedFilesProvider`).
+`drive/screens/file_list.dart` owns that pagination — one
+`AsyncPaginationController` per tab — and `drive/widgets/drive_filter_bar.dart`
+narrows it by kind, media type and date.
+
+`drive/widgets/cloud_files.dart` holds the file widgets the Drive, the file
+detail page, the viewer and the attachment list all render with; changes there
+reach every surface that shows a cloud file. `openCloudFile` in
+`core/widgets/content/cloud_file_lightbox.dart` is how the rest of the app
+opens one — mail and board attachments, the attachment list and the actions
+sheet all go through it: images open in the zoomable lightbox, everything else
+opens the file detail page. The Drive's own tiles push that detail route
+directly, since they already know which file they were handed.
+`drive/file_permissions.dart` supplies the file inspector state plus the
+file-info and ACL reads the detail page gates its actions on.
 
 ## Mail (ElecPostal)
 
