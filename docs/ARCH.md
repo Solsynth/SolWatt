@@ -35,6 +35,8 @@ lib/
   network.dart                    # OAuth, WattEngine client, session providers
   gate/gate_page.dart             # Sign-in + workspace selection entry
   workspaces/workspace_actions.dart  # Workspace CRUD and shared list UI
+  workspaces/workspace_management_screen.dart  # Workspace registry console
+  workspaces/workspace_detail_screen.dart      # One workspace: overview, mail, flywheel
   ui/page_scaffold.dart           # Shared page chrome for shell screens
   ui/cloud_files.dart             # Cloud upload picker + link attachment
   boards/boards_screen.dart       # Boards tab shell, board list, board editor
@@ -150,6 +152,19 @@ their surface paints the strip behind it.
 
 Workspace Drive uploads always pass `workspace_id` so DysonFS charges the
 workspace plan quota rather than the personal account quota.
+
+The workspace console is the one product surface outside the shell. `/workspaces`
+lists every workspace the account can reach (create, edit, members, plan,
+delete, and the per-workspace actions) and `/workspaces/:slug` is the console
+for one of them: identity, storage, members and plan on Overview, the
+workspace's mailboxes, credentials and custom domains on Mail, and its
+Flywheel saves on Flywheel. Both are top-level routes above `AppShellPage`, not
+tabs: the console is a destination you visit from the drawer row (or the
+profile page) and back out of, and it must render even when no workspace is
+active. The Mail and Flywheel tabs administer the workspace the console was
+opened for, which is not necessarily the active one; the surfaces that manage
+the *active* workspace's mail and Flywheel stay where they are (mail settings
+and the Flywheel tab).
 
 Add product screens as child routes of `AppShellPage` when their purpose is
 known. Do not add placeholder pages or speculative UI content.

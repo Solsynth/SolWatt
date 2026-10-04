@@ -12,6 +12,8 @@ import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/settings/about_page.dart';
 import 'package:solwatt/settings/app_settings_page.dart';
+import 'package:solwatt/workspaces/workspace_detail_screen.dart';
+import 'package:solwatt/workspaces/workspace_management_screen.dart';
 
 part 'route.gr.dart';
 
@@ -27,6 +29,10 @@ class AppRouter extends RootStackRouter {
   List<AutoRoute> get routes => [
     AutoRoute(page: GateRoute.page, initial: true),
     AutoRoute(page: FileDetailRoute.page, path: '/files/:id'),
+    // Workspace console: the registry list and the per-workspace detail.
+    // Top-level (outside the shell) so either page covers the tab bar.
+    AutoRoute(page: WorkspaceManagementRoute.page, path: '/workspaces'),
+    AutoRoute(page: WorkspaceDetailRoute.page, path: '/workspaces/:slug'),
     AutoRoute(
       page: AppShellRoute.page,
       children: [

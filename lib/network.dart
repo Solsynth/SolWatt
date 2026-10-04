@@ -1674,6 +1674,43 @@ class WattEngineClient {
         .toList();
   }
 
+  Future<MailCustomDomain> createCustomDomain({
+    required String workspaceId,
+    required String domain,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/custom-domains',
+      data: {'workspace_id': workspaceId, 'domain': domain},
+    );
+    return MailCustomDomain.fromJson(response.data ?? const {});
+  }
+
+  /// Re-runs DNS verification for one custom domain and returns its state.
+  Future<MailCustomDomain> refreshCustomDomain(String domainId) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '$kElecPostalBase/custom-domains/$domainId/refresh',
+    );
+    return MailCustomDomain.fromJson(response.data ?? const {});
+  }
+
+  /// Storage pooled across the workspace's mailboxes.
+  Future<MailUsageSummary> getWorkspaceMailboxUsage(String workspaceId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/workspaces/$workspaceId/mailbox-usage',
+    );
+    return MailUsageSummary.fromJson(response.data ?? const {});
+  }
+
+  /// Messages the workspace has sent today and this month.
+  Future<MailSendUsage> getWorkspaceSendUsage(String workspaceId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '$kElecPostalBase/workspaces/$workspaceId/send-usage',
+    );
+    return MailSendUsage.fromJson(response.data ?? const {});
+  }
+
   PaginatedResult<MailThread> _parseThreadPage(
     Response<List<dynamic>> response,
   ) {
@@ -3606,8 +3643,59 @@ class MailNotificationSettings {
       );
 }
 
-/// Workspace-owned SES sending domain. The client only reads these to pick a
-/// domain when creating a mailbox alias; domain management stays server-side.
+/// One DNS record a custom domain needs before it verifies.
+class MailDnsRecord {
+  const MailDnsRecord({required this.name, required this.type, required this.value});
+
+  final String name;
+  final String type;
+  final String value;
+
+  factory MailDnsRecord.fromJson(Map<String, dynamic> json) => MailDnsRecord(
+    name: json['name']?.toString() ?? '',
+    type: json['type']?.toString() ?? '',
+    value: json['value']?.toString() ?? '',
+  );
+}
+
+/// Used/limit/remaining triple shared by the mailbox and send-usage endpoints.
+class MailUsageSummary {
+  const MailUsageSummary({
+    this.used = 0,
+    this.limit = 0,
+    this.remaining = 0,
+  });
+
+  final int used;
+  final int limit;
+  final int remaining;
+
+  factory MailUsageSummary.fromJson(Map<String, dynamic> json) =>
+      MailUsageSummary(
+        used: (json['used'] as num?)?.toInt() ?? 0,
+        limit: (json['limit'] as num?)?.toInt() ?? 0,
+        remaining: (json['remaining'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Outbound mail sent from a workspace today and this month.
+class MailSendUsage {
+  const MailSendUsage({required this.daily, required this.monthly});
+
+  final MailUsageSummary daily;
+  final MailUsageSummary monthly;
+
+  factory MailSendUsage.fromJson(Map<String, dynamic> json) => MailSendUsage(
+    daily: MailUsageSummary.fromJson(
+      Map<String, dynamic>.from(json['daily'] as Map? ?? const {}),
+    ),
+    monthly: MailUsageSummary.fromJson(
+      Map<String, dynamic>.from(json['monthly'] as Map? ?? const {}),
+    ),
+  );
+}
+
+/// Workspace-owned SES sending domain.
 class MailCustomDomain {
   const MailCustomDomain({
     required this.id,
@@ -3616,6 +3704,10 @@ class MailCustomDomain {
     this.verificationStatus,
     this.verifiedForSending = false,
     this.stage,
+    this.dkimStatus,
+    this.mailFromDomain,
+    this.mailFromStatus,
+    this.dnsRecords = const [],
   });
 
   final String id;
@@ -3624,16 +3716,40 @@ class MailCustomDomain {
   final String? verificationStatus;
   final bool verifiedForSending;
   final String? stage;
+  final String? dkimStatus;
+  final String? mailFromDomain;
+  final String? mailFromStatus;
+  final List<MailDnsRecord> dnsRecords;
 
-  factory MailCustomDomain.fromJson(Map<String, dynamic> json) =>
-      MailCustomDomain(
-        id: json['id']?.toString() ?? '',
-        workspaceId: json['workspace_id']?.toString() ?? '',
-        domain: json['domain']?.toString() ?? '',
-        verificationStatus: json['verification_status']?.toString(),
-        verifiedForSending: json['verified_for_sending_status'] == true,
-        stage: json['stage']?.toString(),
-      );
+  /// Whether the domain is fully verified and may send mail.
+  bool get isReady =>
+      verifiedForSending ||
+      (verificationStatus ?? '').toLowerCase() == 'verified';
+
+  factory MailCustomDomain.fromJson(Map<String, dynamic> json) {
+    final rawRecords = json['dns_records'];
+    return MailCustomDomain(
+      id: json['id']?.toString() ?? '',
+      workspaceId: json['workspace_id']?.toString() ?? '',
+      domain: json['domain']?.toString() ?? '',
+      verificationStatus: json['verification_status']?.toString(),
+      verifiedForSending: json['verified_for_sending_status'] == true,
+      stage: json['stage']?.toString(),
+      dkimStatus: nonEmptyString(json['dkim_status']?.toString()),
+      mailFromDomain: nonEmptyString(json['mail_from_domain']?.toString()),
+      mailFromStatus: nonEmptyString(json['mail_from_status']?.toString()),
+      dnsRecords: rawRecords is List
+          ? rawRecords
+                .whereType<Map>()
+                .map(
+                  (item) => MailDnsRecord.fromJson(
+                    Map<String, dynamic>.from(item),
+                  ),
+                )
+                .toList(growable: false)
+          : const [],
+    );
+  }
 }
 
 /// Outcome of one message in an import batch, mirroring the ElecPostal

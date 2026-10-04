@@ -23,6 +23,10 @@ class _FlywheelProduct {
   final String? iconAsset;
 }
 
+/// Display name for a Flywheel app id, falling back to the id itself. The
+/// product table is the single source of truth for these names.
+String flywheelAppName(String appId) => _flywheelProducts[appId]?.name ?? appId;
+
 @RoutePage()
 class FlywheelPage extends ConsumerWidget {
   const FlywheelPage({super.key});
@@ -79,7 +83,7 @@ class _FlywheelWorkspacePageState
       useRootNavigator: true,
       isScrollControlled: true,
       builder: (_) =>
-          _FlywheelAppSheet(workspaceId: widget.workspaceId, app: app),
+          FlywheelAppSheet(workspaceId: widget.workspaceId, app: app),
     );
     if (mounted) {
       setState(_reload);
@@ -266,16 +270,28 @@ class _FlywheelProductIcon extends StatelessWidget {
   }
 }
 
-class _FlywheelAppSheet extends ConsumerStatefulWidget {
-  const _FlywheelAppSheet({required this.workspaceId, required this.app});
+/// Opens the per-app Flywheel management sheet (retained saves and audit log).
+Future<void> showFlywheelApp(
+  BuildContext context, {
+  required String workspaceId,
+  required FlywheelOwnerApp app,
+}) => showModalBottomSheet<void>(
+  context: context,
+  useRootNavigator: true,
+  isScrollControlled: true,
+  builder: (_) => FlywheelAppSheet(workspaceId: workspaceId, app: app),
+);
+
+class FlywheelAppSheet extends ConsumerStatefulWidget {
+  const FlywheelAppSheet({super.key, required this.workspaceId, required this.app});
   final String workspaceId;
   final FlywheelOwnerApp app;
 
   @override
-  ConsumerState<_FlywheelAppSheet> createState() => _FlywheelAppSheetState();
+  ConsumerState<FlywheelAppSheet> createState() => _FlywheelAppSheetState();
 }
 
-class _FlywheelAppSheetState extends ConsumerState<_FlywheelAppSheet> {
+class _FlywheelAppSheetState extends ConsumerState<FlywheelAppSheet> {
   late Future<(List<FlywheelOwnerBlob>, List<FlywheelAuditEntry>)> _data;
 
   @override

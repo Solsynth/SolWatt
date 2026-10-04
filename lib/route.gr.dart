@@ -461,3 +461,71 @@ class TaskBoardRouteArgs {
   @override
   int get hashCode => key.hashCode ^ broadId.hashCode;
 }
+
+/// generated route for
+/// [WorkspaceDetailPage]
+class WorkspaceDetailRoute extends PageRouteInfo<WorkspaceDetailRouteArgs> {
+  WorkspaceDetailRoute({
+    Key? key,
+    required String slug,
+    List<PageRouteInfo>? children,
+  }) : super(
+         WorkspaceDetailRoute.name,
+         args: WorkspaceDetailRouteArgs(key: key, slug: slug),
+         rawPathParams: {'slug': slug},
+         initialChildren: children,
+       );
+
+  static const String name = 'WorkspaceDetailRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<WorkspaceDetailRouteArgs>(
+        orElse: () =>
+            WorkspaceDetailRouteArgs(slug: pathParams.getString('slug')),
+      );
+      return WorkspaceDetailPage(key: args.key, slug: args.slug);
+    },
+  );
+}
+
+class WorkspaceDetailRouteArgs {
+  const WorkspaceDetailRouteArgs({this.key, required this.slug});
+
+  final Key? key;
+
+  final String slug;
+
+  @override
+  String toString() {
+    return 'WorkspaceDetailRouteArgs{key: $key, slug: $slug}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! WorkspaceDetailRouteArgs) return false;
+    return key == other.key && slug == other.slug;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ slug.hashCode;
+}
+
+/// generated route for
+/// [WorkspaceManagementPage]
+class WorkspaceManagementRoute extends PageRouteInfo<void> {
+  const WorkspaceManagementRoute({List<PageRouteInfo>? children})
+    : super(WorkspaceManagementRoute.name, initialChildren: children);
+
+  static const String name = 'WorkspaceManagementRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const WorkspaceManagementPage();
+    },
+  );
+}

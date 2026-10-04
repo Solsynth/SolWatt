@@ -429,6 +429,24 @@ class _GlobalNavigationDrawer extends ConsumerWidget {
               onWorkspaceSelected(target);
             },
           ),
+          // The console is not a tab, so it rides along as a plain row rather
+          // than a destination; destinations are reserved for [_appTabs].
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: ListTile(
+              leading: const Icon(Symbols.settings),
+              title: Text('manageWorkspaces'.tr()),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
+              onTap: () {
+                // The drawer's context dies with it, so take the router first.
+                final router = context.router;
+                Navigator.of(context).pop();
+                router.pushPath('/workspaces');
+              },
+            ),
+          ),
           for (final tab in _appTabs) ...[
             // Profile opens its own group: generous spacing around the divider
             // (height grows, the 1px line stays thin) so the account entry
@@ -1283,10 +1301,21 @@ class ProfilePage extends ConsumerWidget {
                 const SizedBox(height: 24),
                 SectionHeader(
                   title: 'yourWorkspaces'.tr(),
-                  trailing: FilledButton.tonalIcon(
-                    onPressed: () => createWorkspaceAction(context, ref),
-                    icon: const Icon(Symbols.add, size: 18),
-                    label: Text('new'.tr()),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton.filledTonal(
+                        tooltip: 'manageWorkspaces'.tr(),
+                        onPressed: () => context.router.pushPath('/workspaces'),
+                        icon: const Icon(Symbols.settings, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: () => createWorkspaceAction(context, ref),
+                        icon: const Icon(Symbols.add, size: 18),
+                        label: Text('new'.tr()),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),

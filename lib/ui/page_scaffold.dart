@@ -52,6 +52,8 @@ class PageScaffold extends StatelessWidget {
     this.subtitle,
     this.action,
     this.actions = const [],
+    this.bottom,
+    this.floatingActionButton,
     this.maxContentWidth = 960,
     this.padding = const EdgeInsets.fromLTRB(24, 16, 24, 24),
   });
@@ -61,6 +63,10 @@ class PageScaffold extends StatelessWidget {
   final Widget child;
   final Widget? action;
   final List<Widget> actions;
+
+  /// App-bar bottom slot; used for a page's [TabBar].
+  final PreferredSizeWidget? bottom;
+  final Widget? floatingActionButton;
   final double maxContentWidth;
   final EdgeInsetsGeometry padding;
 
@@ -94,7 +100,9 @@ class PageScaffold extends StatelessWidget {
         actions: [
           for (final widget in trailing) ...[widget, const SizedBox(width: 4)],
         ],
+        bottom: bottom,
       ),
+      floatingActionButton: floatingActionButton,
       body: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
