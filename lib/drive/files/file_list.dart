@@ -72,6 +72,9 @@ class FileListScreen extends HookConsumerWidget {
     final tabs = useState<List<_DriveFileTab>>([]);
     final activeTabId = useState<String?>(null);
     final selectedWorkspaceId = useState<String?>(null);
+    // Latches after the active-workspace seed so a personal workspace (which
+    // leaves [selectedWorkspaceId] null) is not re-seeded on every tab close.
+    final seededWorkspaceTab = useState(false);
     final showSidebar = useState<bool>(false);
     final showFilters = useState(false);
     final dragging = useState(false);
@@ -401,6 +404,7 @@ class FileListScreen extends HookConsumerWidget {
     // matching how the previous FilesPage booted into the active workspace.
     final solWattSelected = ref.watch(selectedWorkspaceProvider).value;
     useEffect(() {
+      if (seededWorkspaceTab.value) return null;
       if (tabs.value.isNotEmpty) return null;
       if (selectedWorkspaceId.value != null) return null;
       if (solWattSelected == null) return null;
@@ -413,6 +417,12 @@ class FileListScreen extends HookConsumerWidget {
       );
       if (match.isEmpty) return null;
 
+      // Personal (individual) workspaces hold no drive files: browsing one
+      // falls back to personal files at the root.
+      final targetWorkspaceId = solWattSelected.isIndividual
+          ? null
+          : solWattSelected.id;
+
       // Hooks run inside build: mutating tab state there is dropped (the
       // element's dirty flag clears when the build ends) and riverpod rejects
       // provider writes mid-build. Seed the first tab after the frame instead.
@@ -421,13 +431,14 @@ class FileListScreen extends HookConsumerWidget {
         if (tabs.value.isNotEmpty) return;
         if (selectedWorkspaceId.value != null) return;
 
-        selectedWorkspaceId.value = solWattSelected.id;
+        selectedWorkspaceId.value = targetWorkspaceId;
+        seededWorkspaceTab.value = true;
         final id = DateTime.now().microsecondsSinceEpoch.toString();
         tabs.value = [
           _DriveFileTab(
             id: id,
             mode: FileListMode.normal,
-            workspaceId: solWattSelected.id,
+            workspaceId: targetWorkspaceId,
           ),
         ];
         activeTabId.value = id;
@@ -518,7 +529,13 @@ class FileListScreen extends HookConsumerWidget {
                     onReorderTab: reorderTab,
                     onAddIndexedTab: () => createTab(FileListMode.normal),
                     onAddUnindexedTab: () => createTab(FileListMode.unindexed),
-                    workspaces: workspaceListAsync.asData?.value ?? const [],
+                    // Personal workspaces never store drive files, so the
+                    // switcher offers organization workspaces plus the
+                    // personal-files root only.
+                    workspaces:
+                        (workspaceListAsync.asData?.value ?? const [])
+                            .where((workspace) => !workspace.isIndividual)
+                            .toList(),
                     selectedWorkspaceId: activeWorkspaceId,
                     onWorkspaceChanged: changeWorkspace,
                     onRefresh: activeTab == null || activeTab.file != null
@@ -2179,60 +2196,55 @@ class _DriveStorageStatusBar extends StatelessWidget {
         : 0.0;
 
     final scheme = Theme.of(context).colorScheme;
-    final border = scheme.outlineVariant.withValues(alpha: 0.55);
 
     return Material(
-      color: scheme.surfaceContainerLow,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: border)),
+      elevation: 2,
+      color: scheme.surfaceContainerHigh,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          8,
+          8,
+          8 + MediaQuery.paddingOf(context).bottom,
         ),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            8,
-            8,
-            8 + MediaQuery.paddingOf(context).bottom,
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isCompact = constraints.maxWidth < 520;
-              return Row(
-                mainAxisSize: MainAxisSize.max,
-                spacing: 12,
-                children: [
-                  Icon(Symbols.storage, size: 18, color: scheme.primary),
-                  if (!isCompact)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: SizedBox(
-                        width: 120,
-                        child: LinearProgressIndicator(
-                          value: ratio,
-                          minHeight: 8,
-                        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 520;
+            return Row(
+              mainAxisSize: MainAxisSize.max,
+              spacing: 12,
+              children: [
+                Icon(Symbols.storage, size: 18, color: scheme.primary),
+                if (!isCompact)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: SizedBox(
+                      width: 120,
+                      child: LinearProgressIndicator(
+                        value: ratio,
+                        minHeight: 8,
                       ),
                     ),
-                  const Spacer(),
+                  ),
+                const Spacer(),
+                Text(
+                  '${formatFileSize(usedBytes)} / ${formatFileSize(totalBytes)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (!isCompact)
                   Text(
-                    '${formatFileSize(usedBytes)} / ${formatFileSize(totalBytes)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    '${(ratio * 100).toStringAsFixed(1)}%',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  if (!isCompact)
-                    Text(
-                      '${(ratio * 100).toStringAsFixed(1)}%',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  IconButton(
-                    onPressed: onTapDetails,
-                    tooltip: 'viewDetails'.tr(),
-                    icon: const Icon(Symbols.bar_chart),
-                  ),
-                ],
-              );
-            },
-          ),
+                IconButton(
+                  onPressed: onTapDetails,
+                  tooltip: 'viewDetails'.tr(),
+                  icon: const Icon(Symbols.bar_chart),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

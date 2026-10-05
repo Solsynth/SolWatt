@@ -166,12 +166,11 @@ delete, and the per-workspace actions) and `/workspaces/:slug` is the console
 for one of them: identity, storage, members and plan on Overview, the
 workspace's mailboxes, credentials and custom domains on Mail, and its
 Flywheel saves on Flywheel. Both are top-level routes above `AppShellPage`, not
-tabs: the console is a destination you visit from the drawer row (or the
-profile page) and back out of, and it must render even when no workspace is
-active. The Mail and Flywheel tabs administer the workspace the console was
-opened for, which is not necessarily the active one; the surfaces that manage
-the *active* workspace's mail and Flywheel stay where they are (mail settings
-and the Flywheel tab).
+tabs: the console is a destination you visit from the profile page and back
+out of, and it must render even when no workspace is active. The Mail and
+Flywheel tabs administer the workspace the console was opened for, which is not
+necessarily the active one; the surfaces that manage the *active* workspace's
+mail and Flywheel stay where they are (mail settings and the Flywheel tab).
 
 Add product screens as child routes of `AppShellPage` when their purpose is
 known. Do not add placeholder pages or speculative UI content.

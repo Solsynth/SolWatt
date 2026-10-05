@@ -181,16 +181,25 @@ Future<void> _pumpShell(WidgetTester tester, Size size) async {
 }
 
 void main() {
-  testWidgets('drawer opens the workspace console and its detail', (
+  testWidgets('profile page opens the workspace console and its detail', (
     tester,
   ) async {
     await _pumpShell(tester, const Size(420, 900));
 
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
-    expect(find.text('Manage workspaces'), findsOneWidget);
 
-    await tester.tap(find.text('Manage workspaces'));
+    // The console entry lives on the profile page — the drawer only switches
+    // workspaces. Profile is a drawer destination.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationDrawer),
+        matching: find.text('Profile'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Manage workspaces'));
     await tester.pumpAndSettle();
 
     // Management screen: the registry of the account's workspaces.

@@ -429,24 +429,6 @@ class _GlobalNavigationDrawer extends ConsumerWidget {
               onWorkspaceSelected(target);
             },
           ),
-          // The console is not a tab, so it rides along as a plain row rather
-          // than a destination; destinations are reserved for [_appTabs].
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: ListTile(
-              leading: const Icon(Symbols.settings),
-              title: Text('manageWorkspaces'.tr()),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(28),
-              ),
-              onTap: () {
-                // The drawer's context dies with it, so take the router first.
-                final router = context.router;
-                Navigator.of(context).pop();
-                router.pushPath('/workspaces');
-              },
-            ),
-          ),
           for (final tab in _appTabs) ...[
             // Profile opens its own group: generous spacing around the divider
             // (height grows, the 1px line stays thin) so the account entry
@@ -467,7 +449,8 @@ class _GlobalNavigationDrawer extends ConsumerWidget {
 
 /// Horizontal workspace picker at the top of the drawer: one avatar per
 /// workspace, the active one ringed in the primary color. Tapping a workspace
-/// makes it active and closes the drawer.
+/// makes it active and closes the drawer; the console itself is reached from
+/// the profile page.
 class _WorkspaceQuickSwitch extends StatelessWidget {
   const _WorkspaceQuickSwitch({
     required this.workspaces,

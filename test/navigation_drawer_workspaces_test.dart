@@ -195,6 +195,10 @@ void main() {
         .width;
     expect(itemWidth, lessThanOrEqualTo(64));
 
+    // The drawer carries no console row of its own: the profile page owns
+    // that entry.
+    expect(find.byKey(const ValueKey('workspace-manage')), findsNothing);
+
     // ---- Picking another workspace activates it and closes the drawer ----
     await _tapWithoutSettling(
       tester,
