@@ -314,37 +314,76 @@ class _TabMemoryState extends ConsumerState<_TabMemory> {
   Widget build(BuildContext context) => widget.child;
 }
 
-class _NavigationShell extends ConsumerWidget {
+class _NavigationShell extends ConsumerStatefulWidget {
   const _NavigationShell({
     required this.selectedIndex,
     required this.onSelected,
     required this.child,
   });
 
-  static final _desktopNavigationKey = GlobalKey(
-    debugLabel: 'desktop-navigation',
-  );
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_NavigationShell> createState() => _NavigationShellState();
+}
+
+class _NavigationShellState extends ConsumerState<_NavigationShell> {
+  static final _desktopNavigationKey = GlobalKey(
+    debugLabel: 'desktop-navigation',
+  );
+
+  /// The active tab's stack router. Its [PagelessRoutesObserver] reports the
+  /// container transforms (`OpenContainer`, the mail row's conversation) that
+  /// open on top of that stack: they own the screen exactly like a pushed page,
+  /// but no controller notifies on them.
+  StackRouter? _activeRouter;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Watched: a tab switch, a nested push and a container transform all
+    // change the tabs router's state, which is when the active router to
+    // watch can change.
+    final tabs = AutoTabsRouter.of(context, watch: true);
+    final name = tabs.currentChild?.name;
+    final router = name == null ? null : tabs.innerRouterOf<StackRouter>(name);
+    if (router == _activeRouter) return;
+    _activeRouter?.pagelessRoutesObserver.removeListener(_onPagelessRoutes);
+    _activeRouter = router;
+    _activeRouter?.pagelessRoutesObserver.addListener(_onPagelessRoutes);
+  }
+
+  @override
+  void dispose() {
+    _activeRouter?.pagelessRoutesObserver.removeListener(_onPagelessRoutes);
+    super.dispose();
+  }
+
+  void _onPagelessRoutes() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final wide = isWideScreen(context);
     final scheme = Theme.of(context).colorScheme;
-    final isMail = selectedIndex == _mailTabIndex;
+    final isMail = widget.selectedIndex == _mailTabIndex;
     // A page pushed inside the active tab's stack (a board, a mail detail or
     // settings page, the profile's about page) leads with Back and owns the
     // screen: the drawer's edge swipe and the phone bottom bar both belong to
     // the tab's root, so the shell drops them once the stack is deeper than
     // one. The tabs router rebuilds this shell on every nested push, so the
-    // flag stays current.
+    // flag stays current; a container transform (the mail row's
+    // `OpenContainer`) is a pageless route no controller notifies on, which is
+    // why [_onPagelessRoutes] rebuilds the shell for it too.
     final nestedPage = AutoTabsRouter.of(context).activeRouterCanPop();
     // Where the active tab sits in the bar, or -1 when it has no destination
     // there at all (Flywheel, Profile, Settings).
     final primaryIndex = _primaryTabs.indexWhere(
-      (tab) => tab.index == selectedIndex,
+      (tab) => tab.index == widget.selectedIndex,
     );
 
     return Scaffold(
@@ -360,8 +399,8 @@ class _NavigationShell extends ConsumerWidget {
       drawer: Drawer(
         child: _GlobalNavigationDrawer(
           workspace: workspace,
-          selectedIndex: selectedIndex,
-          onSelected: onSelected,
+          selectedIndex: widget.selectedIndex,
+          onSelected: widget.onSelected,
           // Activation runs on the shell's ref: the drawer is already closing
           // when it starts, and its own ref dies with the widget.
           onWorkspaceSelected: (target) => activateWorkspaceAction(ref, target),
@@ -392,8 +431,8 @@ class _NavigationShell extends ConsumerWidget {
                             // AnimatedSwitcher below survives the remount and
                             // can cross-fade the destination sets.
                             key: _desktopNavigationKey,
-                            selectedIndex: selectedIndex,
-                            onSelected: onSelected,
+                            selectedIndex: widget.selectedIndex,
+                            onSelected: widget.onSelected,
                             workspace: workspace,
                             onOpenDrawer: () =>
                                 shellScaffoldKey.currentState?.openDrawer(),
@@ -408,13 +447,13 @@ class _NavigationShell extends ConsumerWidget {
                                 Radius.circular(16),
                               ),
                               clipBehavior: Clip.antiAlias,
-                              child: child,
+                              child: widget.child,
                             ),
                           ),
                         ),
                       ],
                     )
-                  : ColoredBox(color: scheme.surface, child: child),
+                  : ColoredBox(color: scheme.surface, child: widget.child),
             ),
             const TaskOverlayHost(),
           ],
@@ -434,7 +473,7 @@ class _NavigationShell extends ConsumerWidget {
           ? const _MailFolderNavigationBar()
           : _TabNavigationBar(
               selectedIndex: primaryIndex,
-              onSelected: onSelected,
+              onSelected: widget.onSelected,
             ),
     );
   }

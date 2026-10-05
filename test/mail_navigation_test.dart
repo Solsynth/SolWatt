@@ -274,9 +274,17 @@ void main() {
     expect(searchField, findsNothing);
 
     // ---- A conversation on a phone ----
-    // Opening a message pushes a page inside the mail tab: the shell hands the
-    // screen over, so the folder bar goes away.
+    // Opening a message animates the row into the conversation (the same
+    // container transform the board gives a task) and hands the screen over:
+    // the shell's app bar and folder bar go with it.
     await tester.tap(find.text('Alice'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(
+      tester.binding.transientCallbackCount,
+      greaterThan(0),
+      reason: 'the row opens with a transition rather than an instant swap',
+    );
     await tester.pumpAndSettle();
     expect(find.byType(AppBar), findsNothing);
     expect(navBar, findsNothing);
@@ -294,14 +302,13 @@ void main() {
     tester.view.padding = const FakeViewPadding();
     await tester.pumpAndSettle();
 
-    // Back out of the conversation: the folder bar returns.
+    // Back out of the conversation: the folder bar returns, and the list is
+    // still at the root of its stack, so its app bar leads with the drawer —
+    // not a Back button left over from the conversation that just closed.
     await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(navBar, findsOneWidget);
-    // Back at the root of the mail stack, the app bar leads with the drawer
-    // again — not the Back button it showed while the conversation covered the
-    // list.
     expect(find.byIcon(Symbols.menu), findsOneWidget);
     expect(find.byType(BackButton), findsNothing);
 

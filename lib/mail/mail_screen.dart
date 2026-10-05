@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:animations/animations.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_saver/file_saver.dart';
@@ -807,31 +808,19 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   }
 
   void _openThread(BuildContext context, MailThread thread) {
-    final wide = isWideScreen(context);
-    // The highlight tracks the conversation the detail pane shows, and only the
-    // wide layout keeps the list next to that pane. On a phone the conversation
-    // covers the list, and rebuilding it while covered would rebuild the app bar
-    // too: the route below a push is not rebuilt when that route pops, so the
-    // list would keep the Back button it built while covered instead of going
-    // back to the drawer.
-    if (wide) {
-      setState(() => _selectedThreadId = thread.id);
-    }
+    // Reading a conversation opens it: the mark-read round trip does not touch
+    // this list's own providers, so it cannot rebuild the app bar under the
+    // open conversation.
     if (thread.unreadCount > 0) {
       unawaited(_markThreadRead(thread));
     }
-    final route = MailDetailRoute(emailId: thread.latestMessage.id);
-    if (wide) {
-      context.router.navigate(route);
-      return;
-    }
-    // Rebuild once the conversation pops: the app bar is back at the tab root
-    // (drawer, not Back) and the row takes the highlight.
-    unawaited(
-      context.router.push(route).then((_) {
-        if (mounted) setState(() => _selectedThreadId = thread.id);
-      }),
-    );
+    // The wide layout keeps the list beside the detail and swaps that pane by
+    // pushing into the mail stack; a phone animates the row itself into the
+    // conversation (the row wraps its tile in an [OpenContainer]), so nothing
+    // is pushed here.
+    if (!isWideScreen(context)) return;
+    setState(() => _selectedThreadId = thread.id);
+    context.router.navigate(MailDetailRoute(emailId: thread.latestMessage.id));
   }
 
   /// Reading a conversation marks all of it read, so the unread count on the
@@ -2060,7 +2049,7 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
               );
             }
             final thread = items[index];
-            return _EmailThreadTile(
+            Widget tile(VoidCallback onTap) => _EmailThreadTile(
               thread: thread,
               mailHost: widget.mailHost,
               senders: senders,
@@ -2074,11 +2063,41 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
               onLongPress: widget.onEnterSelection == null
                   ? null
                   : () => widget.onEnterSelection!(thread),
-              onTap: () => widget.onOpen(thread),
+              onTap: onTap,
               onToggleStar: () => widget.onToggleStar(thread),
               onToggleRead: () => widget.onToggleRead(thread),
               onDelete: () => widget.onDelete(context, thread),
               onMove: (folder) => widget.onMove(thread, folder),
+            );
+
+            // A phone animates the row into the conversation with the same
+            // container transform the board gives a task; the wide layout keeps
+            // the list beside the detail pane and pushes into it instead.
+            if (widget.selecting || isWideScreen(context)) {
+              return tile(() => widget.onOpen(thread));
+            }
+            final scheme = Theme.of(context).colorScheme;
+            return OpenContainer(
+              transitionType: ContainerTransitionType.fadeThrough,
+              transitionDuration: const Duration(milliseconds: 300),
+              // The row paints no surface of its own: the closed container
+              // stays transparent and the conversation's surface carries the
+              // opened state, as the task overlay does on the board.
+              closedColor: Colors.transparent,
+              openColor: scheme.surface,
+              middleColor: scheme.surface,
+              closedBuilder: (_, open) => Material(
+                // The row paints its own ink and selection on the nearest
+                // Material; without this the container's coloured layer would
+                // sit between them and the list's material.
+                color: Colors.transparent,
+                child: tile(() {
+                  widget.onOpen(thread);
+                  open();
+                }),
+              ),
+              openBuilder: (_, _) =>
+                  MailDetailPage(emailId: thread.latestMessage.id),
             );
           },
         ),
