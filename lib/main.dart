@@ -29,7 +29,6 @@ import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
-
 final globalOverlay = GlobalKey<OverlayState>();
 
 /// Matches the generated [GateRoute] name for navigation outside typed routes.
@@ -59,9 +58,7 @@ Future<void> main() async {
         solWattFirebaseMessagingBackgroundHandler,
       );
     } catch (error, stackTrace) {
-      debugPrint(
-        '[SolWatt] Firebase init skipped; push unavailable: $error',
-      );
+      debugPrint('[SolWatt] Firebase init skipped; push unavailable: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
   }
@@ -109,8 +106,9 @@ class SolWattApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(appThemeModeProvider);
-    final accentSeed =
-        Color(ref.watch(appAccentColorProvider) ?? kSolWattSeedColor.toARGB32());
+    final accentSeed = Color(
+      ref.watch(appAccentColorProvider) ?? kSolWattSeedColor.toARGB32(),
+    );
     IslandUIFoundation.configureOverlay(globalOverlay);
     IslandUIFoundation.configureNavigator(appRouter.navigatorKey);
 
@@ -242,16 +240,78 @@ class AppShellPage extends ConsumerWidget {
           ],
           builder: (context, child) {
             final tabs = AutoTabsRouter.of(context);
-            return _NavigationShell(
-              selectedIndex: tabs.activeIndex,
-              onSelected: tabs.setActiveIndex,
-              child: child,
+            return _TabMemory(
+              tabs: tabs,
+              child: _NavigationShell(
+                selectedIndex: tabs.activeIndex,
+                onSelected: tabs.setActiveIndex,
+                child: child,
+              ),
             );
           },
         );
       },
     );
   }
+}
+
+/// Restores the top-level tab the user was last on and records every later
+/// switch, so a relaunch reopens on the same tab. The mail folder is left
+/// alone — it lives on [selectedFolderProvider], which is not persisted.
+class _TabMemory extends ConsumerStatefulWidget {
+  const _TabMemory({required this.tabs, required this.child});
+
+  final TabsRouter tabs;
+  final Widget child;
+
+  @override
+  ConsumerState<_TabMemory> createState() => _TabMemoryState();
+}
+
+class _TabMemoryState extends ConsumerState<_TabMemory> {
+  @override
+  void initState() {
+    super.initState();
+    widget.tabs.addListener(_remember);
+    // `AutoTabsRouter` builds its pages before this widget, but it wires its
+    // own rebuild listener after this frame; switching the tab during build
+    // would trip that. One post-frame hop is enough, and the router's pages
+    // already exist by then so the index is in range.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final saved = ref.read(lastTabIndexProvider);
+      final clamped = saved.clamp(0, _appTabs.length - 1);
+      if (clamped != widget.tabs.activeIndex) {
+        widget.tabs.setActiveIndex(clamped);
+      }
+      // A stale index (an app update dropped a tab) is written back so the
+      // next launch does not need to clamp again.
+      if (clamped != saved) {
+        ref.read(lastTabIndexProvider.notifier).set(clamped);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _TabMemory oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tabs != widget.tabs) {
+      oldWidget.tabs.removeListener(_remember);
+      widget.tabs.addListener(_remember);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.tabs.removeListener(_remember);
+    super.dispose();
+  }
+
+  void _remember() =>
+      ref.read(lastTabIndexProvider.notifier).set(widget.tabs.activeIndex);
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _NavigationShell extends ConsumerWidget {
@@ -304,8 +364,7 @@ class _NavigationShell extends ConsumerWidget {
           onSelected: onSelected,
           // Activation runs on the shell's ref: the drawer is already closing
           // when it starts, and its own ref dies with the widget.
-          onWorkspaceSelected: (target) =>
-              activateWorkspaceAction(ref, target),
+          onWorkspaceSelected: (target) => activateWorkspaceAction(ref, target),
         ),
       ),
       body: SafeArea(

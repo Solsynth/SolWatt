@@ -51,13 +51,16 @@ const _kAccentColorKey = 'app_accent_color';
 
 /// Dark/light/system preference, persisted in SharedPreferences. Defaults to
 /// following the system, mirroring `ThemeMode.system`.
-final appThemeModeProvider =
-    NotifierProvider<AppThemeModeNotifier, ThemeMode>(AppThemeModeNotifier.new);
+final appThemeModeProvider = NotifierProvider<AppThemeModeNotifier, ThemeMode>(
+  AppThemeModeNotifier.new,
+);
 
 class AppThemeModeNotifier extends Notifier<ThemeMode> {
   @override
   ThemeMode build() {
-    final value = ref.watch(sharedPreferencesProvider).getString(_kThemeModeKey);
+    final value = ref
+        .watch(sharedPreferencesProvider)
+        .getString(_kThemeModeKey);
     return switch (value) {
       'light' => ThemeMode.light,
       'dark' => ThemeMode.dark,
@@ -86,8 +89,7 @@ final appAccentColorProvider = NotifierProvider<AppAccentColorNotifier, int?>(
 
 class AppAccentColorNotifier extends Notifier<int?> {
   @override
-  int? build() =>
-      ref.watch(sharedPreferencesProvider).getInt(_kAccentColorKey);
+  int? build() => ref.watch(sharedPreferencesProvider).getInt(_kAccentColorKey);
 
   void set(Color? color) {
     final prefs = ref.read(sharedPreferencesProvider);
@@ -97,5 +99,29 @@ class AppAccentColorNotifier extends Notifier<int?> {
       prefs.setInt(_kAccentColorKey, color.toARGB32());
     }
     state = color?.toARGB32();
+  }
+}
+
+// --- App shell: last visited top-level tab --------------------------------
+
+const _kLastTabIndexKey = 'app_last_tab_index';
+
+/// The top-level tab the user was last on, persisted so a relaunch reopens
+/// there. The value is an index into the shell's tab routes, clamped to the
+/// route list on restore. Deliberately scoped to the tab alone — the mail
+/// folder is *not* remembered, so mail always reopens on the inbox.
+final lastTabIndexProvider = NotifierProvider<LastTabIndexNotifier, int>(
+  LastTabIndexNotifier.new,
+);
+
+class LastTabIndexNotifier extends Notifier<int> {
+  @override
+  int build() =>
+      ref.watch(sharedPreferencesProvider).getInt(_kLastTabIndexKey) ?? 0;
+
+  void set(int index) {
+    if (index == state) return;
+    ref.read(sharedPreferencesProvider).setInt(_kLastTabIndexKey, index);
+    state = index;
   }
 }
