@@ -299,6 +299,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(navBar, findsOneWidget);
+    // Back at the root of the mail stack, the app bar leads with the drawer
+    // again — not the Back button it showed while the conversation covered the
+    // list.
+    expect(find.byIcon(Symbols.menu), findsOneWidget);
+    expect(find.byType(BackButton), findsNothing);
 
     // ---- Compose on a phone ----
     // The composer is a page of the same kind: no folder bar over it, and its
@@ -323,6 +328,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(navBar, findsOneWidget);
+    expect(find.byIcon(Symbols.menu), findsOneWidget);
+    expect(find.byType(BackButton), findsNothing);
 
     // The mail settings page merges credentials, mailbox settings, blocked
     // senders, and import. The page is a lazy list on a phone, so scroll to
@@ -396,6 +403,9 @@ void main() {
     await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
+    // The list's app bar leads with the drawer again after the settings page
+    // pops.
+    expect(find.byIcon(Symbols.menu), findsOneWidget);
 
     // The selected inbox drives the app bar, so it now reads Personal.
     await tester.tap(find.descendant(of: appBar, matching: find.text('Work')));

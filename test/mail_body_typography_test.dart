@@ -172,4 +172,71 @@ void main() {
       expect(light, isNot(equals(dark)));
     });
   });
+
+  group('emailOverflowCss', () {
+    test('clips the document as the backstop', () {
+      expect(
+        emailOverflowCss(),
+        contains('html, body { max-width: 100% !important; overflow-x: hidden !important; }'),
+      );
+    });
+
+    test('scales oversized media and tables down', () {
+      final css = emailOverflowCss();
+      expect(
+        css,
+        contains(
+          'img, video { max-width: 100% !important; height: auto !important; }',
+        ),
+      );
+      expect(css, contains('table { max-width: 100% !important; }'));
+    });
+
+    test('gives long text and code somewhere to wrap', () {
+      final css = emailOverflowCss();
+      expect(css, contains('body { overflow-wrap: anywhere !important; }'));
+      expect(css, contains('white-space: pre-wrap'));
+    });
+  });
+
+  group('readerEmailDocument', () {
+    final theme = createSolWattTheme(Brightness.light);
+
+    test('declares the pane width as the viewport', () {
+      final document = readerEmailDocument('<p>hello</p>', theme);
+      expect(
+        document,
+        contains(
+          '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        ),
+      );
+    });
+
+    test('guards a styled message, which opts out of the typography', () {
+      // A marketing layout of its own — a fixed-width table is exactly the
+      // message the guard exists for, and it never gets the typography CSS.
+      const styled =
+          '<style>table { width: 700px }</style>'
+          '<table><tr><td>wide</td></tr></table>';
+      final document = readerEmailDocument(styled, theme);
+      expect(document, contains('<style>${emailOverflowCss()}</style>'));
+      expect(document, isNot(contains("font-family: 'Nunito'")));
+    });
+
+    test('guards an unstyled message alongside its typography', () {
+      final document = readerEmailDocument('<p>hello</p>', theme);
+      expect(document, contains('<style>${emailOverflowCss()}</style>'));
+      expect(document, contains('<style>${emailTypographyCss(theme)}</style>'));
+    });
+
+    test('carries the guard and the viewport once each, inside the head', () {
+      final document = readerEmailDocument(
+        '<html><head><title>t</title></head><body><p>x</p></body></html>',
+        theme,
+      );
+      expect('overflow-x: hidden'.allMatches(document).length, 1);
+      expect('name="viewport"'.allMatches(document).length, 1);
+      expect(document, contains('</style></head>'));
+    });
+  });
 }

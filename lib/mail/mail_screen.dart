@@ -431,7 +431,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(selectedMailboxIdProvider, (previous, next) {
+    ref.listen(selectedFolderProvider, (previous, next) {
       if (previous == next || !mounted) return;
       _resetList();
     });
@@ -808,16 +808,30 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   void _openThread(BuildContext context, MailThread thread) {
     final wide = isWideScreen(context);
-    setState(() => _selectedThreadId = thread.id);
+    // The highlight tracks the conversation the detail pane shows, and only the
+    // wide layout keeps the list next to that pane. On a phone the conversation
+    // covers the list, and rebuilding it while covered would rebuild the app bar
+    // too: the route below a push is not rebuilt when that route pops, so the
+    // list would keep the Back button it built while covered instead of going
+    // back to the drawer.
+    if (wide) {
+      setState(() => _selectedThreadId = thread.id);
+    }
     if (thread.unreadCount > 0) {
       unawaited(_markThreadRead(thread));
     }
     final route = MailDetailRoute(emailId: thread.latestMessage.id);
     if (wide) {
       context.router.navigate(route);
-    } else {
-      context.router.push(route);
+      return;
     }
+    // Rebuild once the conversation pops: the app bar is back at the tab root
+    // (drawer, not Back) and the row takes the highlight.
+    unawaited(
+      context.router.push(route).then((_) {
+        if (mounted) setState(() => _selectedThreadId = thread.id);
+      }),
+    );
   }
 
   /// Reading a conversation marks all of it read, so the unread count on the
@@ -3947,6 +3961,11 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         javaScriptEnabled: true,
         transparentBackground: true,
         supportZoom: false,
+        // Backstop for the document-level guard in [emailOverflowCss]: even if a
+        // message still ends up wider than the pane, the view cannot be dragged
+        // sideways (Android and iOS; elsewhere the rule is ignored, and the
+        // guard is what holds).
+        disableHorizontalScroll: true,
         mediaPlaybackRequiresUserGesture: true,
         useShouldOverrideUrlLoading: true,
         // The typography stylesheet loads the bundled Nunito faces through
@@ -4056,24 +4075,26 @@ bool isUnstyledEmailHtml(String html) {
   return !ownStyling.hasMatch(html);
 }
 
-/// Injects [css] as the document's first stylesheet. The style goes into the
-/// existing `<head>` when there is one, into a freshly added `<head>` when the
-/// document only has `<html>`, and is prepended to bare fragments — browsers
-/// apply a `<style>` wherever it appears.
-String injectEmailTypography(String html, String css) {
-  final style = '<style>$css</style>';
+/// Inserts [snippet] at the end of the document's `<head>`, adding a `<head>`
+/// when the document only has `<html>`, and prepending it to bare fragments —
+/// browsers apply a `<style>` and honour a `<meta>` wherever they appear.
+String injectEmailHead(String html, String snippet) {
   final headEnd = RegExp(r'</head\s*>', caseSensitive: false).firstMatch(html);
   if (headEnd != null) {
-    return html.replaceRange(headEnd.start, headEnd.start, style);
+    return html.replaceRange(headEnd.start, headEnd.start, snippet);
   }
   final htmlTag = RegExp(r'<\s*html\b[^>]*>', caseSensitive: false).firstMatch(
     html,
   );
   if (htmlTag != null) {
-    return html.replaceRange(htmlTag.end, htmlTag.end, '<head>$style</head>');
+    return html.replaceRange(htmlTag.end, htmlTag.end, '<head>$snippet</head>');
   }
-  return '$style$html';
+  return '$snippet$html';
 }
+
+/// Injects [css] as a stylesheet into the document's head.
+String injectEmailTypography(String html, String css) =>
+    injectEmailHead(html, '<style>$css</style>');
 
 /// Returns [html] with [css] injected as its default stylesheet when the
 /// message defines no styling of its own; styled messages are returned
@@ -4089,7 +4110,9 @@ String withEmailTypography(String html, String css) {
 /// it repaired.
 ///
 /// A message that ships a stylesheet is returned with its own palette: its
-/// colours come from a cascade [withReadableEmailColors] cannot evaluate.
+/// colours come from a cascade [withReadableEmailColors] cannot evaluate. It
+/// still gets the pane's viewport declaration and overflow guard, which
+/// [withEmailTypography] alone would have skipped for it.
 String readerEmailDocument(String html, ThemeData theme) {
   final body = theme.brightness == Brightness.dark && isUnstyledEmailHtml(html)
       ? withReadableEmailColors(
@@ -4099,8 +4122,40 @@ String readerEmailDocument(String html, ThemeData theme) {
           backdrop: theme.colorScheme.surfaceContainerLow,
         )
       : html;
-  return withEmailTypography(body, emailTypographyCss(theme));
+  final typed = withEmailTypography(body, emailTypographyCss(theme));
+  return injectEmailHead(
+    injectEmailHead(typed, _emailViewportMeta),
+    '<style>${emailOverflowCss()}</style>',
+  );
 }
+
+/// Without a viewport declaration Android lays the document out at its legacy
+/// 980px width and scales it down, which both shrinks the text and leaves a
+/// document wider than the pane — the one cause of a sideways-scrolling message
+/// that no stylesheet can correct. Injected into every message.
+const _emailViewportMeta =
+    '<meta name="viewport" content="width=device-width, initial-scale=1">';
+
+/// The stylesheet that keeps a message inside the pane's width, injected into
+/// every message, styled ones included.
+///
+/// Messages are authored for a desktop canvas: fixed-width marketing tables and
+/// oversized images are the norm, and a single 700px element makes the whole
+/// document horizontally scrollable — a gesture the pane has no affordance for,
+/// since it has no scrollbar and a horizontal drag reads as a vertical one. The
+/// rules are what a mail client applies to every message: oversized media is
+/// scaled down, text has somewhere to wrap, and the root clips as the backstop
+/// for a layout neither rule can fit. They are `!important` because containment
+/// is the pane's guarantee, not a default a sender may reopen — and because a
+/// headless fragment takes the stylesheet before the sender's markup, where a
+/// plain declaration would lose the tie.
+String emailOverflowCss() => '''
+html, body { max-width: 100% !important; overflow-x: hidden !important; }
+body { overflow-wrap: anywhere !important; }
+img, video { max-width: 100% !important; height: auto !important; }
+table { max-width: 100% !important; }
+pre { max-width: 100% !important; white-space: pre-wrap; }
+''';
 
 /// Default typography stylesheet for emails that carry no styling of their
 /// own, derived from the app theme so the message pane reads like the rest of
@@ -4140,7 +4195,6 @@ body {
   font-size: ${text.bodyLarge?.fontSize ?? 16}px;
   line-height: 1.6;
   color: $onSurface;
-  overflow-wrap: break-word;
   -webkit-text-size-adjust: 100%;
 }
 h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.2em 0 0.5em; color: inherit; }
@@ -4155,14 +4209,13 @@ a { color: $primary; }
 a:visited { color: $primary; }
 strong, b { font-weight: 700; }
 em, i { font-style: italic; }
-img { max-width: 100%; height: auto; }
 hr { border: 0; border-top: 1px solid $outlineVariant; margin: 1.5em 0; }
 blockquote { margin: 1em 0; padding: 0 0 0 1em; border-left: 3px solid $outlineVariant; color: $onSurfaceVariant; }
 code, pre { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace; font-size: 0.9em; background: $codeBackground; border-radius: 6px; }
 code { padding: 0.15em 0.4em; }
-pre { padding: 12px; overflow-x: auto; }
+pre { padding: 12px; }
 pre code { background: none; padding: 0; }
-table { border-collapse: collapse; max-width: 100%; }
+table { border-collapse: collapse; }
 ul, ol { margin: 0 0 1em; padding-left: 1.5em; }
 li { margin: 0.25em 0; }
 ::selection { background: $selection; }

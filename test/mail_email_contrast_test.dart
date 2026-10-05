@@ -257,11 +257,13 @@ void main() {
         createSolWattTheme(Brightness.dark),
       );
       expect(document, contains('color:#333333'));
-      // Only the sender's own stylesheet is present.
+      // The sender's own stylesheet, and nothing that re-palettes it: the
+      // pane's own typography is the one part a styled message opts out of.
       expect(
         '<style>span { color: #333333 }</style>'.allMatches(document).length,
         1,
       );
+      expect(document, isNot(contains("font-family: 'Nunito'")));
     });
   });
 }
