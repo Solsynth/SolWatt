@@ -240,6 +240,16 @@ directly, since they already know which file they were handed.
 `drive/file_permissions.dart` supplies the file inspector state plus the
 file-info and ACL reads the detail page gates its actions on.
 
+`core/widgets/content/file_viewer_contents.dart` renders a cloud file by media
+type: images, video, audio, a text/markdown viewer, and the generic placeholder.
+The text viewer doubles as an in-place editor — markdown renders through
+`ui/markdown.dart` with a source toggle, and saving replaces the file's bytes
+with `PUT /drive/files/:id/content` (DysonFS overwrites the backing object and
+re-derives hash/MIME), so the file keeps its id, parent and permissions. Hosts
+that hold their own copy of a file (drive tabs, the file detail page) pass
+`onSaved` to fold the refreshed metadata back in; attachment previews stay
+read-only with `editable: false`.
+
 ## Mail (ElecPostal)
 
 ElecPostal gives every message a `thread_id` and exposes conversations

@@ -108,7 +108,11 @@ class CloudFileWidget extends HookConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 68, 20, 20),
-              child: TextFileContent(uri: uri),
+              child: TextFileContent(
+                item: item,
+                workspaceId: workspaceId,
+                editable: false,
+              ),
             ),
             Positioned(
               top: 8,

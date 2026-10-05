@@ -604,13 +604,6 @@ class SolWattProfile {
 
   bool get canAssignBundledPro => perkLevel >= bundledProRequiredPerkLevel;
 
-  String get perkTierName => switch (perkLevel) {
-    >= 3 => 'Supernova',
-    2 => 'Nova',
-    1 => 'Stellar',
-    _ => 'Twinkle',
-  };
-
   String get id => account.id;
   String get name => account.name;
   String get solWattDisplayName => account.solWattDisplayName;

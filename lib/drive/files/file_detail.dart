@@ -271,7 +271,8 @@ class FileDetailScreen extends HookConsumerWidget {
       ),
       'audio' => AudioFileContent(item: item, uri: uri),
       _ when item.mimeType.startsWith('text/') == true => TextFileContent(
-        uri: uri,
+        item: item,
+        onSaved: (_) => ref.invalidate(driveFileInfoProvider(item.id)),
       ),
       _ => GenericFileContent(item: item),
     };

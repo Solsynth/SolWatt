@@ -234,6 +234,16 @@ class FileListScreen extends HookConsumerWidget {
       tabs.value = nextTabs;
     }
 
+    /// Applies refreshed metadata after an in-place edit: the open tab and, when
+    /// it is showing that file, the inspector both hold their own copy.
+    void handleFileSaved(SnCloudFile file) {
+      updateFileTab(file);
+      final inspector = ref.read(driveInspectorFileProvider);
+      if (inspector?.id == file.id) {
+        ref.read(driveInspectorFileProvider.notifier).setFile(file);
+      }
+    }
+
     void closeTab(String tabId) {
       final currentTabs = tabs.value;
       final closingIndex = currentTabs.indexWhere((tab) => tab.id == tabId);
@@ -621,6 +631,7 @@ class FileListScreen extends HookConsumerWidget {
                               key: ValueKey(activeTab.id),
                               file: activeTab.file!,
                               workspaceId: activeWorkspaceId,
+                              onFileSaved: handleFileSaved,
                               onInspectFile: (file) {
                                 ref
                                     .read(driveInspectorFileProvider.notifier)
@@ -2255,12 +2266,14 @@ class _DriveFileContentTab extends ConsumerWidget {
   final SnCloudFile file;
   final String? workspaceId;
   final void Function(SnCloudFile file) onInspectFile;
+  final void Function(SnCloudFile file) onFileSaved;
 
   const _DriveFileContentTab({
     super.key,
     required this.file,
     this.workspaceId,
     required this.onInspectFile,
+    required this.onFileSaved,
   });
 
   @override
@@ -2286,7 +2299,9 @@ class _DriveFileContentTab extends ConsumerWidget {
             'video' => VideoFileContent(item: file, uri: uri),
             'audio' => AudioFileContent(item: file, uri: uri),
             _ when file.mimeType.startsWith('text/') => TextFileContent(
-              uri: uri,
+              item: file,
+              workspaceId: workspaceId,
+              onSaved: onFileSaved,
             ),
             _ => GenericFileContent(item: file),
           },

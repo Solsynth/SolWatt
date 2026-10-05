@@ -1326,7 +1326,6 @@ class ProfilePage extends ConsumerWidget {
                     ),
                     data: (user) {
                       if (user == null) return const SizedBox.shrink();
-                      final solWatt = ref.watch(solWattProfileProvider).value;
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -1347,12 +1346,7 @@ class ProfilePage extends ConsumerWidget {
                           ),
                         ),
                         title: Text(user.solWattDisplayName),
-                        subtitle: Text(
-                          solWatt == null
-                              ? '@${user.name}'
-                              : '@${user.name} · ${solWatt.perkTierName} '
-                                    '(perk ${solWatt.perkLevel})',
-                        ),
+                        subtitle: Text('@${user.name}'),
                       );
                     },
                   ),
@@ -1365,7 +1359,6 @@ class ProfilePage extends ConsumerWidget {
                   child: ListTile(
                     leading: const IconBadge(icon: Symbols.logout),
                     title: Text('signOutAction'.tr()),
-                    subtitle: Text('signOutDescription'.tr()),
                     onTap: () async {
                       await ref.read(authenticatorProvider).clear();
                       await clearSelectedWorkspace(

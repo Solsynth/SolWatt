@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:dio/dio.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,8 @@ import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/network.dart';
+import 'package:solwatt/drive/file_permissions.dart';
+import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/shared/widgets/content/audio.dart';
 import 'package:solwatt/shared/widgets/content/video.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
@@ -20,43 +23,281 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
+import 'package:solwatt/ui/markdown.dart';
 
+/// Text file viewer with an optional in-place editor.
+///
+/// Markdown files render through [MarkdownTextContent] and can be flipped to
+/// their source. Saving replaces the file's bytes through
+/// `PUT /drive/files/:id/content` (DysonFS `PUT /api/files/:id/content`): the
+/// backing object is overwritten in place, so the file keeps its id, parent and
+/// permissions, and the server queues a rehash to refresh hash/MIME/derived
+/// content. The server stays the authority on writes — a rejected save (no
+/// write permission, file locked by another editor) is surfaced, not hidden.
 class TextFileContent extends HookConsumerWidget {
-  final String uri;
+  final IDisplayableCloudFile item;
 
-  const TextFileContent({required this.uri, super.key});
+  /// Workspace the file is stored under, when it is a workspace file. Without
+  /// it the gateway cannot resolve a workspace-scoped Drive file.
+  final String? workspaceId;
+
+  /// Whether the editor is offered. Read-only surfaces (attachment previews)
+  /// pass `false` and keep the plain viewer.
+  final bool editable;
+
+  /// Handed the refreshed metadata after a successful save, for callers that
+  /// hold their own copy of the file (tabs, inspector, list rows).
+  final ValueChanged<SnCloudFile>? onSaved;
+
+  const TextFileContent({
+    super.key,
+    required this.item,
+    this.workspaceId,
+    this.editable = true,
+    this.onSaved,
+  });
+
+  bool get _isMarkdown {
+    if (item.mimeType == 'text/markdown') return true;
+    final name = item.name.toLowerCase();
+    return name.endsWith('.md') || name.endsWith('.markdown');
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final textFuture = useMemoized(
-      () => ref
-          .read(solarNetworkClientProvider)
-          .dio
-          .get(uri)
-          .then((response) => response.data as String),
-      [uri],
+    final serverUrl = ref.watch(serverUrlProvider);
+    final uri = Uri.parse('$serverUrl/drive/files/${item.id}')
+        .replace(
+          queryParameters: {
+            if (workspaceId != null && workspaceId!.isNotEmpty)
+              'workspace_id': workspaceId!,
+          },
+        )
+        .toString();
+    final client = ref.read(solarNetworkClientProvider);
+
+    final text = useState<String?>(null);
+    final loadError = useState<Object?>(null);
+    final isLoading = useState(true);
+    final isEditing = useState(false);
+    final isSaving = useState(false);
+    final showSource = useState(false);
+    final controller = useTextEditingController();
+    // Rebuild on every keystroke so the dirty marker and save button follow.
+    useListenable(controller);
+
+    useEffect(() {
+      var cancelled = false;
+      isLoading.value = true;
+      loadError.value = null;
+      client.dio
+          .get<String>(uri, options: Options(responseType: ResponseType.plain))
+          .then((response) {
+            if (cancelled) return;
+            final body = response.data ?? '';
+            text.value = body;
+            controller.text = body;
+            isLoading.value = false;
+          })
+          .catchError((Object error) {
+            if (cancelled) return;
+            loadError.value = error;
+            isLoading.value = false;
+          });
+      return () => cancelled = true;
+    }, [uri]);
+
+    Future<void> save() async {
+      final content = controller.text;
+      isSaving.value = true;
+      try {
+        final response = await client.dio.put<Map<String, dynamic>>(
+          uri,
+          data: content,
+          options: Options(contentType: 'text/plain; charset=utf-8'),
+        );
+        text.value = content;
+        isEditing.value = false;
+        final payload = response.data;
+        if (payload != null) {
+          final updated = SnCloudFile.fromJson(payload);
+          ref.invalidate(driveFileInfoProvider(updated.id));
+          onSaved?.call(updated);
+        }
+        showSnackBar('fileSaved'.tr());
+      } catch (error) {
+        showSnackBar('fileSaveFailed'.tr(args: [_driveErrorLabel(error)]));
+      } finally {
+        isSaving.value = false;
+      }
+    }
+
+    Future<void> discard() async {
+      if (controller.text != (text.value ?? '')) {
+        final confirmed = await showConfirmAlert(
+          'discardChangesPrompt'.tr(),
+          'discardChanges'.tr(),
+          isDanger: true,
+        );
+        if (!confirmed) return;
+      }
+      controller.text = text.value ?? '';
+      isEditing.value = false;
+    }
+
+    if (isLoading.value) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (loadError.value != null) {
+      return Center(
+        child: Text(
+          'fileContentLoadFailed'.tr(args: [_driveErrorLabel(loadError.value!)]),
+        ),
+      );
+    }
+
+    final content = text.value ?? '';
+    final isDirty = controller.text != content;
+
+    Widget viewer;
+    if (isEditing.value) {
+      viewer = TextField(
+        controller: controller,
+        expands: true,
+        maxLines: null,
+        autofocus: true,
+        textAlignVertical: TextAlignVertical.top,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.all(16),
+        ),
+      );
+    } else if (_isMarkdown && !showSource.value) {
+      viewer = SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: MarkdownTextContent(content: content),
+      );
+    } else {
+      viewer = SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: SelectableText(
+          content,
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+        ),
+      );
+    }
+
+    final scheme = Theme.of(context).colorScheme;
+    final showToolbar = editable || _isMarkdown;
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showToolbar)
+          Material(
+            color: scheme.surfaceContainerLow,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: scheme.outlineVariant.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+              child: SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    if (isEditing.value) ...[
+                      const Gap(8),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        tooltip: 'cancel'.tr(),
+                        onPressed: isSaving.value ? null : discard,
+                        icon: const Icon(Symbols.close),
+                      ),
+                    ] else if (_isMarkdown)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        tooltip: showSource.value
+                            ? 'markdownPreview'.tr()
+                            : 'markdownSource'.tr(),
+                        onPressed: () => showSource.value = !showSource.value,
+                        icon: Icon(
+                          showSource.value ? Symbols.visibility : Symbols.code,
+                        ),
+                      ),
+                    const Spacer(),
+                    if (isEditing.value) ...[
+                      if (isDirty)
+                        Tooltip(
+                          message: 'unsavedChanges'.tr(),
+                          child: Icon(
+                            Symbols.circle,
+                            size: 8,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      const Gap(8),
+                      TextButton.icon(
+                        onPressed: isSaving.value ? null : save,
+                        icon: isSaving.value
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Symbols.save, size: 18),
+                        label: Text('save'.tr()),
+                      ),
+                    ] else if (editable)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        tooltip: 'editFileContent'.tr(),
+                        onPressed: () => isEditing.value = true,
+                        icon: const Icon(Symbols.edit),
+                      ),
+                    const Gap(4),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        Expanded(child: viewer),
+      ],
     );
 
-    return FutureBuilder<String>(
-      future: textFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Error loading text: ${snapshot.error}'));
-        } else if (snapshot.hasData) {
-          return SingleChildScrollView(
-            padding: EdgeInsets.all(20),
-            child: SelectableText(
-              snapshot.data!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
-            ),
-          );
-        }
-        return const Center(child: Text('No content'));
+    if (!editable) return body;
+    // ⌘S/Ctrl+S saves without leaving the keyboard.
+    void saveNow() {
+      if (isEditing.value && !isSaving.value) save();
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): saveNow,
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): saveNow,
       },
+      child: body,
     );
   }
+}
+
+/// Human-readable label for a failed drive request: the server's `error` field
+/// when present, else the HTTP status, else the raw error.
+String _driveErrorLabel(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is Map && data['error'] is String) return data['error'] as String;
+    final status = error.response?.statusCode;
+    if (status != null) return 'HTTP $status';
+  }
+  return error.toString();
 }
 
 class ImageFileContent extends HookConsumerWidget {
