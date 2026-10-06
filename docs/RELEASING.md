@@ -38,8 +38,47 @@ version, so it fails before uploading while the repository has no tags.
 | Linux | `SolWatt-x86_64.AppImage` (from `buildtools/build-appimage.sh`) |
 | Android | `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`, `app-x86_64-release.apk` |
 
-macOS and iOS builds are not part of `build.yml`; they are produced from a local
-Xcode/Flutter build, matching the sibling repositories.
+macOS and iOS builds are not part of `build.yml`; Xcode Cloud archives them from
+the same commits.
+
+## Xcode Cloud
+
+Each platform has a workflow that archives its workspace — `ios/Runner.xcworkspace`,
+`macos/Runner.xcworkspace` — with the archive action on the default
+environment. The `Runner` schemes are shared in both projects, which is what
+Xcode Cloud picks up. Signing, the App Store Connect product records, bundle
+identifiers and the push entitlements are configured there and in Xcode, not in
+this repository.
+
+The post-clone hooks below run first and prepare the checkout:
+
+| Script | Prepares |
+| --- | --- |
+| `ios/ci_scripts/ci_post_clone.sh` | stable Flutter, Rust, CocoaPods, iOS pods |
+| `macos/ci_scripts/ci_post_clone.sh` | stable Flutter, Rust, CocoaPods, macOS pods |
+
+Both follow the same order: clone stable Flutter into `$HOME/flutter`,
+`flutter pub get` (with the retry `build.yml` and `analyze.yml` use for the
+Socommon git dependencies), install Rust, install CocoaPods,
+`pod install --repo-update`, and finally `flutter build <platform> --config-only`.
+That last step writes the `xcconfig` files and `Flutter.podspec` the archive's
+build phase reads, so the Xcode build compiles the app once instead of twice.
+The hooks forward `DISTRIBUTION_API_BASE_URL` and `DISTRIBUTION_PRODUCT_ID` from
+the workflow's environment variables to that step when they are set, matching the
+`--dart-define`s `build.yml` passes; unset variables keep the defaults compiled
+into `lib/core/config.dart` and `solsynth_express`.
+
+Rust is required, not optional. `super_context_menu` depends on
+`super_native_extensions`, whose crate is compiled during the Xcode build by the
+Dart native-assets hooks (`native_toolchain_rust`) rather than by a CocoaPod, so
+nothing in the Podfile installs it. Those hooks invoke `rustup` and rely on the
+toolchain and target list pinned in the crate's own `rust-toolchain.toml`, which
+the post-clone scripts download up front; without either, the archive fails
+while linking `super_native_extensions_native`.
+
+Both hooks track the stable channel, like the other workflows, and are meant for
+a disposable Xcode Cloud machine: they clone a Flutter SDK into `$HOME/flutter`
+and install CocoaPods, so a developer's checkout keeps using its own toolchain.
 
 ## Dependencies
 
