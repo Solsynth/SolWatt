@@ -43,9 +43,9 @@ the same commits.
 
 ## Xcode Cloud
 
-Each platform has a workflow that archives its workspace — `ios/Runner.xcworkspace`,
-`macos/Runner.xcworkspace` — with the archive action on the default
-environment. The `Runner` schemes are shared in both projects, which is what
+Each platform has a workflow that archives its workspace — `ios/SolWatt.xcworkspace`,
+`macos/SolWatt.xcworkspace` — with the archive action on the default
+environment. The `SolWatt` schemes are shared in both projects, which is what
 Xcode Cloud picks up. Signing, the App Store Connect product records, bundle
 identifiers and the push entitlements are configured there and in Xcode, not in
 this repository.

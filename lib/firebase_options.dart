@@ -1,7 +1,7 @@
 // GENERATED FILE — do not edit by hand.
 // Regenerate with `dart run tool/generate_firebase_options.dart` after
-// updating android/app/google-services.json, ios/Runner/
-// GoogleService-Info.plist or macos/Runner/GoogleService-Info.plist.
+// updating android/app/google-services.json, ios/SolWatt/
+// GoogleService-Info.plist or macos/SolWatt/GoogleService-Info.plist.
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform, kIsWeb;

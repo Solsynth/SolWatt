@@ -1,5 +1,7 @@
 PODS:
   - Flutter (1.0.0)
+  - flutter_app_update (0.0.1):
+    - Flutter
   - flutter_inappwebview_ios (0.0.1):
     - Flutter
     - flutter_inappwebview_ios/Core (= 0.0.1)
@@ -30,6 +32,7 @@ PODS:
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - flutter_app_update (from `.symlinks/plugins/flutter_app_update/ios`)
   - flutter_inappwebview_ios (from `.symlinks/plugins/flutter_inappwebview_ios/ios`)
   - media_kit_libs_ios_video (from `.symlinks/plugins/media_kit_libs_ios_video/ios`)
   - media_kit_video (from `.symlinks/plugins/media_kit_video/ios`)
@@ -43,6 +46,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  flutter_app_update:
+    :path: ".symlinks/plugins/flutter_app_update/ios"
   flutter_inappwebview_ios:
     :path: ".symlinks/plugins/flutter_inappwebview_ios/ios"
   media_kit_libs_ios_video:
@@ -54,6 +59,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_app_update: 816fdb2e30e4832a7c45e3f108d391c42ef040a9
   flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
   libwebp: af5937a13536ef73f3784d69cc342b98961acf33
   media_kit_libs_ios_video: 5a18affdb97d1f5d466dc79988b13eff6c5e2854
@@ -61,6 +67,6 @@ SPEC CHECKSUMS:
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
   video_thumbnail: b637e0ad5f588ca9945f6e2c927f73a69a661140
 
-PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
+PODFILE CHECKSUM: 84e93a0af8b39f7a4cc55c87823a8d8402bf05cb
 
 COCOAPODS: 1.17.0

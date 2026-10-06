@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Xcode Cloud runs this script after cloning the repository, before Xcode
-# builds macos/Runner.xcworkspace. It installs the toolchain the archive needs
+# builds macos/SolWatt.xcworkspace. It installs the toolchain the archive needs
 # and generates the Xcode configuration, so the build phase does not have to.
 
 # Fail this script if any subcommand fails.

@@ -1,0 +1,9 @@
+{
+  "id" : "f466b602-6c5f-4c11-bcd8-3af2a070a7e8",
+  "targets" : [
+    {
+      "id" : "44b0acbd-7c5d-4ae1-909d-bae9e5eeb8e7",
+      "name" : "SolWatt"
+    }
+  ]
+}

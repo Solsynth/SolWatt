@@ -1,7 +1,7 @@
 // Generates lib/firebase_options.dart from the platform Firebase configs:
 //   - android/app/google-services.json
-//   - ios/Runner/GoogleService-Info.plist
-//   - macos/Runner/GoogleService-Info.plist (optional; falls back to the
+//   - ios/SolWatt/GoogleService-Info.plist
+//   - macos/SolWatt/GoogleService-Info.plist (optional; falls back to the
 //     iOS/Apple app config, which shares the bundle id)
 //
 // This replaces the FlutterFire CLI (which requires the ruby `xcodeproj` gem
@@ -19,8 +19,8 @@ import 'dart:convert';
 import 'dart:io';
 
 const _androidConfig = 'android/app/google-services.json';
-const _iosConfig = 'ios/Runner/GoogleService-Info.plist';
-const _macosConfig = 'macos/Runner/GoogleService-Info.plist';
+const _iosConfig = 'ios/SolWatt/GoogleService-Info.plist';
+const _macosConfig = 'macos/SolWatt/GoogleService-Info.plist';
 const _output = 'lib/firebase_options.dart';
 
 /// Parses the flat `<key>…</key><string>…</string>` pairs of a
@@ -117,8 +117,8 @@ void main() {
   final lines = <String>[
     '// GENERATED FILE — do not edit by hand.',
     '// Regenerate with `dart run tool/generate_firebase_options.dart` after',
-    '// updating android/app/google-services.json, ios/Runner/',
-    '// GoogleService-Info.plist or macos/Runner/GoogleService-Info.plist.',
+    '// updating android/app/google-services.json, ios/SolWatt/',
+    '// GoogleService-Info.plist or macos/SolWatt/GoogleService-Info.plist.',
     "import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;",
     "import 'package:flutter/foundation.dart'",
     "    show defaultTargetPlatform, TargetPlatform, kIsWeb;",

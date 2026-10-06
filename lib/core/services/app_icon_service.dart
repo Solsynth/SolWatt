@@ -29,7 +29,7 @@ class AppIconService {
   static const _channel = MethodChannel('dev.solsynth.solarwatt/app_icon');
 
   /// Alternate icon names bundled with the app. Must match the Icon Composer
-  /// `.icon` document name added to the Runner targets.
+  /// `.icon` document name added to the SolWatt targets.
   static const String cuiteIconName = 'AppIcon-Cuite';
 
   /// Preview asset for the primary (default) icon.
