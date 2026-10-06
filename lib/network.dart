@@ -977,6 +977,38 @@ class WattEngineClient {
     }
   }
 
+  Future<void> deleteBroad(String broadId) =>
+      _request<void>('DELETE', '/ideask/broads/$broadId');
+
+  /// Deletes several boards in one request. Returns how many were removed.
+  ///
+  /// Server: `POST /ideask/broads/delete/batch` with `{ "broad_ids": [...] }`.
+  /// All-or-nothing: a stale id fails the whole batch.
+  Future<int> deleteBroads(List<String> broadIds) async {
+    if (broadIds.isEmpty) return 0;
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/broads/delete/batch',
+      data: {'broad_ids': broadIds},
+    );
+    return (response.data?['count'] as num?)?.toInt() ?? broadIds.length;
+  }
+
+  /// Reassigns several boards to another workspace in one request. Returns how
+  /// many were moved.
+  ///
+  /// Server: `POST /ideask/broads/move/batch` with
+  /// `{ "broad_ids": [...], "workspace_id": "..." }`.
+  Future<int> moveBroads(List<String> broadIds, String workspaceId) async {
+    if (broadIds.isEmpty) return 0;
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/broads/move/batch',
+      data: {'broad_ids': broadIds, 'workspace_id': workspaceId},
+    );
+    return (response.data?['count'] as num?)?.toInt() ?? broadIds.length;
+  }
+
   Future<List<WorkTask>> listTasks(
     String broadId, {
     TaskListFilters filters = const TaskListFilters(),

@@ -75,6 +75,7 @@ Future<void> pumpBoardsApp(
   WidgetTester tester,
   Size size, {
   WattEngineClient? client,
+  List<Workspace>? workspaces,
 }) async {
   SharedPreferences.setMockInitialValues({});
   await EasyLocalization.ensureInitialized();
@@ -122,6 +123,8 @@ Future<void> pumpBoardsApp(
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
         if (client != null) wattEngineClientProvider.overrideWithValue(client),
+        if (workspaces != null)
+          workspacesProvider.overrideWith((ref) async => workspaces),
       ],
       child: EasyLocalization(
         supportedLocales: const [Locale('en', 'US')],

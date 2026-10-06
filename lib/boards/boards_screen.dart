@@ -50,15 +50,120 @@ class BoardsPage extends StatelessWidget {
 }
 
 /// All boards of the selected workspace; the root page of the boards tab.
+///
+/// Owns the multi-select state: while selecting, tapping a board ticks it
+/// instead of opening it and the app bar's create action gives way to the bar
+/// carrying the bulk actions.
 @RoutePage()
-class BoardsListPage extends ConsumerWidget {
+class BoardsListPage extends ConsumerStatefulWidget {
   const BoardsListPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BoardsListPage> createState() => _BoardsListPageState();
+}
+
+class _BoardsListPageState extends ConsumerState<BoardsListPage> {
+  /// Ids of the boards ticked for a bulk action.
+  final Set<String> _selected = {};
+  bool _selectionMode = false;
+
+  bool get _selecting => _selectionMode;
+
+  /// Enters the mode with one board already ticked, which is what a long
+  /// press on a card means.
+  void _selectBoard(Broad board) => setState(() {
+    _selectionMode = true;
+    _selected.add(board.id);
+  });
+
+  void _toggleSelected(Broad board) => setState(() {
+    if (!_selected.remove(board.id)) _selected.add(board.id);
+  });
+
+  void _enterSelectionMode() => setState(() => _selectionMode = true);
+
+  void _clearSelection() => setState(() {
+    _selected.clear();
+    _selectionMode = false;
+  });
+
+  /// Ticks every board the list has loaded, or clears the ticks when they are
+  /// all ticked already.
+  void _toggleSelectAll(List<Broad> boards) {
+    final allSelected =
+        boards.isNotEmpty && boards.every((b) => _selected.contains(b.id));
+    setState(() {
+      _selectionMode = true;
+      if (allSelected) {
+        _selected.clear();
+        return;
+      }
+      _selected.addAll(boards.map((b) => b.id));
+    });
+  }
+
+  /// The ticked boards the current list still holds, in list order. A board
+  /// another client deleted drops out here rather than failing the batch.
+  List<Broad> _selectedBoards(List<Broad> boards) =>
+      boards.where((b) => _selected.contains(b.id)).toList(growable: false);
+
+  Future<void> _deleteSelected(List<Broad> boards) async {
+    final selected = _selectedBoards(boards);
+    if (selected.isEmpty) return;
+    final confirmed = await showConfirmAlert(
+      'deleteBoardsConfirm'.tr(namedArgs: {'count': '${selected.length}'}),
+      'deleteBoardsTitle'.tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'delete'.tr(),
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final count = await ref
+          .read(wattEngineClientProvider)
+          .deleteBroads(selected.map((board) => board.id).toList());
+      if (!mounted) return;
+      _clearSelection();
+      ref.invalidate(broadsProvider);
+      showSnackBar('boardsDeleted'.tr(namedArgs: {'count': '$count'}));
+    } catch (error) {
+      showSnackBar(wattApiErrorMessage(error));
+    }
+  }
+
+  Future<void> _moveSelected(List<Broad> boards) async {
+    final selected = _selectedBoards(boards);
+    if (selected.isEmpty) return;
+    final target = await _pickWorkspace(context, ref);
+    if (target == null || !mounted) return;
+    try {
+      final count = await ref
+          .read(wattEngineClientProvider)
+          .moveBroads(selected.map((board) => board.id).toList(), target.id);
+      if (!mounted) return;
+      _clearSelection();
+      ref.invalidate(broadsProvider);
+      showSnackBar(
+        'boardsMovedToWorkspace'.tr(
+          namedArgs: {'count': '$count', 'name': target.name},
+        ),
+      );
+    } catch (error) {
+      showSnackBar(wattApiErrorMessage(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final boards = ref.watch(broadsProvider);
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final wide = isWideScreen(context);
+    // The last loaded page drives the app bar and the bulk actions; the body
+    // still renders its own loading/error states.
+    final items = boards.value ?? const <Broad>[];
+    final selectedCount = items
+        .where((board) => _selected.contains(board.id))
+        .length;
 
     void createBoard() => _boardForm(context, ref);
 
@@ -70,7 +175,9 @@ class BoardsListPage extends ConsumerWidget {
       // The app bar only carries room for a labelled button once the shell
       // rail has taken its share of the width; on a phone the icon stands in
       // and the empty state keeps the labelled action.
-      action: wide
+      action: _selecting
+          ? null
+          : wide
           ? FilledButton.tonalIcon(
               onPressed: createBoard,
               icon: const Icon(Symbols.add, size: 18),
@@ -81,6 +188,27 @@ class BoardsListPage extends ConsumerWidget {
               onPressed: createBoard,
               icon: const Icon(Symbols.add),
             ),
+      actions: _selecting
+          ? const []
+          : [
+              IconButton(
+                tooltip: 'enterSelectionMode'.tr(),
+                onPressed: items.isEmpty ? null : _enterSelectionMode,
+                icon: const Icon(Symbols.select_check_box),
+              ),
+            ],
+      bottom: _selecting
+          ? _BoardSelectionBar(
+              count: selectedCount,
+              allSelected:
+                  items.isNotEmpty &&
+                  items.every((board) => _selected.contains(board.id)),
+              onToggleSelectAll: () => _toggleSelectAll(items),
+              onMove: () => _moveSelected(items),
+              onDelete: () => _deleteSelected(items),
+              onClose: _clearSelection,
+            )
+          : null,
       child: boards.when(
         loading: () => const PageLoading(),
         error: (error, _) => PageError(
@@ -100,7 +228,83 @@ class BoardsListPage extends ConsumerWidget {
               ),
             );
           }
-          return wide ? _BoardGrid(boards: items) : _BoardLedger(boards: items);
+          return wide
+              ? _BoardGrid(
+                  boards: items,
+                  selectionMode: _selecting,
+                  selectedIds: _selected,
+                  onEnterSelection: _selectBoard,
+                  onToggleSelection: _toggleSelected,
+                )
+              : _BoardLedger(
+                  boards: items,
+                  selectionMode: _selecting,
+                  selectedIds: _selected,
+                  onEnterSelection: _selectBoard,
+                  onToggleSelection: _toggleSelected,
+                );
+        },
+      ),
+    );
+  }
+}
+
+/// Picks a destination workspace for a bulk move. Returns null when the user
+/// backs out or has no other workspace to move the boards into.
+Future<Workspace?> _pickWorkspace(BuildContext context, WidgetRef ref) async {
+  final workspaces = await ref.read(workspacesProvider.future);
+  final current = (await ref.read(selectedWorkspaceProvider.future))?.id;
+  final targets = workspaces
+      .where((workspace) => workspace.id != current)
+      .toList(growable: false);
+  if (targets.isEmpty) {
+    showSnackBar('noOtherWorkspaces'.tr());
+    return null;
+  }
+  if (!context.mounted) return null;
+  return showModalBottomSheet<Workspace>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    builder: (_) => _WorkspacePickerSheet(workspaces: targets),
+  );
+}
+
+/// Destination list for a bulk move: every workspace but the current one.
+class _WorkspacePickerSheet extends StatelessWidget {
+  const _WorkspacePickerSheet({required this.workspaces});
+
+  final List<Workspace> workspaces;
+
+  @override
+  Widget build(BuildContext context) {
+    return SheetScaffold(
+      titleText: 'moveToWorkspace'.tr(),
+      heightFactor: 0.7,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+        itemCount: workspaces.length,
+        itemBuilder: (context, index) {
+          final workspace = workspaces[index];
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            leading: CloudFileAvatar(
+              file: workspace.picture,
+              fallbackIcon: Symbols.workspaces,
+              size: 40,
+            ),
+            title: Text(
+              workspace.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              workspace.slug,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => Navigator.pop(context, workspace),
+          );
         },
       ),
     );
@@ -113,13 +317,23 @@ void _openBoard(BuildContext context, Broad board) {
 
 /// Cover-first board cards. Used on wide screens, where a 2–4 column grid
 /// keeps the covers large enough to be recognisable.
-class _BoardGrid extends ConsumerWidget {
-  const _BoardGrid({required this.boards});
+class _BoardGrid extends StatelessWidget {
+  const _BoardGrid({
+    required this.boards,
+    required this.selectionMode,
+    required this.selectedIds,
+    required this.onEnterSelection,
+    required this.onToggleSelection,
+  });
 
   final List<Broad> boards;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final ValueChanged<Broad> onEnterSelection;
+  final ValueChanged<Broad> onToggleSelection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: 16),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -129,18 +343,37 @@ class _BoardGrid extends ConsumerWidget {
         childAspectRatio: 1.5,
       ),
       itemCount: boards.length,
-      itemBuilder: (context, index) => _BoardCard(board: boards[index]),
+      itemBuilder: (context, index) {
+        final board = boards[index];
+        return _BoardCard(
+          board: board,
+          selectionMode: selectionMode,
+          selected: selectedIds.contains(board.id),
+          onEnterSelection: () => onEnterSelection(board),
+          onToggleSelection: () => onToggleSelection(board),
+        );
+      },
     );
   }
 }
 
-class _BoardCard extends ConsumerWidget {
-  const _BoardCard({required this.board});
+class _BoardCard extends StatelessWidget {
+  const _BoardCard({
+    required this.board,
+    required this.selectionMode,
+    required this.selected,
+    required this.onEnterSelection,
+    required this.onToggleSelection,
+  });
 
   final Broad board;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onEnterSelection;
+  final VoidCallback onToggleSelection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final cover = board.backgroundImage == null
@@ -152,14 +385,18 @@ class _BoardCard extends ConsumerWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       // Cards here hold text on a near-page-coloured fill: the outline is what
-      // makes them read as objects.
+      // makes them read as objects, and the accent marks a ticked one.
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: scheme.outlineVariant),
+        side: selected && selectionMode
+            ? BorderSide(color: scheme.primary, width: 2)
+            : BorderSide(color: scheme.outlineVariant),
       ),
       child: InkWell(
-        onTap: () => _openBoard(context, board),
-        onLongPress: () => _boardForm(context, ref, board: board),
+        onTap: selectionMode
+            ? onToggleSelection
+            : () => _openBoard(context, board),
+        onLongPress: selectionMode ? onToggleSelection : onEnterSelection,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -215,7 +452,13 @@ class _BoardCard extends ConsumerWidget {
                         size: 36,
                       ),
                       const Spacer(),
-                      _BoardMenu(board: board, compact: true),
+                      if (selectionMode)
+                        Checkbox(
+                          value: selected,
+                          onChanged: (_) => onToggleSelection(),
+                        )
+                      else
+                        _BoardMenu(board: board, compact: true),
                     ],
                   ),
                   const Spacer(),
@@ -262,9 +505,19 @@ class _BoardCard extends ConsumerWidget {
 /// Ledger rows. Used on phones, where a cover grid would either overflow or
 /// shrink the covers to thumbnails.
 class _BoardLedger extends StatelessWidget {
-  const _BoardLedger({required this.boards});
+  const _BoardLedger({
+    required this.boards,
+    required this.selectionMode,
+    required this.selectedIds,
+    required this.onEnterSelection,
+    required this.onToggleSelection,
+  });
 
   final List<Broad> boards;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final ValueChanged<Broad> onEnterSelection;
+  final ValueChanged<Broad> onToggleSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -272,24 +525,49 @@ class _BoardLedger extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       itemCount: boards.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) => _BoardRow(board: boards[index]),
+      itemBuilder: (context, index) {
+        final board = boards[index];
+        return _BoardRow(
+          board: board,
+          selectionMode: selectionMode,
+          selected: selectedIds.contains(board.id),
+          onEnterSelection: () => onEnterSelection(board),
+          onToggleSelection: () => onToggleSelection(board),
+        );
+      },
     );
   }
 }
 
-class _BoardRow extends ConsumerWidget {
-  const _BoardRow({required this.board});
+class _BoardRow extends StatelessWidget {
+  const _BoardRow({
+    required this.board,
+    required this.selectionMode,
+    required this.selected,
+    required this.onEnterSelection,
+    required this.onToggleSelection,
+  });
 
   final Broad board;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onEnterSelection;
+  final VoidCallback onToggleSelection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final description = board.description?.trim();
     final prefix = board.taskPrefix?.trim();
 
     return Card(
+      shape: selected && selectionMode
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: scheme.primary, width: 2),
+            )
+          : null,
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
         leading: CloudFileAvatar(
@@ -321,15 +599,19 @@ class _BoardRow extends ConsumerWidget {
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               )
             : null,
-        trailing: _BoardMenu(board: board),
-        onTap: () => _openBoard(context, board),
-        onLongPress: () => _boardForm(context, ref, board: board),
+        trailing: selectionMode
+            ? Checkbox(value: selected, onChanged: (_) => onToggleSelection())
+            : _BoardMenu(board: board),
+        onTap: selectionMode
+            ? onToggleSelection
+            : () => _openBoard(context, board),
+        onLongPress: selectionMode ? onToggleSelection : onEnterSelection,
       ),
     );
   }
 }
 
-/// Open / edit menu shared by the grid card and the ledger row.
+/// Open / edit / delete menu shared by the grid card and the ledger row.
 class _BoardMenu extends ConsumerWidget {
   const _BoardMenu({required this.board, this.compact = false});
 
@@ -346,13 +628,132 @@ class _BoardMenu extends ConsumerWidget {
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
       onSelected: (value) {
-        if (value == 'open') _openBoard(context, board);
-        if (value == 'edit') _boardForm(context, ref, board: board);
+        switch (value) {
+          case 'open':
+            _openBoard(context, board);
+          case 'edit':
+            _boardForm(context, ref, board: board);
+          case 'delete':
+            _deleteBoard(context, ref, board);
+        }
       },
       itemBuilder: (_) => [
         PopupMenuItem(value: 'open', child: Text('open'.tr())),
         PopupMenuItem(value: 'edit', child: Text('edit'.tr())),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'delete',
+          child: Text(
+            'delete'.tr(),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
       ],
+    );
+  }
+}
+
+/// Deletes one board after a confirmation. The list refresh drops it, and the
+/// server's realtime `broad_updated` packet keeps other clients in step.
+Future<void> _deleteBoard(
+  BuildContext context,
+  WidgetRef ref,
+  Broad board,
+) async {
+  final confirmed = await showConfirmAlert(
+    'deleteBoardConfirm'.tr(namedArgs: {'name': board.name}),
+    'deleteBoardTitle'.tr(),
+    icon: Symbols.delete,
+    isDanger: true,
+    confirmLabel: 'delete'.tr(),
+  );
+  if (!confirmed) return;
+  try {
+    await ref.read(wattEngineClientProvider).deleteBroad(board.id);
+    ref.invalidate(broadsProvider);
+    showSnackBar('boardDeleted'.tr());
+  } catch (error) {
+    showSnackBar(wattApiErrorMessage(error));
+  }
+}
+
+/// Bulk-action bar for the selected boards, shown as the app bar's bottom
+/// while selection mode is on.
+class _BoardSelectionBar extends StatelessWidget
+    implements PreferredSizeWidget {
+  const _BoardSelectionBar({
+    required this.count,
+    required this.allSelected,
+    required this.onToggleSelectAll,
+    required this.onMove,
+    required this.onDelete,
+    required this.onClose,
+  });
+
+  final int count;
+  final bool allSelected;
+  final VoidCallback onToggleSelectAll;
+  final VoidCallback onMove;
+  final VoidCallback onDelete;
+  final VoidCallback onClose;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(56);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final enabled = count > 0;
+
+    return Material(
+      color: scheme.surfaceContainerLow,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.55),
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'boardsSelected'.tr(namedArgs: {'count': '$count'}),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton(
+                onPressed: onToggleSelectAll,
+                child: Text(
+                  allSelected ? 'deselectAll'.tr() : 'selectAll'.tr(),
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('board-selection-move'),
+                onPressed: enabled ? onMove : null,
+                tooltip: 'moveToWorkspace'.tr(),
+                icon: const Icon(Symbols.drive_file_move),
+              ),
+              IconButton(
+                key: const ValueKey('board-selection-delete'),
+                onPressed: enabled ? onDelete : null,
+                tooltip: 'delete'.tr(),
+                icon: Icon(Symbols.delete, color: scheme.error),
+              ),
+              IconButton(
+                key: const ValueKey('board-selection-close'),
+                onPressed: onClose,
+                tooltip: 'exitSelectionMode'.tr(),
+                icon: const Icon(Symbols.close),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
