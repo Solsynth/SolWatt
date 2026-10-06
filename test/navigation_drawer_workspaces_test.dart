@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
@@ -18,6 +19,10 @@ import 'package:solwatt/settings/app_settings_page.dart';
 import 'package:solwatt/websocket.dart';
 
 const _active = Workspace(id: 'ws-1', slug: 'ws-1', name: 'Test Workspace');
+
+/// Stores a non-default accent: a fork theme that ignores the preference shows
+/// up as the default amber in the toast check below.
+const _accent = Color(0xff0d9488);
 
 /// Four workspaces: two personal (round avatars), two organizations. Only the
 /// first few fit at a phone width, so the row has to scroll for the rest.
@@ -53,8 +58,15 @@ const _mailbox = MailMailbox(
 /// Pumps the whole app. Every step of the test gets its own shell: the router
 /// and the island overlay are process-wide singletons, so a second
 /// `testWidgets` would pump into a dead tree.
-Future<void> _pumpShell(WidgetTester tester, Size size, String tag) async {
-  SharedPreferences.setMockInitialValues({});
+Future<void> _pumpShell(
+  WidgetTester tester,
+  Size size,
+  String tag, {
+  Color? accent,
+}) async {
+  SharedPreferences.setMockInitialValues({
+    if (accent != null) 'app_accent_color': accent.toARGB32(),
+  });
   FlutterSecureStorage.setMockInitialValues({
     'selected_workspace_id': _active.id,
   });
@@ -164,7 +176,7 @@ void main() {
     tester,
   ) async {
     // ---- Phone: every workspace is listed, the active one is ringed ----
-    await _pumpShell(tester, const Size(390, 844), 'phone');
+    await _pumpShell(tester, const Size(390, 844), 'phone', accent: _accent);
     await _openDrawer(tester);
 
     final drawer = find.byType(NavigationDrawer);
@@ -208,6 +220,22 @@ void main() {
     expect(find.byType(NavigationDrawer), findsNothing);
     expect(find.text('Acme Team is now active.'), findsOneWidget);
     expect(await _storedWorkspaceId(), 'ws-2');
+
+    // The success toast is a fork overlay entry — a *sibling* of the app entry,
+    // not a descendant — so it only paints the app's colors because
+    // `AppOverlayHost` keeps the fork theme above the whole overlay. Nested
+    // inside the app entry instead, the toast falls back to the fork's own
+    // baseline scheme and shows a purple card on a warm theme (#3). Its accent
+    // also has to come from the stored preference, which is what makes the fork
+    // chrome match a non-default accent at all (#1).
+    final toast = find.text('Acme Team is now active.');
+    expect(
+      tester.widget<Text>(toast).style?.color,
+      mui.ColorScheme.fromSeed(
+        seedColor: _accent,
+        brightness: Theme.of(tester.element(toast)).brightness,
+      ).onSurfaceVariant,
+    );
 
     // ---- Picking the active workspace just closes the drawer ----
     await _pumpShell(tester, const Size(390, 844), 'phone-again');

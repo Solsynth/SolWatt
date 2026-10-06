@@ -95,22 +95,36 @@ changes so dependent providers refresh consistently.
 ## Application shell
 
 `main()` initializes the Flutter binding and configures a hidden native title
-bar on desktop. `DesktopWindowFrame` wraps the routed app once and supplies the
-draggable desktop title bar and platform window controls.
+bar on desktop. `SolWattApp` builds the `MaterialApp`, and its `builder` hands
+the routed app to `AppOverlayHost`, which wraps it in the app-wide `Overlay`
+and, around that, the app's `mui.Theme`. `DesktopWindowFrame` is the app
+entry's frame: it supplies the draggable desktop title bar and platform window
+controls.
 
 `createSolWattTheme()` is the shared light/dark Material 3 theme. It follows
-Island's baseline component and platform-transition settings, but uses
-SolWatt's fixed seed color rather than Island's settings-driven theme
-customization.
+Island's baseline component and platform-transition settings, but seeds its
+scheme from the user's accent (`appAccentColorProvider`, one of the fixed
+`kAccentColorOptions`) rather than Island's settings-driven theme
+customization; without an override it uses SolWatt's default seed.
 
 `island_ui_foundation` builds its chrome — sheets, snackbars, notification
 overlays, `DesktopWindowFrame` — from the `material_ui` fork, which reads its
-own theme system rather than Flutter's. `createSolWattForkTheme()` mirrors the
-app theme (typography including the Nunito family, colors, icons, dividers,
-density) into `mui.ThemeData`, and `main()` provides it as the `mui.Theme`
-ancestor. Without that mirror the fork chrome renders in the fork's Roboto
-default instead of the app font. Any new app-theme token the fork chrome should
-honor belongs in that function.
+own theme system rather than Flutter's. That fork also builds the whole drive
+page (`AppScaffold` and the drive widgets are fork widgets), not just the
+overlay chrome. `createSolWattForkTheme()` mirrors the app theme (typography
+including the Nunito family, colors, icons, dividers, density) into
+`mui.ThemeData`, seeding the fork scheme from the same accent and `app` theme;
+`AppOverlayHost` provides it as the `mui.Theme` ancestor. Without that mirror
+the fork chrome renders in the fork's Roboto default instead of the app font,
+and a fork scheme seeded from anything but the accent pins the fork surfaces to
+the default amber while the rest of the app follows the accent.
+
+The `mui.Theme` ancestor has to sit *above* the app's `Overlay`, not inside its
+app entry: `island_ui_foundation` inserts its snackbars and attention modals as
+`OverlayEntry` siblings of the app entry, so a theme provided inside an entry
+never reaches them and they paint the fork's baseline scheme (a purple card on
+a warm theme) instead. Any new app-theme token the fork chrome should honor
+belongs in `createSolWattForkTheme()`.
 
 The fork's `Material` is not Flutter's: `Material.maybeOf` looks for each
 library's own private `_RenderInkFeatures` render object, so a fork `Material`

@@ -388,16 +388,22 @@ TextTheme _solWattTextTheme(TextTheme base) {
 /// [mui.ThemeData]) separate from Flutter's, so those widgets read this theme
 /// and not [createSolWattTheme].
 ///
+/// [seedColor] is the same seed [app] was built from: the fork runs its own
+/// copy of the Material algorithm, so mirroring the seed reproduces the app's
+/// scheme instead of pinning the fork chrome to the default amber. The whole
+/// drive page and the fork overlays are fork widgets — without the accent they
+/// ignore the user's accent choice.
+///
 /// Mirror the app's typography, icon settings, dividers and density into it:
 /// without the mirror the fork chrome falls back to its own defaults and
 /// renders in the platform font instead of the app font.
-mui.ThemeData createSolWattForkTheme(ThemeData app) {
+mui.ThemeData createSolWattForkTheme(ThemeData app, Color seedColor) {
   final brightness = app.brightness;
   final scheme = app.colorScheme;
   // The window frame paints the app surface behind the routed app, so the
   // chrome surface has to match the app's rather than the seed's.
   final forkScheme = mui.ColorScheme.fromSeed(
-    seedColor: kSolWattSeedColor,
+    seedColor: seedColor,
     brightness: brightness,
   ).copyWith(surfaceContainer: scheme.surface);
 

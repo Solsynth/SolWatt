@@ -127,48 +127,67 @@ class SolWattApp extends ConsumerWidget {
         FlutterQuillLocalizations.delegate,
       ],
       locale: context.locale,
-      builder: (context, child) {
-        // DesktopWindowFrame and the other `island_ui_foundation` chrome
-        // (bottom sheets, snackbars, notification overlays) paint with the
-        // `material_ui` fork, which reads a *separate* theme system from
-        // Flutter's. Mirror the app theme into it — colors, typography, icons,
-        // density — or that chrome falls back to the fork's defaults (wrong
-        // font, always-light scheme).
-        //
-        // The mirroring must happen inside the OverlayEntry builder: Overlay
-        // only reads `initialEntries` once, so a closure capturing builder-
-        // scope values would freeze the chrome at launch theme values. Reading
-        // Theme.of(context) here re-runs on every app theme change.
-        return Overlay(
-          key: globalOverlay,
-          initialEntries: [
-            OverlayEntry(
-              builder: (context) {
-                final scheme = Theme.of(context).colorScheme;
-                return mui.Theme(
-                  data: createSolWattForkTheme(Theme.of(context)),
-                  child: DesktopWindowFrame(
-                    isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-                    title: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        'appName'.tr(),
-                        // The titlebar sits outside any Scaffold, so the
-                        // default text style would fall back to a light-mode
-                        // color; pin it to the active scheme explicitly.
-                        style: TextStyle(color: scheme.onSurface),
-                      ),
-                    ),
-                    child: child ?? const SizedBox.shrink(),
-                  ),
-                );
-              },
-            ),
-            OverlayEntry(builder: (_) => const _WebSocketIndicator()),
-          ],
-        );
-      },
+      builder: (context, child) => AppOverlayHost(
+        overlayKey: globalOverlay,
+        accentSeed: accentSeed,
+        child: child,
+      ),
       routerConfig: appRouter.config(),
+    );
+  }
+}
+
+/// Hosts the app overlay and the fork theme its chrome reads.
+///
+/// The [mui.Theme] ancestor sits *above* the [Overlay], not inside the app
+/// entry: `island_ui_foundation` inserts its own chrome — snackbars, attention
+/// modals — as `OverlayEntry` siblings of the app entry, so a theme provided
+/// inside an entry can never reach them and they paint with the fork's default
+/// scheme (light-paper surface, baseline purple tint) instead of the app's.
+class AppOverlayHost extends StatelessWidget {
+  const AppOverlayHost({
+    super.key,
+    required this.overlayKey,
+    required this.accentSeed,
+    required this.child,
+  });
+
+  final GlobalKey<OverlayState> overlayKey;
+  final Color accentSeed;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    // Read the Flutter theme here rather than capturing it: `Overlay` reads
+    // `initialEntries` once, so the entry builders below keep the first frame's
+    // closure. This widget re-runs on every app theme change, and the fork
+    // theme it provides reaches the entries' own rebuilds through inheritance.
+    return mui.Theme(
+      data: createSolWattForkTheme(Theme.of(context), accentSeed),
+      child: Overlay(
+        key: overlayKey,
+        initialEntries: [
+          OverlayEntry(
+            builder: (context) => DesktopWindowFrame(
+              isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
+              title: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'appName'.tr(),
+                  // The titlebar sits outside any Scaffold, so the default
+                  // text style would fall back to a light-mode color; pin it
+                  // to the active scheme explicitly.
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            ),
+          ),
+          OverlayEntry(builder: (_) => const _WebSocketIndicator()),
+        ],
+      ),
     );
   }
 }
