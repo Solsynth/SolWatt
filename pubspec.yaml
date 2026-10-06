@@ -40,7 +40,7 @@ dependencies:
       # dependency by url + path + ref, and these packages depend on each other
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
-      # Bump all three refs together.
+      # Bump all four refs together.
       ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
@@ -74,6 +74,14 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
+      ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
+  # Release update checks against the Solsynth Express distribution service
+  # (the same package Solian wires): channel lookup, update check and the
+  # release sheet with the per-platform installer.
+  solsynth_express:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
+      path: packages/solsynth_express
       ref: b94f581b7cc68914de1ec7bfdb9448ab98bd0fd0
   file_picker: ^13.1.0
   http_parser: ^4.1.2

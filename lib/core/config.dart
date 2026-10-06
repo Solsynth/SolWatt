@@ -125,3 +125,60 @@ class LastTabIndexNotifier extends Notifier<int> {
     state = index;
   }
 }
+
+// --- Update checks (Solsynth Express distribution) --------------------------
+
+const _kUpdateChecksEnabledKey = 'app_update_checks_enabled';
+const _kUpdateChannelKey = 'app_update_channel';
+
+/// SolWatt's product on the Solsynth Express distribution service, the same
+/// service the release workflow uploads to (see `.github/workflows/build.yml`).
+/// CI overrides it with the repository's `DISTRIBUTION_PRODUCT_ID` variable;
+/// local builds fall back to the published product.
+const kSolWattDistributionProductId = 'cbe8b5c1-5956-4ac3-8a7d-37f4d9a0fdab';
+const kDistributionProductId = String.fromEnvironment(
+  'DISTRIBUTION_PRODUCT_ID',
+  defaultValue: kSolWattDistributionProductId,
+);
+
+const kDefaultUpdateChannel = 'stable';
+
+/// Whether the app checks for a newer release on launch. The check hits the
+/// network on every start, so the preference can turn it off; manual checks
+/// from the settings page still run while it is disabled.
+final updateChecksEnabledProvider =
+    NotifierProvider<UpdateChecksEnabledNotifier, bool>(
+      UpdateChecksEnabledNotifier.new,
+    );
+
+class UpdateChecksEnabledNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_kUpdateChecksEnabledKey) ??
+      true;
+
+  void setEnabled(bool value) {
+    ref.read(sharedPreferencesProvider).setBool(_kUpdateChecksEnabledKey, value);
+    state = value;
+  }
+}
+
+/// Release channel the update checks follow. Only channels the product
+/// publishes are offered in settings; `stable` is the default.
+final updateChannelProvider = NotifierProvider<UpdateChannelNotifier, String>(
+  UpdateChannelNotifier.new,
+);
+
+class UpdateChannelNotifier extends Notifier<String> {
+  @override
+  String build() =>
+      ref.watch(sharedPreferencesProvider).getString(_kUpdateChannelKey) ??
+      kDefaultUpdateChannel;
+
+  void setChannel(String value) {
+    final channel = value.trim();
+    if (channel.isEmpty) return;
+    ref.read(sharedPreferencesProvider).setString(_kUpdateChannelKey, channel);
+    state = channel;
+  }
+}

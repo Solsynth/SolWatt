@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solsynth_express/solsynth_express.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
@@ -247,31 +248,66 @@ class AppShellPage extends ConsumerWidget {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return AutoTabsRouter(
-          // Order is the tab indices in [_appTabs]: append here, add there.
-          routes: const [
-            MailRoute(),
-            BoardsRoute(),
-            FileListRoute(),
-            FlywheelRoute(),
-            ProfileRoute(),
-            AppSettingsRoute(),
-          ],
-          builder: (context, child) {
-            final tabs = AutoTabsRouter.of(context);
-            return _TabMemory(
-              tabs: tabs,
-              child: _NavigationShell(
-                selectedIndex: tabs.activeIndex,
-                onSelected: tabs.setActiveIndex,
-                child: child,
-              ),
-            );
-          },
+        return _StartupUpdateCheck(
+          child: AutoTabsRouter(
+            // Order is the tab indices in [_appTabs]: append here, add there.
+            routes: const [
+              MailRoute(),
+              BoardsRoute(),
+              FileListRoute(),
+              FlywheelRoute(),
+              ProfileRoute(),
+              AppSettingsRoute(),
+            ],
+            builder: (context, child) {
+              final tabs = AutoTabsRouter.of(context);
+              return _TabMemory(
+                tabs: tabs,
+                child: _NavigationShell(
+                  selectedIndex: tabs.activeIndex,
+                  onSelected: tabs.setActiveIndex,
+                  child: child,
+                ),
+              );
+            },
+          ),
         );
       },
     );
   }
+}
+
+/// Runs one Solsynth Express update check per shell mount, after the first
+/// frame so the bottom sheet has a laid-out navigator to attach to. The check
+/// is a no-op while the preference is off, on web, or when the distribution
+/// product is not configured.
+class _StartupUpdateCheck extends ConsumerStatefulWidget {
+  const _StartupUpdateCheck({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_StartupUpdateCheck> createState() => _StartupUpdateCheckState();
+}
+
+class _StartupUpdateCheckState extends ConsumerState<_StartupUpdateCheck> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  Future<void> _check() async {
+    if (!mounted) return;
+    await UpdateService(
+      channel: ref.read(updateChannelProvider),
+      productId: kDistributionProductId,
+      enabled: ref.read(updateChecksEnabledProvider),
+    ).checkForUpdates(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Restores the top-level tab the user was last on and records every later

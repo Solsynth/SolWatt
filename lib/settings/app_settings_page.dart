@@ -5,6 +5,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solsynth_express/solsynth_express.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/services/app_icon_service.dart';
@@ -178,6 +179,8 @@ class AppSettingsHomePage extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 16),
+          const _UpdatesSection(),
+          const SizedBox(height: 16),
           _SettingsSection(
             title: 'about'.tr(),
             children: [
@@ -226,6 +229,159 @@ class _SettingsSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: children,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Update checks against the Solsynth Express distribution service, mirroring
+/// Solian's block: the launch check's switch, the release channel, the newest
+/// published release (opens the release sheet) and cleanup of the artifacts
+/// the installer leaves behind in temporary storage.
+class _UpdatesSection extends HookConsumerWidget {
+  const _UpdatesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final updateChecksEnabled = ref.watch(updateChecksEnabledProvider);
+    final updateChannel = ref.watch(updateChannelProvider);
+    final latestReleaseRefreshNonce = useState(0);
+    final updateService = UpdateService(
+      channel: updateChannel,
+      productId: kDistributionProductId,
+      enabled: updateChecksEnabled,
+    );
+    final latestRelease = useFuture(
+      useMemoized(() => updateService.fetchLatestRelease(), [
+        latestReleaseRefreshNonce.value,
+        updateChecksEnabled,
+        updateChannel,
+      ]),
+    );
+    final remoteChannels = useFuture(
+      useMemoized(
+        () => UpdateService(productId: kDistributionProductId).fetchChannels(),
+        const [],
+      ),
+    );
+
+    final availableChannels =
+        remoteChannels.data ?? const <DistributionChannel>[];
+    // The stored channel stays selectable even when the service does not
+    // report it, so the dropdown never renders without its own value.
+    final channelNames = <String>{
+      kDefaultUpdateChannel,
+      updateChannel,
+      ...availableChannels.map((channel) => channel.name),
+    }.toList();
+
+    String channelLabel(String name) {
+      for (final channel in availableChannels) {
+        if (channel.name == name) return channel.label();
+      }
+      return name;
+    }
+
+    return _SettingsSection(
+      title: 'settingsUpdatesSection'.tr(),
+      children: [
+        ListTile(
+          contentPadding: _kSettingsTilePadding,
+          leading: const Icon(Symbols.update),
+          title: Text('settingsCheckForUpdates'.tr()),
+          subtitle: Text('settingsCheckForUpdatesHelper'.tr()),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch(
+                value: updateChecksEnabled,
+                onChanged: (value) => ref
+                    .read(updateChecksEnabledProvider.notifier)
+                    .setEnabled(value),
+              ),
+              IconButton(
+                icon: const Icon(Symbols.refresh),
+                tooltip: 'refresh'.tr(),
+                onPressed: () => latestReleaseRefreshNonce.value++,
+              ),
+            ],
+          ),
+          // Manual checks run even while the launch check is switched off.
+          onTap: () async {
+            await UpdateService(
+              channel: updateChannel,
+              productId: kDistributionProductId,
+              enabled: true,
+            ).checkForUpdates(context);
+          },
+        ),
+        const Divider(height: 1),
+        ListTile(
+          contentPadding: _kSettingsTilePadding,
+          leading: const Icon(Symbols.tune),
+          title: Text('settingsReleaseChannel'.tr()),
+          subtitle: remoteChannels.connectionState == ConnectionState.waiting
+              ? Text('settingsReleaseChannelFetching'.tr())
+              : remoteChannels.hasError
+              ? Text('settingsReleaseChannelFetchFailed'.tr())
+              : null,
+          trailing: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: updateChannel,
+              items: [
+                for (final name in channelNames)
+                  DropdownMenuItem(
+                    value: name,
+                    child: Text(channelLabel(name)),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  ref.read(updateChannelProvider.notifier).setChannel(value);
+                }
+              },
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        ListTile(
+          contentPadding: _kSettingsTilePadding,
+          leading: const Icon(Symbols.cloud_download),
+          title: Text('settingsLatestRelease'.tr()),
+          subtitle: latestRelease.connectionState == ConnectionState.waiting
+              ? Text('settingsLatestReleaseLoading'.tr())
+              : latestRelease.hasError
+              ? Text('settingsLatestReleaseUnavailable'.tr())
+              : Text(
+                  '${'settingsLatestReleaseValue'.tr()}: '
+                  '${latestRelease.data?.tagName ?? '-'}',
+                ),
+          trailing: const Icon(Symbols.chevron_right),
+          onTap: latestRelease.data == null
+              ? null
+              : () => updateService.showUpdateSheet(
+                  context,
+                  latestRelease.data!,
+                ),
+        ),
+        const Divider(height: 1),
+        ListTile(
+          contentPadding: _kSettingsTilePadding,
+          leading: const Icon(Symbols.cleaning_services),
+          title: Text('settingsCleanPreviousUpdates'.tr()),
+          subtitle: Text('settingsCleanPreviousUpdatesHelper'.tr()),
+          trailing: const Icon(Symbols.chevron_right),
+          onTap: () async {
+            final cleaned = await UpdateService()
+                .cleanupPreviousUpdateArtifacts();
+            if (!context.mounted) return;
+            showSnackBar(
+              cleaned == 0
+                  ? 'settingsCleanPreviousUpdatesNone'.tr()
+                  : 'settingsCleanPreviousUpdatesDone'.tr(args: ['$cleaned']),
+            );
+          },
         ),
       ],
     );
