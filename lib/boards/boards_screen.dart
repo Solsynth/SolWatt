@@ -172,6 +172,10 @@ class _BoardsListPageState extends ConsumerState<BoardsListPage> {
       subtitle: workspace == null
           ? 'ideaskBoards'.tr()
           : 'inWorkspace'.tr(namedArgs: {'name': workspace.name}),
+      // The board grid is the point of the page: let it use the whole pane
+      // instead of the shared reading-width cap, so a wide window shows more
+      // covers rather than a wider gutter.
+      maxContentWidth: double.infinity,
       // The app bar only carries room for a labelled button once the shell
       // rail has taken its share of the width; on a phone the icon stands in
       // and the empty state keeps the labelled action.

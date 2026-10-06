@@ -65,6 +65,9 @@ void main() {
 
     expect(find.text('Roadmap'), findsOneWidget);
     expect(find.text('Chores'), findsOneWidget);
+    // The list drops the shared reading-width cap, so a wide pane shows more
+    // cover columns rather than a wider gutter.
+    expect(tester.getSize(find.byType(GridView)).width, greaterThan(960));
     // Selection mode is off: the grid carries the per-board menus.
     expect(find.byIcon(Symbols.more_vert), findsNWidgets(2));
     expect(find.byIcon(Symbols.select_check_box), findsOneWidget);
