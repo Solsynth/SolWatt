@@ -35,8 +35,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
-	<!-- iOS reports the APNs token directly (see lib/push/push_service.dart);
-	     FCM auto-init would register an unused Firebase token at launch. -->
 	<key>FirebaseMessagingAutoInitEnabled</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -64,10 +62,6 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<!-- APNs alert/silent push delivery (lib/push/push_service.dart) is the only
-	     background mode in use. `fetch`/`processing` would require a registered
-	     BGTaskScheduler identifier, and no BGAppRefresh/BGProcessingTask is
-	     submitted anywhere in the app or its plugins. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
