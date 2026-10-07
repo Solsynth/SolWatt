@@ -57,6 +57,19 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# C++/WinRT in the Windows SDK falls back to the deprecated
+# <experimental/coroutine> header whenever standard coroutines are unavailable,
+# i.e. whenever the translation unit is compiled as C++17. MSVC 14.51
+# (Visual Studio 2026, what windows-latest now ships) promotes that header to a
+# hard error (STL1011) and Microsoft plans to delete it outright. Compiling as
+# C++20 makes C++/WinRT use the standard <coroutine> header instead.
+#
+# flutter_inappwebview_windows needs this: it pins its own target to C++17 and
+# deliberately skips the app-level APPLY_STANDARD_SETTINGS (see the commented-out
+# apply_standard_settings call in its CMakeLists), so the standard has to be
+# raised from the app-level file rather than from the plugin.
+target_compile_features(flutter_inappwebview_windows_plugin PRIVATE cxx_std_20)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
