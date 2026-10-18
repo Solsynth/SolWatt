@@ -41,7 +41,7 @@ dependencies:
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
       # Bump all four refs together.
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
   material_ui: ^1.6.0
@@ -68,12 +68,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   # Release update checks against the Solsynth Express distribution service
   # (the same package Solian wires): channel lookup, update check and the
   # release sheet with the per-platform installer.
@@ -81,7 +81,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: da43e0a014a337cebde41a5528f7e1596ea9bd89
+      ref: a605d320330adb6d8aba9f220d7f650cf2a3b1ad
   file_picker: ^13.1.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline

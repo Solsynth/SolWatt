@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
+// The app's websocket layer defines its own WebSocketPacket; the SDK's
+// same-named frame model is hidden so the unqualified name stays unambiguous.
+import 'package:solar_network_sdk/solar_network_sdk.dart'
+    hide WebSocketPacket;
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';

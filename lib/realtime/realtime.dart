@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'package:solar_network_sdk/solar_network_sdk.dart';
+// The SDK ships its own gateway frame type; this app's realtime bridge talks
+// to its local WebSocketService, whose frames are solwatt's WebSocketPacket.
+import 'package:solar_network_sdk/solar_network_sdk.dart'
+    hide WebSocketPacket;
 import 'package:solwatt/network.dart';
 import 'package:solwatt/notifications/notifications.dart';
 import 'package:solwatt/websocket.dart';
