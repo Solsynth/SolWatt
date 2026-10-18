@@ -924,5 +924,16 @@
   "workspaceFlywheelOwnerOnly": "Workspace owner access required",
   "workspaceFlywheelOwnerOnlyDescription": "Only the workspace owner can manage encrypted saves and view their audit trail.",
   "workspaceFlywheelBlobs": "{count} blobs",
-  "workspaceFlywheelRevisions": "{count} revisions"
+  "workspaceFlywheelRevisions": "{count} revisions",
+  "updateInstalledVersion": "Installed",
+  "updateChannelLabel": "{} channel",
+  "updateDownloadSize": "{} download",
+  "updateDownloadingInstaller": "Downloading installer…",
+  "updateExtractingInstaller": "Extracting installer…",
+  "updateInstallingAppImage": "Installing AppImage…",
+  "updateInstalling": "Installing update",
+  "updateComplete": "Update complete",
+  "updateFailed": "Update failed",
+  "updateFailedHint": "The update could not be installed. Try again, or download the latest release from the release page.",
+  "ok": "OK"
 }

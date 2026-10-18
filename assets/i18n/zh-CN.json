@@ -924,5 +924,16 @@
   "workspaceFlywheelOwnerOnly": "需要工作区所有者权限",
   "workspaceFlywheelOwnerOnlyDescription": "只有工作区所有者可以管理加密存档并查看其审计记录。",
   "workspaceFlywheelBlobs": "{count} 个数据块",
-  "workspaceFlywheelRevisions": "{count} 个修订"
+  "workspaceFlywheelRevisions": "{count} 个修订",
+  "updateInstalledVersion": "已安装",
+  "updateChannelLabel": "{} 通道",
+  "updateDownloadSize": "下载 {}",
+  "updateDownloadingInstaller": "正在下载安装程序…",
+  "updateExtractingInstaller": "正在解压安装程序…",
+  "updateInstallingAppImage": "正在安装 AppImage…",
+  "updateInstalling": "正在安装更新",
+  "updateComplete": "更新完成",
+  "updateFailed": "更新失败",
+  "updateFailedHint": "无法安装更新。请重试，或前往发布页面下载最新版本。",
+  "ok": "确定"
 }
