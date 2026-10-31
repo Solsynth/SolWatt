@@ -17,6 +17,8 @@
   "settingsThemeModeDark": "Dark",
   "settingsAccentColor": "Accent color",
   "settingsAccentColorDescription": "Tap a color to apply it; tap the active dot to restore the default.",
+  "settingsGlassEffects": "Glass effects",
+  "settingsGlassEffectsDescription": "Liquid-glass pill headers, tab bar and title bar. Turn off to trade the material for flat surfaces.",
   "settingsAppIconSection": "App icon",
   "settingsAppIconStyle": "Icon style",
   "settingsAppIconDescription": "Shown on the Home Screen and in the Dock.",

@@ -5,7 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:material_ui/material_ui.dart' as mui;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
@@ -231,10 +230,7 @@ void main() {
     final toast = find.text('Acme Team is now active.');
     expect(
       tester.widget<Text>(toast).style?.color,
-      mui.ColorScheme.fromSeed(
-        seedColor: _accent,
-        brightness: Theme.of(tester.element(toast)).brightness,
-      ).onSurfaceVariant,
+      Theme.of(tester.element(toast)).colorScheme.onSurfaceVariant,
     );
 
     // ---- Picking the active workspace just closes the drawer ----
@@ -315,6 +311,7 @@ void main() {
     expect(find.byType(BackButton), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    expect(find.text('Theme mode'), findsOneWidget);
+    // Back returns to the settings list (still scrolled to the About row).
+    expect(find.byType(AppSettingsHomePage), findsOneWidget);
   });
 }

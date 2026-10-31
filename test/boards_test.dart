@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:material_ui/material_ui.dart' as mui;
+import 'package:solwatt/shared/widgets/pill_app_bar.dart';
 
 import 'boards_harness.dart';
 
@@ -58,7 +59,12 @@ void main() {
     expect(find.byType(NavigationRail), findsOneWidget);
 
     // The panel's close button hands the board back.
-    await tester.tap(find.byIcon(Symbols.close));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(Scaffold),
+        matching: find.byIcon(Symbols.close),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Task details'), findsNothing);
@@ -67,7 +73,10 @@ void main() {
     await tester.tap(find.byIcon(Symbols.arrow_back));
     await tester.pumpAndSettle();
     expect(
-      find.descendant(of: find.byType(AppBar), matching: find.text('Boards')),
+      find.descendant(
+        of: find.byType(PillPageBar),
+        matching: find.text('Boards'),
+      ),
       findsOneWidget,
     );
     expect(

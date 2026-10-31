@@ -17,6 +17,8 @@
   "settingsThemeModeDark": "深色",
   "settingsAccentColor": "强调色",
   "settingsAccentColorDescription": "点击颜色以应用；点击当前选中的圆点恢复默认。",
+  "settingsGlassEffects": "玻璃效果",
+  "settingsGlassEffectsDescription": "悬浮的液玻璃标题栏、标签栏与窗口标题栏。关闭后改用平面材质，节省渲染开销。",
   "settingsAppIconSection": "应用图标",
   "settingsAppIconStyle": "图标样式",
   "settingsAppIconDescription": "在主屏幕与程序坞中显示的图标。",

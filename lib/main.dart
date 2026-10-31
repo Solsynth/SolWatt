@@ -26,6 +26,9 @@ import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/tasks/task_overlay.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/core/navigation/pill_bottom_nav.dart';
+import 'package:solwatt/shared/widgets/glass_effects.dart';
+import 'package:solwatt/shared/widgets/window_frame.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/websocket.dart';
@@ -154,6 +157,9 @@ class SolWattApp extends ConsumerWidget {
 /// modals — as `OverlayEntry` siblings of the app entry, so a theme provided
 /// inside an entry can never reach them and they paint with the fork's default
 /// scheme (light-paper surface, baseline purple tint) instead of the app's.
+/// [GlassEffects] wraps the whole overlay for the same reason: every pill and
+/// the window title bar read one scope, so the settings switch repaints them
+/// all without rebuilding a single layout.
 class AppOverlayHost extends StatelessWidget {
   const AppOverlayHost({
     super.key,
@@ -174,32 +180,58 @@ class AppOverlayHost extends StatelessWidget {
     // theme it provides reaches the entries' own rebuilds through inheritance.
     return mui.Theme(
       data: createSolWattForkTheme(Theme.of(context), accentSeed),
-      child: Overlay(
-        key: overlayKey,
-        initialEntries: [
-          OverlayEntry(
-            builder: (context) => DesktopWindowFrame(
-              isDesktopPlatform: DesktopWindowFrame.isPlatformDesktop,
-              title: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'appName'.tr(),
-                  // The titlebar sits outside any Scaffold, so the default
-                  // text style would fall back to a light-mode color; pin it
-                  // to the active scheme explicitly.
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-              ),
-              child: child ?? const SizedBox.shrink(),
-            ),
-          ),
-          OverlayEntry(builder: (_) => const _WebSocketIndicator()),
-        ],
-      ),
+      child: _GlassScope(child: _buildOverlay(context)),
     );
   }
+
+  Widget _buildOverlay(BuildContext context) {
+    return Overlay(
+      key: overlayKey,
+      initialEntries: [
+        OverlayEntry(
+          builder: (context) => AppWindowFrame(
+            isDesktopPlatform: AppWindowFrame.isPlatformDesktop,
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset('assets/icons/icon.png', width: 18, height: 18),
+                const SizedBox(width: SolSpace.sm),
+                Flexible(
+                  child: Text(
+                    'appName'.tr(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    // The title bar sits outside any Scaffold, so the default
+                    // text style would fall back to a light-mode color; pin it
+                    // to the active scheme explicitly.
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+        OverlayEntry(builder: (_) => const _WebSocketIndicator()),
+      ],
+    );
+  }
+}
+
+/// Reads the glass setting once for every pill, header and the title bar.
+class _GlassScope extends ConsumerWidget {
+  final Widget child;
+
+  const _GlassScope({required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => GlassEffects(
+    enabled: ref.watch(appGlassEffectsProvider),
+    child: child,
+  );
 }
 
 @RoutePage()
@@ -488,7 +520,7 @@ class _NavigationShellState extends ConsumerState<_NavigationShell> {
       // reports as "Multiple widgets used the same GlobalKey", and it answers
       // that by dropping the tree.
       key: widget.isShown ? shellScaffoldKey : null,
-      backgroundColor: scheme.surface,
+      backgroundColor: wide ? scheme.surfaceContainer : scheme.surface,
       drawer: Drawer(
         child: _GlobalNavigationDrawer(
           workspace: workspace,
@@ -534,14 +566,15 @@ class _NavigationShellState extends ConsumerState<_NavigationShell> {
                           ),
                         ),
                         Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+                          // The page is a sheet of paper laid over the rail's
+                          // container tone: one rounded corner at the top-left
+                          // is all the separation the layout needs.
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(SolRadius.md),
+                            ),
                             child: Material(
                               color: scheme.surface,
-                              borderRadius: const BorderRadius.all(
-                                Radius.circular(16),
-                              ),
-                              clipBehavior: Clip.antiAlias,
                               child: widget.child,
                             ),
                           ),
@@ -902,6 +935,9 @@ class _MailFolderNavigationBar extends ConsumerWidget {
       // A folder outside the visible set keeps the "more" entry highlighted,
       // so the bar still shows where the current folder came from.
       selectedIndex: visibleIndex < 0 ? visible.length : visibleIndex,
+      // A folder name is the only thing separating two otherwise similar
+      // envelopes, so the mail bar keeps the active folder's label.
+      showLabels: true,
       onDestinationSelected: (index) {
         if (index == visible.length) {
           _showFolderSheet(context, ref, selected);
@@ -986,25 +1022,34 @@ class _BottomNavigationBar extends StatelessWidget {
     required this.selectedIndex,
     required this.onDestinationSelected,
     required this.destinations,
+    this.showLabels = false,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
   final List<Widget> destinations;
 
+  /// Whether the destinations show their labels.
+  ///
+  /// The root tabs are distinct icons, so they ride icon-only and keep the
+  /// capsule at its 56px band. The mail folders need their names, and the
+  /// extra line earns the taller band.
+  final bool showLabels;
+
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      child: Padding(
-        padding: .symmetric(horizontal: 8, vertical: 4),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          labelBehavior: .onlyShowSelected,
-          selectedIndex: selectedIndex,
-          onDestinationSelected: onDestinationSelected,
-          destinations: destinations,
-        ),
+    return PillBottomNav(
+      child: NavigationBar(
+        // A labelled bar keeps every folder named: the folders are one tap
+        // apart and their glyphs alone are easy to confuse.
+        height: showLabels ? 68 : kBottomNavHeight,
+        backgroundColor: Colors.transparent,
+        labelBehavior: showLabels
+            ? NavigationDestinationLabelBehavior.alwaysShow
+            : NavigationDestinationLabelBehavior.alwaysHide,
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onDestinationSelected,
+        destinations: destinations,
       ),
     );
   }

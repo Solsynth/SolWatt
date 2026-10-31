@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 
+import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
 import 'package:solwatt/theme.dart';
@@ -29,10 +31,12 @@ const _accentMessage = 'the accent changed';
 Widget _harness({
   required GlobalKey<OverlayState> overlayKey,
   required Color accent,
+  required SharedPreferences prefs,
 }) {
-  // The host carries the app's websocket indicator entry, so the tree needs a
-  // scope even though nothing here reads a provider of its own.
+  // The host carries the app's websocket indicator entry, and the glass
+  // switch reads the settings store, so the tree needs a scope and a store.
   return ProviderScope(
+    overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
     child: MaterialApp(
       theme: createSolWattTheme(Brightness.light, seedColor: accent),
       localizationsDelegates: mui.GlobalMaterialLocalizations.delegates,
@@ -47,11 +51,29 @@ Widget _harness({
 }
 
 /// The scheme the fork chrome has to paint with: the fork's own ladder for the
-/// accent the app was launched with. Deliberately *not* `createSolWattForkTheme`
-/// — reading the expectation back out of the code under test would let a
-/// dropped accent (or a wrong theme) satisfy its own assertion.
-mui.ColorScheme _expectedScheme(Color accent) =>
-    mui.ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.light);
+/// accent the app was launched with, with the app's paper ground copied over
+/// (the fork does not run the paper ramp itself). Deliberately *not*
+/// `createSolWattForkTheme` — reading the expectation back out of the code
+/// under test would let a dropped accent (or a wrong theme) satisfy its own
+/// assertion.
+mui.ColorScheme _expectedScheme(Color accent) {
+  final app = createSolWattTheme(
+    Brightness.light,
+    seedColor: accent,
+  ).colorScheme;
+  return mui.ColorScheme.fromSeed(
+    seedColor: accent,
+    brightness: Brightness.light,
+  ).copyWith(
+    surface: app.surface,
+    surfaceContainer: app.surfaceContainer,
+    surfaceContainerHigh: app.surfaceContainerHigh,
+    surfaceContainerHighest: app.surfaceContainerHighest,
+    onSurface: app.onSurface,
+    onSurfaceVariant: app.onSurfaceVariant,
+    outlineVariant: app.outlineVariant,
+  );
+}
 
 /// The toast's message style, read off the rendered text: the fork content
 /// builder paints it with the fork scheme's `onSurfaceVariant`.
@@ -73,12 +95,21 @@ Color _scaffoldSurface(WidgetTester tester) => tester
     .color!;
 
 void main() {
+  late SharedPreferences prefs;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('overlay chrome and the page shell read the accent-seeded fork '
       'theme', (tester) async {
     final overlayKey = GlobalKey<OverlayState>();
     IslandUIFoundation.configureOverlay(overlayKey);
 
-    await tester.pumpWidget(_harness(overlayKey: overlayKey, accent: _teal));
+    await tester.pumpWidget(
+      _harness(overlayKey: overlayKey, accent: _teal, prefs: prefs),
+    );
     await tester.pump();
 
     // The file page's shell is a fork `Material` painted from the fork scheme.
@@ -111,7 +142,9 @@ void main() {
     final overlayKey = GlobalKey<OverlayState>();
     IslandUIFoundation.configureOverlay(overlayKey);
 
-    await tester.pumpWidget(_harness(overlayKey: overlayKey, accent: _teal));
+    await tester.pumpWidget(
+      _harness(overlayKey: overlayKey, accent: _teal, prefs: prefs),
+    );
     await tester.pump();
     showSnackBar(_accentMessage);
     await tester.pump();
@@ -121,8 +154,13 @@ void main() {
       _expectedScheme(_teal).onSurfaceVariant,
     );
 
-    await tester.pumpWidget(_harness(overlayKey: overlayKey, accent: _rose));
+    await tester.pumpWidget(
+      _harness(overlayKey: overlayKey, accent: _rose, prefs: prefs),
+    );
     await tester.pump();
+    // The paper ramp is copied into the fork scheme, so it follows the
+    // MaterialApp theme animation rather than the accent prop alone.
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(
       _toastMessageColor(tester, _accentMessage),

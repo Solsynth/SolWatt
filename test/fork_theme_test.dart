@@ -29,14 +29,20 @@ void main() {
         // Colors, icons, dividers and density follow the app theme too. The
         // two `ColorScheme` classes are unrelated types (the fork keeps its
         // own copy), so the tokens the fork chrome paints with are compared
-        // one by one. Everything but `surfaceContainer` comes straight out of
-        // the fork's `fromSeed`, which must stay in step with Flutter's — the
-        // fork builds the whole drive page and the overlay chrome, so an
-        // accent the fork scheme drops shows up as the default amber.
+        // one by one. Accent roles come straight out of the fork's `fromSeed`,
+        // which must stay in step with Flutter's — the fork builds the whole
+        // drive page and the overlay chrome, so an accent the fork scheme
+        // drops shows up as the default amber. The surface ladder is mirrored
+        // from the app's paper ramp so fork sheets sit on the same ground.
         expect(fork.brightness, brightness);
         expect(
-          fork.colorScheme.surfaceContainer,
+          fork.colorScheme.surface,
           app.colorScheme.surface,
+          reason: reason,
+        );
+        expect(
+          fork.colorScheme.surfaceContainer,
+          app.colorScheme.surfaceContainer,
           reason: reason,
         );
         expect(fork.colorScheme.primary, app.colorScheme.primary, reason: reason);

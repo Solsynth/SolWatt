@@ -27,6 +27,7 @@ import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/route.dart';
+import 'package:solwatt/shared/widgets/pill_app_bar.dart';
 import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -829,9 +830,17 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   PreferredSizeWidget _buildMailAppBar(
     Widget mailboxSelector, {
     required String folder,
-  }) => AppBar(
-    leading: appBarDrawerButton(context),
-    titleSpacing: 0,
+  }) => PillPageBar(
+    statusTop: MediaQuery.paddingOf(context).top,
+    // The list is a tab root: its leading control is always the shell's
+    // drawer. A pageless conversation transform can leave the router
+    // reporting a pop for a frame after it closes, and a Back button here
+    // would strand the user on the list with no way into the drawer.
+    leading: IconButton(
+      tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
+      onPressed: () => shellScaffoldKey.currentState?.openDrawer(),
+      icon: const Icon(Symbols.menu),
+    ),
     title: mailboxSelector,
     actions: [
       if (folder == 'trash')
