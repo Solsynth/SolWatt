@@ -45,24 +45,33 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Forged sender: escalated title, both warnings, and the hint. The reason
-    // and the warning carrying the same verdict collapse into one line.
-    expect(find.text('senderSafetyPhishingTitle'.tr()), findsOneWidget);
-    expect(find.text('senderSafetyPhishingHint'.tr()), findsOneWidget);
-    expect(find.text('senderWarningSpoofedSender'.tr()), findsOneWidget);
-    expect(find.text('senderWarningDmarcReject'.tr()), findsOneWidget);
+    // Forged sender: escalated title, both warnings, and the hint in tooltip.
     expect(find.byIcon(Symbols.phishing), findsOneWidget);
+    final phishingTooltip = tester.widget<Tooltip>(
+      find.ancestor(
+        of: find.byIcon(Symbols.phishing),
+        matching: find.byType(Tooltip),
+      ),
+    );
+    expect(phishingTooltip.message, contains('senderSafetyPhishingTitle'.tr()));
+    expect(phishingTooltip.message, contains('senderSafetyPhishingHint'.tr()));
+    expect(phishingTooltip.message, contains('senderWarningSpoofedSender'.tr()));
+    expect(phishingTooltip.message, contains('senderWarningDmarcReject'.tr()));
 
-    // Bare warnings: lower-intensity title, mapped line, and an unrecognised
-    // server string shown verbatim.
-    expect(find.text('senderSafetySuspiciousTitle'.tr()), findsOneWidget);
-    expect(find.text('senderWarningSpfFail'.tr()), findsOneWidget);
-    expect(find.text('Some future verdict'), findsOneWidget);
+    // Bare warnings: lower-intensity title, mapped line, and unrecognised string.
     expect(find.byIcon(Symbols.warning), findsOneWidget);
+    final warningTooltip = tester.widget<Tooltip>(
+      find.ancestor(
+        of: find.byIcon(Symbols.warning),
+        matching: find.byType(Tooltip),
+      ),
+    );
+    expect(warningTooltip.message, contains('senderSafetySuspiciousTitle'.tr()));
+    expect(warningTooltip.message, contains('senderWarningSpfFail'.tr()));
+    expect(warningTooltip.message, contains('Some future verdict'));
 
-    // The message without a verdict contributes no banner copy at all.
-    expect(find.text('senderWarningBlockedSender'.tr()), findsNothing);
-    expect(find.text('senderWarningDkimInvalid'.tr()), findsNothing);
+    // The message without a verdict contributes no icons or warnings.
+    expect(find.byType(Tooltip), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
 }

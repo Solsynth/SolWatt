@@ -158,6 +158,18 @@ void main() {
       const Duration(seconds: 10),
     );
 
+    // In compact mode, the header displays sender and recipient summary.
+    expect(find.text('Details'), findsOneWidget);
+    expect(find.text('To: Bob +3 more'), findsOneWidget);
+
+    // Tapping Details expands the full recipient chips.
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+
     // From, To (three) and Cc (one): a chip each, names where there is one and
     // the address where there is not. No row spells out "Name <address>".
     expect(find.byType(EmailRecipientChip), findsNWidgets(5));

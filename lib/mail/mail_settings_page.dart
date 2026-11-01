@@ -798,53 +798,57 @@ class _AliasesBlock extends ConsumerWidget {
             tooltip: 'addAlias'.tr(),
           ),
         ),
-              Padding(
-                padding: .symmetric(horizontal: 16),
-        child: aliases.when(
-          loading: () => const SizedBox(
-            height: 40,
-            child: Center(
-              child: SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        Padding(
+          padding: .symmetric(horizontal: 16),
+          child: aliases.when(
+            loading: () => const SizedBox(
+              height: 40,
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
             ),
-          ),
-          error: (error, _) => Text(
-            error.toString(),
-            style: TextStyle(color: scheme.error, fontSize: 13),
-          ),
-          data: (items) {
-            if (items.isEmpty) {
-              return Text(
-                'noAliases'.tr(),
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              );
-            }
-            return Column(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: const Icon(Symbols.alternate_email, size: 20),
-                    title: Text(items[i].address),
-                    subtitle: items[i].name?.isNotEmpty == true
-                        ? Text(items[i].name!)
-                        : null,
-                    trailing: IconButton(
-                      tooltip: 'remove'.tr(),
-                      onPressed: () => onRemove(items[i]),
-                      icon: Icon(Symbols.delete, color: scheme.error, size: 20),
+            error: (error, _) => Text(
+              error.toString(),
+              style: TextStyle(color: scheme.error, fontSize: 13),
+            ),
+            data: (items) {
+              if (items.isEmpty) {
+                return Text(
+                  'noAliases'.tr(),
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                );
+              }
+              return Column(
+                children: [
+                  for (var i = 0; i < items.length; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: const Icon(Symbols.alternate_email, size: 20),
+                      title: Text(items[i].address),
+                      subtitle: items[i].name?.isNotEmpty == true
+                          ? Text(items[i].name!)
+                          : null,
+                      trailing: IconButton(
+                        tooltip: 'remove'.tr(),
+                        onPressed: () => onRemove(items[i]),
+                        icon: Icon(
+                          Symbols.delete,
+                          color: scheme.error,
+                          size: 20,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
-              ), 
       ],
     );
   }
@@ -881,57 +885,61 @@ class _ForwardingBlock extends ConsumerWidget {
             tooltip: 'addForwarding'.tr(),
           ),
         ),
-              Padding(
-                padding: .symmetric(horizontal: 16),
-        child: forwardings.when(
-          loading: () => const SizedBox(
-            height: 40,
-            child: Center(
-              child: SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        Padding(
+          padding: .symmetric(horizontal: 16),
+          child: forwardings.when(
+            loading: () => const SizedBox(
+              height: 40,
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
             ),
-          ),
-          error: (error, _) => Text(
-            error.toString(),
-            style: TextStyle(color: scheme.error, fontSize: 13),
-          ),
-          data: (items) {
-            if (items.isEmpty) {
-              return Text(
-                'noForwarding'.tr(),
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              );
-            }
-            return Column(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: const Icon(Symbols.forward_to_inbox, size: 20),
-                    title: Text(items[i].destination),
-                    subtitle: Text(
-                      aliases
-                              .where((a) => a.id == items[i].aliasId)
-                              .firstOrNull
-                              ?.address ??
-                          'alias'.tr(),
+            error: (error, _) => Text(
+              error.toString(),
+              style: TextStyle(color: scheme.error, fontSize: 13),
+            ),
+            data: (items) {
+              if (items.isEmpty) {
+                return Text(
+                  'noForwarding'.tr(),
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                );
+              }
+              return Column(
+                children: [
+                  for (var i = 0; i < items.length; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: const Icon(Symbols.forward_to_inbox, size: 20),
+                      title: Text(items[i].destination),
+                      subtitle: Text(
+                        aliases
+                                .where((a) => a.id == items[i].aliasId)
+                                .firstOrNull
+                                ?.address ??
+                            'alias'.tr(),
+                      ),
+                      trailing: IconButton(
+                        tooltip: 'remove'.tr(),
+                        onPressed: () => onRemove(items[i]),
+                        icon: Icon(
+                          Symbols.delete,
+                          color: scheme.error,
+                          size: 20,
+                        ),
+                      ),
                     ),
-                    trailing: IconButton(
-                      tooltip: 'remove'.tr(),
-                      onPressed: () => onRemove(items[i]),
-                      icon: Icon(Symbols.delete, color: scheme.error, size: 20),
-                    ),
-                  ),
+                  ],
                 ],
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
-              ),
       ],
     );
   }

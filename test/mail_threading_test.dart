@@ -120,153 +120,149 @@ void main() {
     await EasyLocalization.ensureInitialized();
   });
 
-  test('thread payload carries counts, participants and the latest message', () {
-    final thread = MailThread.fromJson({
-      'id': 't-9',
-      'mailbox_id': 'mb-1',
-      'subject': 'Release plan',
-      'message_count': 4,
-      'unread_count': 1,
-      'participants': ['carol@example.com', 'bob@example.com'],
-      'latest_at': '2026-09-25T10:00:00Z',
-      'latest_message': {
-        'id': 'e-9',
+  test(
+    'thread payload carries counts, participants and the latest message',
+    () {
+      final thread = MailThread.fromJson({
+        'id': 't-9',
         'mailbox_id': 'mb-1',
-        'thread_id': 't-9',
-        'subject': 'Re: Release plan',
-        'body': 'Newest body',
-        'summary': 'Carol confirms the release ships Friday.',
-        'is_read': false,
-        'from': {'address': 'carol@example.com', 'name': 'Carol'},
-        'recipients': [
-          {'address': 'me@example.com', 'kind': 'to'},
-        ],
-      },
-    });
-
-    expect(thread.id, 't-9');
-    expect(thread.messageCount, 4);
-    expect(thread.unreadCount, 1);
-    expect(thread.isRead, isFalse);
-    expect(thread.isMultiMessage, isTrue);
-    expect(thread.participants, ['carol@example.com', 'bob@example.com']);
-    expect(thread.latestMessage.id, 'e-9');
-    expect(thread.latestMessage.threadKey, 't-9');
-    expect(thread.latestMessage.summary, 'Carol confirms the release ships Friday.');
-    expect(thread.latestAt?.toUtc(), DateTime.utc(2026, 9, 25, 10));
-  });
-
-  testWidgets(
-    'list groups messages into conversations, reads them on open and '
-    'switches the pane between messages',
-    (tester) async {
-      tester.binding.platformDispatcher.platformBrightnessTestValue =
-          Brightness.dark;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('window_manager'),
-        (call) async => switch (call.method) {
-          'isMaximized' => false,
-          _ => null,
-        },
-      );
-
-      final client = _FakeMailClient();
-      final prefs = await SharedPreferences.getInstance();
-      tester.view.physicalSize = const Size(1200, 800);
-      tester.view.devicePixelRatio = 1.0;
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sharedPreferencesProvider.overrideWithValue(prefs),
-            appAccessProvider.overrideWith(
-              (ref) => const AsyncValue.data(AppAccess.ready),
-            ),
-            selectedWorkspaceProvider.overrideWith((ref) async => _workspace),
-            mailboxesProvider.overrideWith((ref) async => const [_mailboxWork]),
-            mailHostProvider.overrideWith((ref) async => 'example.com'),
-            mailboxUnreadCountsProvider.overrideWith(
-              (ref) async => const {'mb-1': 2},
-            ),
-            mailCredentialsProvider.overrideWith(
-              (ref) async => const <MailCredential>[],
-            ),
-            mailSenderIndexProvider.overrideWith(
-              (ref) async => const <String, MailAddressSuggestion>{},
-            ),
-            threadsProvider.overrideWith(
-              (ref, query) async =>
-                  PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
-            ),
-            threadProvider.overrideWith((ref, id) async => _conversation),
-            emailProvider.overrideWith((ref, id) async => _conversation.last),
-            wattEngineClientProvider.overrideWith((ref) => client),
-            realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
-            websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
+        'subject': 'Release plan',
+        'message_count': 4,
+        'unread_count': 1,
+        'participants': ['carol@example.com', 'bob@example.com'],
+        'latest_at': '2026-09-25T10:00:00Z',
+        'latest_message': {
+          'id': 'e-9',
+          'mailbox_id': 'mb-1',
+          'thread_id': 't-9',
+          'subject': 'Re: Release plan',
+          'body': 'Newest body',
+          'summary': 'Carol confirms the release ships Friday.',
+          'is_read': false,
+          'from': {'address': 'carol@example.com', 'name': 'Carol'},
+          'recipients': [
+            {'address': 'me@example.com', 'kind': 'to'},
           ],
-          child: EasyLocalization(
-            supportedLocales: const [Locale('en', 'US')],
-            path: 'assets/i18n',
-            fallbackLocale: const Locale('en', 'US'),
-            useFallbackTranslations: true,
-            child: SolWattApp(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle(
-        const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 10),
-      );
+        },
+      });
 
-      // One row for the conversation, newest sender first, carrying the
-      // message count instead of one row per message.
-      final row = find.ancestor(
-        of: find.text('Carol'),
-        matching: find.byType(ListTile),
-      );
-      expect(row, findsOneWidget);
-      expect(find.text('Release plan'), findsWidgets);
+      expect(thread.id, 't-9');
+      expect(thread.messageCount, 4);
+      expect(thread.unreadCount, 1);
+      expect(thread.isRead, isFalse);
+      expect(thread.isMultiMessage, isTrue);
+      expect(thread.participants, ['carol@example.com', 'bob@example.com']);
+      expect(thread.latestMessage.id, 'e-9');
+      expect(thread.latestMessage.threadKey, 't-9');
       expect(
-        find.descendant(of: row, matching: find.text('3')),
-        findsOneWidget,
+        thread.latestMessage.summary,
+        'Carol confirms the release ships Friday.',
       );
-
-      // Opening the conversation reads it in full: the two unread messages,
-      // not the one that was already read.
-      await tester.tap(row);
-      await tester.pumpAndSettle(
-        const Duration(milliseconds: 100),
-        EnginePhase.sendSemanticsUpdate,
-        const Duration(seconds: 10),
-      );
-      expect(client.readMessages, ['e-2', 'e-3']);
-      // The row previews the newest message's body, so before the pane
-      // switches away that text is on screen twice: row and body.
-      expect(find.text('Newest message body'), findsNWidgets(2));
-      // The assistant's summary for the opened message reads in the pane.
-      expect(find.text('AI summary'), findsOneWidget);
-      expect(
-        find.text('Carol confirms the release ships Friday.'),
-        findsOneWidget,
-      );
-
-      // The pane lists the whole conversation; switching a chip swaps the body
-      // to that message.
-      expect(find.byType(ChoiceChip), findsNWidgets(3));
-      await tester.tap(
-        find.descendant(
-          of: find.byType(ChoiceChip),
-          matching: find.textContaining('Alice'),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Oldest message body'), findsOneWidget);
-      // Only the row preview is left of the newest message.
-      expect(find.text('Newest message body'), findsOneWidget);
-      // The switched-to message carries no summary, so the block goes away
-      // with the message it summarized.
-      expect(find.text('AI summary'), findsNothing);
-      expect(find.text('Carol confirms the release ships Friday.'), findsNothing);
+      expect(thread.latestAt?.toUtc(), DateTime.utc(2026, 9, 25, 10));
     },
   );
+
+  testWidgets('list groups messages into conversations, reads them on open and '
+      'switches the pane between messages', (tester) async {
+    tester.binding.platformDispatcher.platformBrightnessTestValue =
+        Brightness.dark;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('window_manager'),
+      (call) async => switch (call.method) {
+        'isMaximized' => false,
+        _ => null,
+      },
+    );
+
+    final client = _FakeMailClient();
+    final prefs = await SharedPreferences.getInstance();
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          appAccessProvider.overrideWith(
+            (ref) => const AsyncValue.data(AppAccess.ready),
+          ),
+          selectedWorkspaceProvider.overrideWith((ref) async => _workspace),
+          mailboxesProvider.overrideWith((ref) async => const [_mailboxWork]),
+          mailHostProvider.overrideWith((ref) async => 'example.com'),
+          mailboxUnreadCountsProvider.overrideWith(
+            (ref) async => const {'mb-1': 2},
+          ),
+          mailCredentialsProvider.overrideWith(
+            (ref) async => const <MailCredential>[],
+          ),
+          mailSenderIndexProvider.overrideWith(
+            (ref) async => const <String, MailAddressSuggestion>{},
+          ),
+          threadsProvider.overrideWith(
+            (ref, query) async =>
+                PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
+          ),
+          threadProvider.overrideWith((ref, id) async => _conversation),
+          emailProvider.overrideWith((ref, id) async => _conversation.last),
+          wattEngineClientProvider.overrideWith((ref) => client),
+          realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
+          websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
+        ],
+        child: EasyLocalization(
+          supportedLocales: const [Locale('en', 'US')],
+          path: 'assets/i18n',
+          fallbackLocale: const Locale('en', 'US'),
+          useFallbackTranslations: true,
+          child: SolWattApp(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+
+    // One row for the conversation, newest sender first, carrying the
+    // message count instead of one row per message.
+    final row = find.ancestor(
+      of: find.text('Carol'),
+      matching: find.byType(ListTile),
+    );
+    expect(row, findsOneWidget);
+    expect(find.text('Release plan'), findsWidgets);
+    expect(find.descendant(of: row, matching: find.text('3')), findsOneWidget);
+
+    // Opening the conversation reads it in full: the two unread messages,
+    // not the one that was already read.
+    await tester.tap(row);
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 10),
+    );
+    expect(client.readMessages, ['e-2', 'e-3']);
+    // The row previews the newest message's body, so before the pane
+    // switches away that text is on screen twice: row and body.
+    expect(find.text('Newest message body'), findsNWidgets(2));
+    // The assistant's summary for the opened message reads in the pane.
+    expect(find.text('AI summary'), findsOneWidget);
+    expect(
+      find.text('Carol confirms the release ships Friday.'),
+      findsOneWidget,
+    );
+
+    // The pane stacks the conversation around the open message: the other
+    // messages are collapsed rows; tapping one expands it into the body.
+    expect(find.text('Alice'), findsOneWidget);
+    expect(find.text('Bob'), findsOneWidget);
+    await tester.tap(find.text('Alice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Oldest message body'), findsOneWidget);
+    // The newest message is now a collapsed pane row beside its list preview.
+    expect(find.text('Newest message body'), findsNWidgets(2));
+    // The switched-to message carries no summary, so the block goes away
+    // with the message it summarized.
+    expect(find.text('AI summary'), findsNothing);
+    expect(find.text('Carol confirms the release ships Friday.'), findsNothing);
+  });
 }

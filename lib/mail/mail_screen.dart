@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert' show HtmlEscape;
 
 import 'package:animations/animations.dart';
 import 'package:auto_route/auto_route.dart';
@@ -2220,84 +2221,141 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
     final canLoadMore =
         widget.query.take < kMaxThreadTake && items.length < page.totalCount;
 
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        // Only the reader's own scrolling extends the page, and only once the
-        // current page has settled, so one flick cannot chain requests.
-        if (!listing.isLoading &&
-            canLoadMore &&
-            notification.metrics.extentAfter < _loadMoreExtent) {
-          widget.onLoadMore();
-        }
-        return false;
-      },
-      child: RefreshIndicator(
-        onRefresh: () async => widget.onRefresh(),
-        child: ListView.builder(
-          itemCount: items.length + (canLoadMore ? 1 : 0),
-          itemBuilder: (context, index) {
-            if (index == items.length) {
-              return _ThreadListFooter(
-                loading: listing.isLoading,
-                shown: items.length,
-                total: page.totalCount,
+    return Focus(
+      onKeyEvent: (node, event) => _onKey(event, items),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          // Only the reader's own scrolling extends the page, and only once the
+          // current page has settled, so one flick cannot chain requests.
+          if (!listing.isLoading &&
+              canLoadMore &&
+              notification.metrics.extentAfter < _loadMoreExtent) {
+            widget.onLoadMore();
+          }
+          return false;
+        },
+        child: RefreshIndicator(
+          onRefresh: () async => widget.onRefresh(),
+          child: ListView.builder(
+            itemCount: items.length + (canLoadMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == items.length) {
+                return _ThreadListFooter(
+                  loading: listing.isLoading,
+                  shown: items.length,
+                  total: page.totalCount,
+                );
+              }
+              final thread = items[index];
+              Widget tile(VoidCallback onTap) => _EmailThreadTile(
+                thread: thread,
+                mailHost: widget.mailHost,
+                senders: senders,
+                mailboxName: mailboxNames[thread.mailboxId],
+                selected: thread.id == widget.selectedThreadId,
+                selecting: widget.selecting,
+                checked: widget.selectedThreadIds.contains(thread.id),
+                onToggleSelected: widget.onToggleSelected == null
+                    ? null
+                    : () => widget.onToggleSelected!(thread),
+                onLongPress: widget.onEnterSelection == null
+                    ? null
+                    : () => widget.onEnterSelection!(thread),
+                onTap: onTap,
+                onToggleStar: () => widget.onToggleStar(thread),
+                onToggleRead: () => widget.onToggleRead(thread),
+                onDelete: () => widget.onDelete(context, thread),
+                onMove: (folder) => widget.onMove(thread, folder),
               );
-            }
-            final thread = items[index];
-            Widget tile(VoidCallback onTap) => _EmailThreadTile(
-              thread: thread,
-              mailHost: widget.mailHost,
-              senders: senders,
-              mailboxName: mailboxNames[thread.mailboxId],
-              selected: thread.id == widget.selectedThreadId,
-              selecting: widget.selecting,
-              checked: widget.selectedThreadIds.contains(thread.id),
-              onToggleSelected: widget.onToggleSelected == null
-                  ? null
-                  : () => widget.onToggleSelected!(thread),
-              onLongPress: widget.onEnterSelection == null
-                  ? null
-                  : () => widget.onEnterSelection!(thread),
-              onTap: onTap,
-              onToggleStar: () => widget.onToggleStar(thread),
-              onToggleRead: () => widget.onToggleRead(thread),
-              onDelete: () => widget.onDelete(context, thread),
-              onMove: (folder) => widget.onMove(thread, folder),
-            );
 
-            // A phone animates the row into the conversation with the same
-            // container transform the board gives a task; the wide layout keeps
-            // the list beside the detail pane and pushes into it instead.
-            if (widget.selecting || isWideScreen(context)) {
-              return tile(() => widget.onOpen(thread));
-            }
-            final scheme = Theme.of(context).colorScheme;
-            return OpenContainer(
-              transitionType: ContainerTransitionType.fadeThrough,
-              transitionDuration: const Duration(milliseconds: 300),
-              // The row paints no surface of its own: the closed container
-              // stays transparent and the conversation's surface carries the
-              // opened state, as the task overlay does on the board.
-              closedColor: Colors.transparent,
-              openColor: scheme.surface,
-              middleColor: scheme.surface,
-              closedBuilder: (_, open) => Material(
-                // The row paints its own ink and selection on the nearest
-                // Material; without this the container's coloured layer would
-                // sit between them and the list's material.
-                color: Colors.transparent,
-                child: tile(() {
-                  widget.onOpen(thread);
-                  open();
-                }),
-              ),
-              openBuilder: (_, _) =>
-                  MailDetailPage(emailId: thread.latestMessage.id),
-            );
-          },
+              // A phone animates the row into the conversation with the same
+              // container transform the board gives a task; the wide layout keeps
+              // the list beside the detail pane and pushes into it instead.
+              if (widget.selecting || isWideScreen(context)) {
+                return tile(() => widget.onOpen(thread));
+              }
+              final scheme = Theme.of(context).colorScheme;
+              return OpenContainer(
+                transitionType: ContainerTransitionType.fadeThrough,
+                transitionDuration: const Duration(milliseconds: 300),
+                // The row paints no surface of its own: the closed container
+                // stays transparent and the conversation's surface carries the
+                // opened state, as the task overlay does on the board.
+                closedColor: Colors.transparent,
+                openColor: scheme.surface,
+                middleColor: scheme.surface,
+                closedBuilder: (_, open) => Material(
+                  // The row paints its own ink and selection on the nearest
+                  // Material; without this the container's coloured layer would
+                  // sit between them and the list's material.
+                  color: Colors.transparent,
+                  child: tile(() {
+                    widget.onOpen(thread);
+                    open();
+                  }),
+                ),
+                openBuilder: (_, _) =>
+                    MailDetailPage(emailId: thread.latestMessage.id),
+              );
+            },
+          ),
         ),
       ),
     );
+  }
+
+  /// Apple Mail / Gmail style shortcuts on the list (wide layouts only):
+  /// ↑/↓ or k/j move between conversations, Enter opens, s stars, u toggles
+  /// read, Delete removes.
+  KeyEventResult _onKey(KeyEvent event, List<MailThread> items) {
+    if (event is KeyUpEvent || widget.selecting || !isWideScreen(context)) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isMetaPressed ||
+        keyboard.isControlPressed ||
+        keyboard.isAltPressed) {
+      return KeyEventResult.ignored;
+    }
+    // Never steal keys from a text field that has focus.
+    final focused = FocusManager.instance.primaryFocus?.context;
+    if (focused?.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    final index = items.indexWhere(
+      (thread) => thread.id == widget.selectedThreadId,
+    );
+    MailThread? current = index < 0 ? null : items[index];
+
+    void open(int target) {
+      if (items.isEmpty) return;
+      widget.onOpen(items[target.clamp(0, items.length - 1)]);
+    }
+
+    if (key == LogicalKeyboardKey.arrowDown || key == LogicalKeyboardKey.keyJ) {
+      open(index + 1);
+    } else if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.keyK) {
+      open(index < 0 ? 0 : index - 1);
+    } else if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.keyO) {
+      if (current == null) return KeyEventResult.ignored;
+      widget.onOpen(current);
+    } else if (key == LogicalKeyboardKey.keyS) {
+      if (current == null) return KeyEventResult.ignored;
+      widget.onToggleStar(current);
+    } else if (key == LogicalKeyboardKey.keyU) {
+      if (current == null) return KeyEventResult.ignored;
+      widget.onToggleRead(current);
+    } else if (key == LogicalKeyboardKey.delete ||
+        key == LogicalKeyboardKey.backspace) {
+      if (current == null) return KeyEventResult.ignored;
+      unawaited(widget.onDelete(context, current));
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
   }
 }
 
@@ -2389,7 +2447,7 @@ class _EmailThreadTile extends StatelessWidget {
     final weight = unread ? FontWeight.w600 : FontWeight.normal;
     final timestamp = _mailTimestamp(thread.latestAt ?? latest.createdAt);
 
-    return ContextMenuWidget(
+    final row = ContextMenuWidget(
       // A context menu and multi-select do not mix: while selecting, the row
       // answers taps with a tick instead.
       menuProvider: selecting
@@ -2407,73 +2465,231 @@ class _EmailThreadTile extends StatelessWidget {
                 onDelete: onDelete,
               ),
             ),
-      child: ListTile(
-        selected: selected || checked,
-        selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.3),
-        shape: const RoundedRectangleBorder(),
-        leading: selecting
-            ? Checkbox(
-                value: checked,
-                onChanged: (_) => onToggleSelected?.call(),
-              )
-            : _SenderAvatar(
-                url: emailAvatarUrl(senders[fromAddress.trim().toLowerCase()]),
-                name: from,
-                unread: unread,
+      child: Padding(
+        // Gmail-style: the row floats as a rounded card so the selection
+        // reads as a pill rather than a full-bleed band.
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+        child: ListTile(
+          selected: selected || checked,
+          selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.6),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          contentPadding: const EdgeInsets.fromLTRB(12, 2, 8, 4),
+          leading: selecting
+              ? Checkbox(
+                  value: checked,
+                  onChanged: (_) => onToggleSelected?.call(),
+                )
+              : _SenderAvatar(
+                  url: emailAvatarUrl(
+                    senders[fromAddress.trim().toLowerCase()],
+                  ),
+                  name: from,
+                  unread: unread,
+                ),
+          onLongPress: selecting ? null : onLongPress,
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        from,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodyMedium?.copyWith(fontWeight: weight),
+                      ),
+                    ),
+                    // Gmail shows the conversation size right after the sender.
+                    if (thread.isMultiMessage) ...[
+                      const SizedBox(width: 6),
+                      _ThreadCountBadge(count: thread.messageCount),
+                    ],
+                  ],
+                ),
               ),
-        onLongPress: selecting ? null : onLongPress,
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                from,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodyMedium?.copyWith(fontWeight: weight),
-              ),
-            ),
-            if (thread.isMultiMessage) ...[
-              _ThreadCountBadge(count: thread.messageCount),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
+              if (timestamp.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Text(
+                    timestamp,
+                    style: text.labelSmall?.copyWith(
+                      color: unread ? scheme.primary : scheme.onSurfaceVariant,
+                      fontWeight: weight,
+                    ),
+                  ),
+                ),
             ],
-            if (timestamp.isNotEmpty)
-              Text(
-                timestamp,
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          subtitle: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 2),
+                    Text(
+                      thread.displaySubject,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        fontWeight: weight,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    if (latest.previewText.isNotEmpty)
+                      Text(
+                        latest.previewText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    if (mailboxName case final name? when name.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _ThreadMailboxBadge(name: name),
+                    ],
+                    if (latest.hasDeliveryStatus && !latest.isDraft) ...[
+                      const SizedBox(height: 6),
+                      _DeliveryStatusChip(status: latest.deliveryStatus!),
+                    ],
+                  ],
+                ),
               ),
-          ],
+              if (!selecting)
+                _HoverActions(
+                  enabled: isWideScreen(context),
+                  actions: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: unread ? 'markRead'.tr() : 'markUnread'.tr(),
+                      icon: Icon(
+                        unread ? Symbols.drafts : Symbols.mark_email_unread,
+                        size: 20,
+                      ),
+                      onPressed: onToggleRead,
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'delete'.tr(),
+                      icon: const Icon(Symbols.delete, size: 20),
+                      onPressed: onDelete,
+                    ),
+                  ],
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    tooltip: latest.isStarred ? 'unstar'.tr() : 'star'.tr(),
+                    icon: Icon(
+                      Symbols.star,
+                      fill: latest.isStarred ? 1 : 0,
+                      size: 20,
+                      color: latest.isStarred
+                          ? scheme.tertiary
+                          : scheme.onSurfaceVariant,
+                    ),
+                    onPressed: onToggleStar,
+                  ),
+                ),
+            ],
+          ),
+          trailing: null,
+          isThreeLine: false,
+          onTap: selecting ? onToggleSelected : onTap,
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              thread.displaySubject,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.bodyMedium?.copyWith(fontWeight: weight),
-            ),
-            if (latest.previewText.isNotEmpty)
-              Text(
-                latest.previewText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-            if (mailboxName case final name? when name.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              _ThreadMailboxBadge(name: name),
-            ],
-            if (latest.hasDeliveryStatus && !latest.isDraft) ...[
-              const SizedBox(height: 6),
-              _DeliveryStatusChip(status: latest.deliveryStatus!),
-            ],
-          ],
-        ),
-        isThreeLine: false,
-        onTap: selecting ? onToggleSelected : onTap,
+      ),
+    );
+
+    // Apple Mail-style swipes on touch layouts: right toggles read, left
+    // deletes. The row never leaves the list itself; the action refreshes it.
+    if (selecting || isWideScreen(context)) return row;
+    return Dismissible(
+      key: ValueKey('swipe-${thread.id}'),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          onToggleRead();
+        } else {
+          onDelete();
+        }
+        return false;
+      },
+      background: _SwipeBackground(
+        color: scheme.primary,
+        foreground: scheme.onPrimary,
+        icon: unread ? Symbols.drafts : Symbols.mark_email_unread,
+        alignment: Alignment.centerLeft,
+      ),
+      secondaryBackground: _SwipeBackground(
+        color: scheme.error,
+        foreground: scheme.onError,
+        icon: Symbols.delete,
+        alignment: Alignment.centerRight,
+      ),
+      child: row,
+    );
+  }
+}
+
+/// Shows [actions] next to [child] while a pointer hovers the row — the
+/// Gmail-style quick actions on desktop. Hidden otherwise so rows stay calm.
+class _HoverActions extends StatefulWidget {
+  const _HoverActions({
+    required this.enabled,
+    required this.actions,
+    required this.child,
+  });
+
+  final bool enabled;
+  final List<Widget> actions;
+  final Widget child;
+
+  @override
+  State<_HoverActions> createState() => _HoverActionsState();
+}
+
+class _HoverActionsState extends State<_HoverActions> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return widget.child;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [if (_hovering) ...widget.actions, widget.child],
       ),
     );
   }
+}
+
+class _SwipeBackground extends StatelessWidget {
+  const _SwipeBackground({
+    required this.color,
+    required this.foreground,
+    required this.icon,
+    required this.alignment,
+  });
+
+  final Color color;
+  final Color foreground;
+  final IconData icon;
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: color,
+    alignment: alignment,
+    padding: const EdgeInsets.symmetric(horizontal: 24),
+    child: Icon(icon, color: foreground),
+  );
 }
 
 /// Which mailbox a search hit came out of, on a cross-mailbox search row.
@@ -2550,18 +2766,20 @@ class _SenderAvatar extends StatelessWidget {
     required this.url,
     required this.name,
     this.unread = false,
+    this.radius = 18,
   });
 
   final String? url;
   final String name;
   final bool unread;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final fallbackText = _senderInitials(name);
     final fallbackStyle = TextStyle(
-      fontSize: 13,
+      fontSize: radius * 0.72,
       fontWeight: FontWeight.w600,
       color: scheme.onPrimaryContainer,
     );
@@ -2569,7 +2787,7 @@ class _SenderAvatar extends StatelessWidget {
     final Widget avatar;
     if (url == null || url!.isEmpty) {
       avatar = CircleAvatar(
-        radius: 18,
+        radius: radius,
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
         child: Text(fallbackText, style: fallbackStyle),
@@ -2578,11 +2796,11 @@ class _SenderAvatar extends StatelessWidget {
       avatar = ClipOval(
         child: Image.network(
           url!,
-          width: 36,
-          height: 36,
+          width: radius * 2,
+          height: radius * 2,
           fit: BoxFit.cover,
           errorBuilder: (_, _, _) => CircleAvatar(
-            radius: 18,
+            radius: radius,
             backgroundColor: scheme.primaryContainer,
             foregroundColor: scheme.onPrimaryContainer,
             child: Text(fallbackText, style: fallbackStyle),
@@ -2747,7 +2965,7 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   /// Initial header height before the summary is measured; replaced by the
   /// exact content height after the first layout so the expanded header
   /// hugs the summary with no dead space.
-  static const _estimateSummaryHeight = 180.0;
+  static const _estimateSummaryHeight = 76.0;
 
   /// Window after the pane resizes itself during which the body's offset is
   /// only re-based, never read as a scroll direction.
@@ -2756,6 +2974,7 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   final _summaryKey = GlobalKey();
   double? _summaryHeight;
   DateTime? _layoutChangedAt;
+  bool _detailsExpanded = false;
 
   /// Message of the conversation the pane is reading.
   String? _selectedId;
@@ -2763,7 +2982,8 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   /// The message body is its own scroll surface, so the header follows the
   /// direction of that scroll: down hides it, up (or reaching the top) brings
   /// it back.
-  final _header = HeaderCollapseController();
+  /// Threshold is 80 to prevent trackpad momentum or micro-scrolls from flapping the header.
+  final _header = HeaderCollapseController(threshold: 80);
 
   /// Attachments are revealed once the reader reaches the end of the message.
   final _footer = BodyFooterRevealController();
@@ -2812,6 +3032,15 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
     _header.reset();
     _footer.reset();
     _summaryHeight = null;
+    _detailsExpanded = false;
+  }
+
+  void _toggleDetails() {
+    setState(() {
+      _detailsExpanded = !_detailsExpanded;
+      _layoutChangedAt = DateTime.now();
+    });
+    _remeasureSummary();
   }
 
   void _selectMessage(MailEmail message) {
@@ -2833,6 +3062,16 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
       _footer.adoptOrigin(sample.y);
       return;
     }
+
+    if (_detailsExpanded && sample.y > 30) {
+      setState(() {
+        _detailsExpanded = false;
+        _layoutChangedAt = DateTime.now();
+      });
+      _remeasureSummary();
+      return;
+    }
+
     final headerChanged = _header.update(sample.y);
     final footerChanged = _footer.update(sample);
     if (headerChanged || footerChanged) {
@@ -2862,6 +3101,9 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   Widget build(BuildContext context) {
     final conversation = _conversation;
     final selected = _selected;
+    final selectedIndex = conversation
+        .indexWhere((message) => message.id == selected.id)
+        .clamp(0, conversation.length - 1);
     final summaryHeight = _summaryHeight ?? _estimateSummaryHeight;
     final resendable =
         !selected.isDraft && selected.deliveryStatus?.toLowerCase() == 'failed';
@@ -2900,19 +3142,26 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
                   key: _summaryKey,
                   email: selected,
                   mailHost: widget.mailHost,
+                  isExpanded: _detailsExpanded,
+                  onToggleExpand: _toggleDetails,
                 ),
               ),
             ),
           ),
-          // A conversation gets a switcher: only one body is mounted at a time,
-          // because the message body owns the mouse wheel over its own area.
-          if (conversation.length > 1)
-            _ThreadMessageStrip(
+          // A conversation is stacked around the open message: earlier
+          // messages collapse above it, later ones below, tap to expand.
+          if (conversation.length > 1) ...[
+            _ThreadPositionBar(
               messages: conversation,
               selectedId: selected.id,
+              onSelect: _selectMessage,
+            ),
+            _ThreadCollapsedRows(
+              messages: conversation.sublist(0, selectedIndex),
               mailHost: widget.mailHost,
               onSelect: _selectMessage,
             ),
+          ],
           Expanded(
             child: _EmailDetailContent(
               key: ValueKey(selected.id),
@@ -2925,6 +3174,13 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
               showFooter: _footer.visible && emailHasFooterContent(selected),
             ),
           ),
+          if (conversation.length > 1)
+            _ThreadCollapsedRows(
+              messages: conversation.sublist(selectedIndex + 1),
+              mailHost: widget.mailHost,
+              onSelect: _selectMessage,
+              maxHeight: 112,
+            ),
           _EmailActionBar(
             onReply: () => widget.onReply(selected),
             onReplyAll: () => widget.onReplyAll(selected),
@@ -2937,59 +3193,195 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   }
 }
 
-/// Message switcher for a conversation, oldest first. The body below shows the
-/// picked message, so a long thread stays readable one message at a time.
-class _ThreadMessageStrip extends ConsumerWidget {
-  const _ThreadMessageStrip({
+/// Position label and previous/next stepper for a conversation.
+class _ThreadPositionBar extends StatelessWidget {
+  const _ThreadPositionBar({
     required this.messages,
     required this.selectedId,
-    required this.mailHost,
     required this.onSelect,
   });
 
   final List<MailEmail> messages;
   final String selectedId;
-  final String? mailHost;
   final ValueChanged<MailEmail> onSelect;
 
   @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final index = messages.indexWhere((message) => message.id == selectedId);
+    final unreadCount = messages.where((message) => !message.isRead).length;
+
+    void step(int delta) {
+      final next = index + delta;
+      if (next < 0 || next >= messages.length) return;
+      onSelect(messages[next]);
+    }
+
+    return Material(
+      color: scheme.surfaceContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
+        child: Row(
+          children: [
+            Text(
+              'threadPosition'.tr(
+                namedArgs: {
+                  'current': '${index < 0 ? 1 : index + 1}',
+                  'total': '${messages.length}',
+                },
+              ),
+              style: text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            if (unreadCount > 0) ...[
+              const SizedBox(width: 8),
+              Icon(Symbols.circle, size: 8, fill: 1, color: scheme.primary),
+              const SizedBox(width: 4),
+              Text(
+                'threadUnreadCount'.tr(namedArgs: {'count': '$unreadCount'}),
+                style: text.labelMedium?.copyWith(color: scheme.primary),
+              ),
+            ],
+            const Spacer(),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              tooltip: 'threadPreviousMessage'.tr(),
+              icon: const Icon(Symbols.keyboard_arrow_up),
+              onPressed: index > 0 ? () => step(-1) : null,
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              tooltip: 'threadNextMessage'.tr(),
+              icon: const Icon(Symbols.keyboard_arrow_down),
+              onPressed: index >= 0 && index < messages.length - 1
+                  ? () => step(1)
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The collapsed messages of a conversation on one side of the open message,
+/// stacked like Apple Mail / Gmail: sender, time and a preview line each, tap
+/// to expand. The open message fills the pane between the two stacks; only one
+/// body is mounted at a time because a web body owns the mouse wheel over its
+/// own area. The stack scrolls once it grows past [maxHeight].
+class _ThreadCollapsedRows extends ConsumerWidget {
+  const _ThreadCollapsedRows({
+    required this.messages,
+    required this.mailHost,
+    required this.onSelect,
+    this.maxHeight = 168,
+  });
+
+  final List<MailEmail> messages;
+  final String? mailHost;
+  final ValueChanged<MailEmail> onSelect;
+  final double maxHeight;
+
+  @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (messages.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     final senders =
         ref.watch(mailSenderIndexProvider).value ??
         const <String, MailAddressSuggestion>{};
 
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      child: SizedBox(
-        height: 56,
+      color: scheme.surfaceContainerLow,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
         child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
           itemCount: messages.length,
-          separatorBuilder: (context, index) => const SizedBox(width: 8),
-          itemBuilder: (context, index) {
-            final message = messages[index];
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            final message = messages[i];
             final address = message.from?.fullAddress(mailHost) ?? '';
             final name = message.from?.displayName ?? '';
             final from = name.isNotEmpty ? name : address;
             final timestamp = _mailTimestamp(message.createdAt);
-            return ChoiceChip(
-              selected: message.id == selectedId,
-              showCheckmark: false,
-              avatar: _SenderAvatar(
-                url: emailAvatarUrl(senders[address.trim().toLowerCase()]),
-                name: from,
-                unread: !message.isRead,
-              ),
-              label: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 180),
-                child: Text(
-                  timestamp.isEmpty ? from : '$from · $timestamp',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+            final unread = !message.isRead;
+            return InkWell(
+              onTap: () => onSelect(message),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    _SenderAvatar(
+                      url: emailAvatarUrl(
+                        senders[address.trim().toLowerCase()],
+                      ),
+                      name: from,
+                      unread: unread,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  from,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.labelLarge?.copyWith(
+                                    fontWeight: unread
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              if (message.isStarred)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Symbols.star,
+                                    size: 14,
+                                    fill: 1,
+                                    color: scheme.tertiary,
+                                  ),
+                                ),
+                              Text(
+                                timestamp,
+                                style: text.labelSmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            message.previewText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Symbols.unfold_more,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ],
                 ),
               ),
-              onSelected: (_) => onSelect(message),
             );
           },
         ),
@@ -3255,44 +3647,255 @@ class _EmailToolbar extends StatelessWidget {
   }
 }
 
-/// Subject and recipient metadata, collapsed away as the body scrolls down.
-class _EmailSummary extends StatelessWidget {
-  const _EmailSummary({super.key, required this.email, required this.mailHost});
+/// Subject and recipient metadata, with an Apple Mail-style compact heading
+/// that expands full details on tap, and collapses away as the body scrolls down.
+class _EmailSummary extends ConsumerWidget {
+  const _EmailSummary({
+    super.key,
+    required this.email,
+    required this.mailHost,
+    this.isExpanded = false,
+    this.onToggleExpand,
+  });
 
   final MailEmail email;
   final String? mailHost;
+  final bool isExpanded;
+  final VoidCallback? onToggleExpand;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final senders =
+        ref.watch(mailSenderIndexProvider).value ??
+        const <String, MailAddressSuggestion>{};
+
+    final fromName = _senderName(email.from, senders, mailHost);
+    final fromAvatar = _senderAvatarUrl(email.from, senders, mailHost);
+    final hasSafetyWarning =
+        mailSenderSafetyLevel(email) != MailSenderSafetyLevel.none;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            email.displaySubject,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  email.displaySubject,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              if (isExpanded)
+                InkWell(
+                  onTap: onToggleExpand,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'hideDetails'.tr(),
+                          style: text.labelSmall?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Icon(
+                          Symbols.expand_less,
+                          size: 16,
+                          color: scheme.primary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
           if (email.summary case final summary?) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _EmailAiSummary(summary: summary),
           ],
-          const SizedBox(height: 12),
-          _EmailMetadata(
-            email: email,
-            mailHost: mailHost,
-            dateStyle: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
+          const SizedBox(height: 8),
+          if (!isExpanded) ...[
+            InkWell(
+              onTap: onToggleExpand,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    _SenderAvatar(
+                      url: fromAvatar,
+                      name: fromName.isEmpty
+                          ? (email.from?.address ?? '')
+                          : fromName,
+                      radius: 14,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  fromName.isEmpty
+                                      ? (email.from?.address ?? '')
+                                      : fromName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (hasSafetyWarning) ...[
+                                const SizedBox(width: 6),
+                                MailSenderSafetyIcon(email: email),
+                              ],
+                              const Spacer(),
+                              if (email.createdAt != null)
+                                Text(
+                                  _mailTimestamp(email.createdAt!),
+                                  style: text.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _recipientSummary(
+                                    email.to,
+                                    email.cc,
+                                    email.bcc,
+                                    senders,
+                                    mailHost,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'details'.tr(),
+                                    style: text.labelSmall?.copyWith(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Symbols.expand_more,
+                                    size: 16,
+                                    color: scheme.primary,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else ...[
+            _EmailMetadata(
+              email: email,
+              mailHost: mailHost,
+              dateStyle: text.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+String _recipientSummary(
+  List<MailRecipient> to,
+  List<MailRecipient> cc,
+  List<MailRecipient> bcc,
+  Map<String, MailAddressSuggestion> senders,
+  String? mailHost,
+) {
+  final primary = to.isNotEmpty ? to : (cc.isNotEmpty ? cc : bcc);
+  if (primary.isEmpty) return '';
+  final first = primary.first;
+  final firstName = _recipientDisplayName(first, senders, mailHost);
+  final totalCount = to.length + cc.length + bcc.length;
+  if (totalCount <= 1) {
+    return '${'to'.tr()}: $firstName';
+  }
+  final moreCount = totalCount - 1;
+  final moreText = 'recipientMoreCount'.tr(args: ['$moreCount']);
+  return '${'to'.tr()}: $firstName $moreText';
+}
+
+String _senderName(
+  MailRecipient? from,
+  Map<String, MailAddressSuggestion> senders,
+  String? mailHost,
+) {
+  if (from == null) return '';
+  final sent = from.name?.trim() ?? '';
+  if (sent.isNotEmpty) return sent;
+  final address = from.fullAddress(mailHost).toLowerCase();
+  final known = senders[address]?.name?.trim() ?? '';
+  if (known.isNotEmpty) return known;
+  return from.address;
+}
+
+String? _senderAvatarUrl(
+  MailRecipient? from,
+  Map<String, MailAddressSuggestion> senders,
+  String? mailHost,
+) {
+  if (from == null) return null;
+  final address = from.fullAddress(mailHost).toLowerCase();
+  return emailAvatarUrl(senders[address]);
+}
+
+String _recipientDisplayName(
+  MailRecipient recipient,
+  Map<String, MailAddressSuggestion> senders,
+  String? mailHost,
+) {
+  final sent = recipient.name?.trim() ?? '';
+  if (sent.isNotEmpty) return sent;
+  final address = recipient.fullAddress(mailHost).toLowerCase();
+  final known = senders[address]?.name?.trim() ?? '';
+  if (known.isNotEmpty) return known;
+  return recipient.address;
 }
 
 /// The assistant's summary of the message, above the recipient metadata.
@@ -3450,145 +4053,92 @@ String? mailSenderWarningKey(String warning) => switch (warning.trim()) {
 String _senderWarningText(String warning) =>
     mailSenderWarningKey(warning)?.tr() ?? warning;
 
-/// Persistent sender-safety banner for the message reader.
-///
-/// ElecPostal records the sender-authentication verdict on the message and keeps
-/// it after the message is moved out of Spam, so the warning stays visible while
-/// the message is open. A forged-sender verdict is called out as such; weaker
-/// authentication warnings keep the pane behind them and only tint their frame.
-class MailSenderSafetyBanner extends StatelessWidget {
-  const MailSenderSafetyBanner({super.key, required this.email});
+/// Sender-safety tooltip text describing the authentication verdict and warnings.
+String mailSenderSafetyTooltip(MailEmail email) {
+  final level = mailSenderSafetyLevel(email);
+  final authentication = email.authentication;
+  if (level == MailSenderSafetyLevel.none || authentication == null) {
+    return '';
+  }
+  final phishing = level == MailSenderSafetyLevel.phishing;
+  final messages = <String>{
+    if (phishing && authentication.phishingReason != null)
+      _senderWarningText(authentication.phishingReason!),
+    for (final warning in authentication.warnings)
+      _senderWarningText(warning),
+  }.toList();
+
+  final title = (phishing
+          ? 'senderSafetyPhishingTitle'
+          : 'senderSafetySuspiciousTitle')
+      .tr();
+  final hint = phishing ? 'senderSafetyPhishingHint'.tr() : null;
+
+  final lines = [
+    title,
+    ?hint,
+    ...messages,
+  ];
+  return lines.join('\n');
+}
+
+/// Sender safety indicator displayed as an icon with a detailed tooltip
+/// directly in the sender field of the message header.
+class MailSenderSafetyIcon extends StatelessWidget {
+  const MailSenderSafetyIcon({super.key, required this.email});
 
   final MailEmail email;
 
   @override
   Widget build(BuildContext context) {
     final level = mailSenderSafetyLevel(email);
-    final authentication = email.authentication;
-    if (level == MailSenderSafetyLevel.none || authentication == null) {
-      return const SizedBox(width: double.infinity);
+    if (level == MailSenderSafetyLevel.none) {
+      return const SizedBox.shrink();
     }
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final text = theme.textTheme;
     final phishing = level == MailSenderSafetyLevel.phishing;
+    final tooltip = mailSenderSafetyTooltip(email);
 
-    // The reason and the warning carrying the same verdict share one line.
-    final messages = <String>{
-      if (phishing && authentication.phishingReason != null)
-        _senderWarningText(authentication.phishingReason!),
-      for (final warning in authentication.warnings)
-        _senderWarningText(warning),
-    }.toList();
+    final color = phishing ? scheme.error : Colors.amber.shade700;
+    final bg = phishing
+        ? scheme.errorContainer.withValues(alpha: 0.5)
+        : Colors.amber.withValues(alpha: 0.18);
 
-    // Both levels paint an opaque blend of the pane behind them, so the fill —
-    // and with it the contrast every line of copy is measured against — does
-    // not drift with the theme or with what the reader scrolls under the
-    // banner. The forged-sender verdict is a filled alert; bare warnings keep
-    // the pane and only tint their frame, so the two levels read as different
-    // weights rather than as the same red at two opacities.
-    final fill = Color.alphaBlend(
-      scheme.errorContainer.withValues(alpha: phishing ? 0.6 : 0.22),
-      scheme.surface,
-    );
-    final border = phishing
-        ? scheme.error.withValues(alpha: 0.5)
-        : scheme.error.withValues(alpha: 0.35);
-    final titleColor = phishing ? scheme.onErrorContainer : scheme.error;
-    final bodyColor = phishing
-        ? scheme.onErrorContainer.withValues(alpha: 0.85)
-        : scheme.onSurfaceVariant;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+    return Tooltip(
+      message: tooltip,
+      triggerMode: TooltipTriggerMode.tap,
+      showDuration: const Duration(seconds: 4),
+      preferBelow: true,
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: fill,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: border),
+          color: bg,
+          shape: BoxShape.circle,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // The verdict has to carry at a glance, so the glyph sits in a
-            // badge of its own instead of floating on the tinted fill.
-            SizedBox.square(
-              dimension: 28,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: phishing
-                      ? scheme.error
-                      : scheme.error.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  phishing ? Symbols.phishing : Symbols.warning,
-                  color: phishing ? scheme.onError : scheme.error,
-                  size: 18,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    (phishing
-                            ? 'senderSafetyPhishingTitle'
-                            : 'senderSafetySuspiciousTitle')
-                        .tr(),
-                    style: text.titleSmall?.copyWith(
-                      color: titleColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  // The one line the reader has to act on stays with the
-                  // title; the server's protocol evidence is kept below the
-                  // rule, where it reads as the reason rather than as a
-                  // second instruction.
-                  if (phishing)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'senderSafetyPhishingHint'.tr(),
-                        style: text.bodySmall?.copyWith(
-                          color: titleColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  if (messages.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Divider(
-                        height: 1,
-                        thickness: 1,
-                        color: scheme.error.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      spacing: 4,
-                      children: [
-                        for (final message in messages)
-                          Text(
-                            message,
-                            style: text.bodySmall?.copyWith(color: bodyColor),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+        child: Icon(
+          phishing ? Symbols.phishing : Symbols.warning,
+          size: 16,
+          color: color,
         ),
       ),
     );
   }
+}
+
+/// Kept for backwards compatibility with tests and call sites.
+typedef MailSenderSafetyBanner = MailSenderSafetyIcon;
+
+/// Whether remote images and tracking pixels should be blocked by default.
+///
+/// Blocked for junk/spam emails and messages flagged with security warnings.
+/// Normal trusted emails auto-load remote images immediately.
+bool shouldBlockRemoteImages(MailEmail email) {
+  final folder = email.folder?.toLowerCase();
+  if (folder == 'spam' || folder == 'junk') {
+    return true;
+  }
+  return mailSenderSafetyLevel(email) != MailSenderSafetyLevel.none;
 }
 
 class _EmailDetailContent extends StatelessWidget {
@@ -3618,9 +4168,6 @@ class _EmailDetailContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Sits above the body and outside the scrolling body view, so the
-        // sender-safety warning stays on screen for the whole message.
-        MailSenderSafetyBanner(email: email),
         const Divider(height: 1),
         // The message body fills the remaining pane and scrolls itself: the
         // web view is a platform view that owns the mouse wheel over its whole
@@ -3632,6 +4179,7 @@ class _EmailDetailContent extends StatelessWidget {
                   attachments: email.attachments,
                   inlineAttachments: email.inlineAttachments,
                   workspaceId: attachmentWorkspaceId,
+                  blockRemoteImages: shouldBlockRemoteImages(email),
                   onScroll: onBodyScroll,
                 )
               : _PlainTextBodyScroll(
@@ -3925,10 +4473,14 @@ Uri? _plainTextLinkUri(String label, {required bool isUrl}) {
 }
 
 /// Opens a link from message copy in the user's own browser — or mail client,
-/// for `mailto:` — the same way the HTML viewer opens a sender's link.
+/// for `mailto:`, or phone handler for `tel:` — the same way the HTML viewer opens a sender's link.
 Future<void> openEmailLink(Uri uri) async {
   try {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (uri.scheme == 'mailto' || uri.scheme == 'tel') {
+      await launchUrl(uri);
+    } else {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   } catch (_) {
     // No handler for the scheme: the tap simply does nothing.
   }
@@ -3942,6 +4494,112 @@ Future<void> openEmailLink(Uri uri) async {
 /// them like a link in an HTML message. Runs stay inside one [SelectableText]
 /// per copy block, so selection copies the message, link text included, in one
 /// sweep.
+/// One stretch of a plain-text message: either new copy or a quoted reply.
+class EmailQuoteSegment {
+  const EmailQuoteSegment(this.text, {required this.isQuote});
+
+  final String text;
+  final bool isQuote;
+}
+
+/// Splits [body] into copy and quoted replies. A quote is a run of lines
+/// starting with `>`, together with the "On … wrote:" line leading into it.
+/// A body that is nothing but quote stays whole, so there is always something
+/// to read.
+List<EmailQuoteSegment> emailQuoteSegments(String body) {
+  final lines = body.split('\n');
+  bool isQuoted(String line) => line.trimLeft().startsWith('>');
+  final wrote = RegExp(r'^\s*(On .+|Le .+|.+ wrote:|.+ 写道[:：])\s*$');
+  final segments = <EmailQuoteSegment>[];
+  final buffer = <String>[];
+  void flush(bool quote) {
+    if (buffer.isEmpty) return;
+    segments.add(EmailQuoteSegment(buffer.join('\n'), isQuote: quote));
+    buffer.clear();
+  }
+
+  var i = 0;
+  while (i < lines.length) {
+    if (isQuoted(lines[i])) {
+      // Pull the attribution line into the quote.
+      if (buffer.isNotEmpty && wrote.hasMatch(buffer.last)) {
+        final attribution = buffer.removeLast();
+        flush(false);
+        buffer.add(attribution);
+      } else {
+        flush(false);
+      }
+      while (i < lines.length &&
+          (isQuoted(lines[i]) || lines[i].trim().isEmpty)) {
+        buffer.add(lines[i]);
+        i++;
+      }
+      flush(true);
+    } else {
+      buffer.add(lines[i]);
+      i++;
+    }
+  }
+  flush(false);
+  if (segments.every((segment) => segment.isQuote)) {
+    return [EmailQuoteSegment(body, isQuote: false)];
+  }
+  return segments;
+}
+
+/// A quoted reply folded behind a "···" toggle.
+class _FoldedQuote extends StatefulWidget {
+  const _FoldedQuote({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_FoldedQuote> createState() => _FoldedQuoteState();
+}
+
+class _FoldedQuoteState extends State<_FoldedQuote> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Material(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => _open = !_open),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Icon(
+                  Symbols.more_horiz,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (_open)
+          Container(
+            padding: const EdgeInsets.only(left: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(color: scheme.outlineVariant, width: 2),
+              ),
+            ),
+            child: widget.child,
+          ),
+      ],
+    );
+  }
+}
+
 class EmailPlainTextBody extends StatefulWidget {
   const EmailPlainTextBody({
     super.key,
@@ -4004,6 +4662,22 @@ class _EmailPlainTextBodyState extends State<EmailPlainTextBody> {
   /// Renders one stretch of copy between inline images as a single selectable
   /// text, with its links as tappable spans.
   Widget _textBlock(BuildContext context, String block) {
+    final segments = emailQuoteSegments(block);
+    if (segments.length == 1 && !segments.single.isQuote) {
+      return _plainText(context, block);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final segment in segments)
+          segment.isQuote
+              ? _FoldedQuote(child: _plainText(context, segment.text))
+              : _plainText(context, segment.text),
+      ],
+    );
+  }
+
+  Widget _plainText(BuildContext context, String block) {
     final style = widget.style;
     final runs = emailPlainTextRuns(block);
     if (runs.length == 1 && !runs.single.isLink) {
@@ -4128,7 +4802,91 @@ bool shouldOpenEmailLinkExternally(NavigationAction navigationAction) {
     return false;
   }
   final scheme = navigationAction.request.url?.scheme;
-  return scheme == 'http' || scheme == 'https' || scheme == 'mailto';
+  return scheme == 'http' ||
+      scheme == 'https' ||
+      scheme == 'mailto' ||
+      scheme == 'tel';
+}
+
+final _remoteImageTagRegExp = RegExp(
+  r'''<img\b([^>]*?)\bsrc\s*=\s*(["'])(https?:)?//([^"'>]+)\2([^>]*)>''',
+  caseSensitive: false,
+);
+
+/// Whether [html] contains any external remote images that can be tracked.
+bool emailHasRemoteImages(String html) => _remoteImageTagRegExp.hasMatch(html);
+
+/// Masks external remote images by rewriting `src="..."` to `data-src="..."`
+/// and placing a lightweight placeholder in `src`.
+String maskRemoteImages(String html) {
+  return html.replaceAllMapped(_remoteImageTagRegExp, (match) {
+    final before = match.group(1) ?? '';
+    final quote = match.group(2) ?? '"';
+    final scheme = match.group(3) ?? '';
+    final rest = match.group(4) ?? '';
+    final after = match.group(5) ?? '';
+    final fullUrl = '$scheme//$rest';
+    return '<img$before data-src=$quote$fullUrl$quote src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\'%3E%3C/svg%3E"$after>';
+  });
+}
+
+/// A privacy banner displayed above an HTML message when remote images
+/// and tracking pixels are blocked.
+class _RemoteImagesPrivacyBanner extends StatelessWidget {
+  const _RemoteImagesPrivacyBanner({required this.onLoadImages});
+
+  final VoidCallback onLoadImages;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final text = theme.textTheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        border: Border(
+          bottom: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Symbols.shield,
+            size: 16,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'remoteImagesBlocked'.tr(),
+              style: text.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: onLoadImages,
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              textStyle: text.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            child: Text('loadRemoteImages'.tr()),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HtmlBodyViewer extends ConsumerStatefulWidget {
@@ -4137,6 +4895,7 @@ class _HtmlBodyViewer extends ConsumerStatefulWidget {
     required this.attachments,
     required this.inlineAttachments,
     required this.workspaceId,
+    this.blockRemoteImages = false,
     this.onScroll,
   });
 
@@ -4144,6 +4903,7 @@ class _HtmlBodyViewer extends ConsumerStatefulWidget {
   final List<SnCloudFileReference> attachments;
   final Map<String, SnCloudFileReference> inlineAttachments;
   final String? workspaceId;
+  final bool blockRemoteImages;
 
   /// Reports the body's own scroll position as it moves.
   final ValueChanged<EmailBodyScroll>? onScroll;
@@ -4179,6 +4939,8 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
   double? _viewportHeight;
   DateTime? _lastMetricsAt;
   Brightness? _lastBrightness;
+  bool _remoteImagesLoaded = false;
+  bool _hasRemoteImages = false;
 
   @override
   void didChangeDependencies() {
@@ -4197,16 +4959,26 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.html != widget.html ||
         oldWidget.inlineAttachments != widget.inlineAttachments ||
-        oldWidget.workspaceId != widget.workspaceId) {
+        oldWidget.workspaceId != widget.workspaceId ||
+        oldWidget.blockRemoteImages != widget.blockRemoteImages) {
       _preparedHtml = null;
       _maxScrollY = null;
       _atBottom = false;
       _lastMetricsAt = null;
+      _remoteImagesLoaded = false;
+      _hasRemoteImages = false;
       _prepareHtml();
     }
   }
 
   Future<void> _prepareHtml() async {
+    final rawHtml = widget.html;
+    final hasRemote = emailHasRemoteImages(rawHtml);
+    final shouldBlock = widget.blockRemoteImages && !_remoteImagesLoaded;
+    final htmlToRender = (shouldBlock && hasRemote)
+        ? maskRemoteImages(rawHtml)
+        : rawHtml;
+
     final imageFiles = <String, SnCloudFileReference>{
       for (final attachment in widget.attachments)
         if (isImageFile(attachment)) attachment.id: attachment,
@@ -4234,10 +5006,11 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     );
     if (!mounted) return;
     setState(() {
+      _hasRemoteImages = hasRemote && shouldBlock;
       _preparedHtml = readerEmailDocument(
         sanitizeEmailHtml(
           _replaceInlineImageReferences(
-            widget.html,
+            htmlToRender,
             widget.attachments,
             widget.inlineAttachments,
             widget.workspaceId,
@@ -4249,6 +5022,37 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         Theme.of(context),
       );
     });
+  }
+
+  Future<void> _loadRemoteImages() async {
+    final controller = _controller;
+    if (controller != null) {
+      try {
+        await controller.evaluateJavascript(
+          source: '''
+document.querySelectorAll('img[data-src]').forEach(function(img) {
+  var s = img.getAttribute('data-src');
+  if (s) {
+    img.src = s;
+    img.removeAttribute('data-src');
+  }
+});
+''',
+        );
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _remoteImagesLoaded = true;
+      });
+      if (controller != null) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted && _controller != null) {
+            _refreshScrollMetrics(_controller!, force: true);
+          }
+        });
+      }
+    }
   }
 
   void _onScrollChanged(InAppWebViewController controller, int x, int y) {
@@ -4327,21 +5131,28 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
     if (html == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    // Fills the pane handed down by _EmailDetailContent; the web view scrolls
-    // its own document, because a platform view swallows the mouse wheel over
-    // its whole area — an outer scroll view can never be scrolled there.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (_viewportHeight != constraints.maxHeight) {
-          // The pane resized around the body — the header collapsed or the
-          // footer was revealed. Follow the end of the message if that is where
-          // the reader is, instead of letting WebKit clamp the offset and jump
-          // the body under them.
-          _viewportHeight = constraints.maxHeight;
-          if (_atBottom) unawaited(_stickToBottom());
-        }
-        return _buildWebView(html);
-      },
+    final showPrivacyBanner = _hasRemoteImages && !_remoteImagesLoaded;
+
+    return Column(
+      children: [
+        if (showPrivacyBanner)
+          _RemoteImagesPrivacyBanner(onLoadImages: _loadRemoteImages),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (_viewportHeight != constraints.maxHeight) {
+                // The pane resized around the body — the header collapsed or the
+                // footer was revealed. Follow the end of the message if that is where
+                // the reader is, instead of letting WebKit clamp the offset and jump
+                // the body under them.
+                _viewportHeight = constraints.maxHeight;
+                if (_atBottom) unawaited(_stickToBottom());
+              }
+              return _buildWebView(html);
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -4356,13 +5167,18 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         baseUrl: WebUri(kSolarNetworkApiBase),
       ),
       initialSettings: InAppWebViewSettings(
+        useHybridComposition: true,
+        isElementFullscreenEnabled: false,
+        allowsInlineMediaPlayback: false,
+        supportZoom: true,
+        builtInZoomControls: false,
+        displayZoomControls: false,
         // Required: the plugin reports [onScrollChanged] from a script it
         // injects into the document, so the pane needs JavaScript. The
         // sender's scripts are stripped in [sanitizeEmailHtml] — the only
         // script that runs is the plugin's own scroll listener.
         javaScriptEnabled: true,
         transparentBackground: true,
-        supportZoom: false,
         // Backstop for the document-level guard in [emailOverflowCss]: even if a
         // message still ends up wider than the pane, the view cannot be dragged
         // sideways (Android and iOS; elsewhere the rule is ignored, and the
@@ -4389,8 +5205,10 @@ class _HtmlBodyViewerState extends ConsumerState<_HtmlBodyViewer> {
         if (!shouldOpenEmailLinkExternally(navigationAction)) {
           return NavigationActionPolicy.ALLOW;
         }
-        final url = navigationAction.request.url!;
-        await openEmailLink(url);
+        final url = navigationAction.request.url;
+        if (url != null) {
+          await openEmailLink(url);
+        }
         return NavigationActionPolicy.CANCEL;
       },
     );
@@ -4411,7 +5229,7 @@ String sanitizeEmailHtml(String html) {
   // Paired active elements, contents included.
   var sanitized = html.replaceAll(
     RegExp(
-      r'''<\s*(script|iframe|object|embed)\b[^>]*>.*?<\s*/\s*\1\s*>''',
+      r'''<\s*(script|iframe|object|embed|form)\b[^>]*>.*?<\s*/\s*\1\s*>''',
       caseSensitive: false,
       dotAll: true,
     ),
@@ -4420,7 +5238,7 @@ String sanitizeEmailHtml(String html) {
   // Unpaired or self-closing forms of the same elements.
   sanitized = sanitized.replaceAll(
     RegExp(
-      r'''<\s*/?\s*(script|iframe|object|embed)\b[^>]*>''',
+      r'''<\s*/?\s*(script|iframe|object|embed|form)\b[^>]*>''',
       caseSensitive: false,
     ),
     '',
@@ -4526,18 +5344,60 @@ String readerEmailDocument(String html, ThemeData theme) {
         )
       : html;
   final typed = withEmailTypography(body, emailTypographyCss(theme));
-  return injectEmailHead(
+  final folded = injectEmailHead(
     injectEmailHead(typed, _emailViewportMeta),
-    '<style>${emailOverflowCss()}</style>',
+    '<style>${emailQuoteFoldCss(theme)}</style>'
+    '<script>$emailQuoteFoldScript</script>',
   );
+  return injectEmailHead(folded, '<style>${emailOverflowCss()}</style>');
 }
+
+/// Styles the toggle that [emailQuoteFoldScript] puts in front of a quoted
+/// reply, so the history of a thread folds behind a small "···" pill.
+String emailQuoteFoldCss(ThemeData theme) {
+  final scheme = theme.colorScheme;
+  return '''
+.sw-quote-toggle { display: inline-block; cursor: pointer; margin: 8px 0;
+  padding: 0 10px; line-height: 16px; border-radius: 10px; border: 0;
+  font: inherit; font-size: 12px; letter-spacing: 2px;
+  background: ${_cssHex(scheme.surfaceContainerHighest)};
+  color: ${_cssHex(scheme.onSurfaceVariant)}; }
+.sw-quote-folded { display: none !important; }
+''';
+}
+
+/// Folds quoted replies (`blockquote`, Gmail and Yahoo quote wrappers) behind a
+/// toggle, as Gmail and Apple Mail do, so a long thread opens on what is new.
+/// Only outermost quotes get a toggle; nested ones fold with their parent.
+const emailQuoteFoldScript = r'''
+document.addEventListener('DOMContentLoaded', function () {
+  var nodes = document.querySelectorAll(
+    'blockquote, .gmail_quote, .yahoo_quoted, #divRplyFwdMsg + *');
+  var done = [];
+  nodes.forEach(function (node) {
+    if (done.some(function (d) { return d.contains(node); })) return;
+    // Keep a quote that is the whole message: there is nothing new to read.
+    if (document.body.textContent.trim() === node.textContent.trim()) return;
+    done.push(node);
+    var button = document.createElement('button');
+    button.className = 'sw-quote-toggle';
+    button.type = 'button';
+    button.textContent = '\u00b7\u00b7\u00b7';
+    button.addEventListener('click', function () {
+      node.classList.toggle('sw-quote-folded');
+    });
+    node.classList.add('sw-quote-folded');
+    node.parentNode.insertBefore(button, node);
+  });
+});
+''';
 
 /// Without a viewport declaration Android lays the document out at its legacy
 /// 980px width and scales it down, which both shrinks the text and leaves a
 /// document wider than the pane — the one cause of a sideways-scrolling message
 /// that no stylesheet can correct. Injected into every message.
 const _emailViewportMeta =
-    '<meta name="viewport" content="width=device-width, initial-scale=1">';
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">';
 
 /// The stylesheet that keeps a message inside the pane's width, injected into
 /// every message, styled ones included.
@@ -4554,9 +5414,11 @@ const _emailViewportMeta =
 /// plain declaration would lose the tie.
 String emailOverflowCss() => '''
 html, body { max-width: 100% !important; overflow-x: hidden !important; }
+html, body { word-wrap: break-word !important; overflow-wrap: break-word !important; -webkit-text-size-adjust: 100% !important; }
 body { overflow-wrap: anywhere !important; }
 img, video { max-width: 100% !important; height: auto !important; }
 table { max-width: 100% !important; }
+table { height: auto !important; }
 pre { max-width: 100% !important; white-space: pre-wrap; }
 ''';
 
@@ -4708,6 +5570,7 @@ class _EmailMetadata extends ConsumerWidget {
           recipients: email.from == null ? const [] : [email.from!],
           mailHost: mailHost,
           senders: senders,
+          safetyEmail: email,
         ),
         EmailRecipientRow(
           label: 'to'.tr(),
@@ -4750,6 +5613,7 @@ class EmailRecipientRow extends StatelessWidget {
     required this.recipients,
     this.mailHost,
     this.senders = const {},
+    this.safetyEmail,
   });
 
   final String label;
@@ -4758,6 +5622,10 @@ class EmailRecipientRow extends StatelessWidget {
 
   /// Senders-index entries, keyed by lowercase address.
   final Map<String, MailAddressSuggestion> senders;
+
+  /// When supplied and carries a safety warning, renders a warning icon
+  /// with a detailed tooltip in the row.
+  final MailEmail? safetyEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -4785,6 +5653,7 @@ class EmailRecipientRow extends StatelessWidget {
             child: Wrap(
               spacing: 6,
               runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 for (final recipient in recipients)
                   EmailRecipientChip(
@@ -4792,6 +5661,10 @@ class EmailRecipientRow extends StatelessWidget {
                     mailHost: mailHost,
                     sender: senders[recipient.fullAddress(mailHost)],
                   ),
+                if (safetyEmail != null &&
+                    mailSenderSafetyLevel(safetyEmail!) !=
+                        MailSenderSafetyLevel.none)
+                  MailSenderSafetyIcon(email: safetyEmail!),
               ],
             ),
           ),
@@ -5145,13 +6018,32 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   }
 
   String _quoteBody(MailEmail email, {required bool forwarded}) {
+    final escape = const HtmlEscape();
+    final sender = email.from?.displayName.isNotEmpty == true
+        ? '${email.from!.displayName} <${email.from!.fullAddress(widget.mailHost)}>'
+        : email.from?.fullAddress(widget.mailHost) ?? '';
+    final sent = email.createdAt?.toLocal().toString().split('.').first ?? '';
+    // A plain-text message has no markup: escape it and keep its line breaks,
+    // or the quote would collapse into one run and angle brackets would be
+    // read as tags.
+    final looksLikeHtml =
+        email.isHtml ||
+        RegExp(r'<[a-z!/][^>]*>', caseSensitive: false).hasMatch(email.body);
+    final body = looksLikeHtml
+        ? email.body
+        : escape.convert(email.body).replaceAll('\n', '<br>');
     final header = forwarded
         ? '<p>---------- ${'forwardedMessage'.tr()} ----------<br>'
-              '${email.from?.fullAddress(widget.mailHost) ?? ''}<br>'
-              '${email.createdAt?.toLocal() ?? ''}<br>'
-              '${'subject'.tr()}: ${email.displaySubject}</p>'
+              '${escape.convert(sender)}<br>'
+              '$sent<br>'
+              '${'subject'.tr()}: ${escape.convert(email.displaySubject)}</p>'
         : '';
-    return '\n\n<blockquote>$header${email.body}</blockquote>';
+    // Replies lead with an attribution line, as Gmail and Apple Mail do, and
+    // leave an empty line above it for the writer to start typing.
+    final attribution = forwarded
+        ? ''
+        : '<p>${escape.convert('replyAttribution'.tr(namedArgs: {'date': sent, 'sender': sender}))}</p>';
+    return '\n\n$attribution<blockquote>$header$body</blockquote>';
   }
 
   @override

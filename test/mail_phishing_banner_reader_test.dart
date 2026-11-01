@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/mail/mail_screen.dart';
@@ -42,28 +43,23 @@ void main() {
       const Duration(seconds: 10),
     );
 
-    // The banner is part of the open message, not of the list.
-    final banner = find.byType(MailSenderSafetyBanner);
-    expect(banner, findsOneWidget);
-    expect(
-      find.descendant(
-        of: banner,
-        matching: find.text('senderSafetyPhishingTitle'.tr()),
-      ),
-      findsOneWidget,
+    // The safety indicator is part of the sender field in the open message.
+    final safetyIcon = find.byType(MailSenderSafetyIcon);
+    expect(safetyIcon, findsOneWidget);
+    final tooltip = tester.widget<Tooltip>(
+      find.descendant(of: safetyIcon, matching: find.byType(Tooltip)),
     );
+    expect(tooltip.message, contains('senderSafetyPhishingTitle'.tr()));
+    expect(tooltip.message, contains('senderSafetyPhishingHint'.tr()));
     expect(
-      find.descendant(
-        of: banner,
-        matching: find.text('senderSafetyPhishingHint'.tr()),
-      ),
+      find.descendant(of: safetyIcon, matching: find.byIcon(Symbols.phishing)),
       findsOneWidget,
     );
 
-    // It sits above the message body, so it stays on screen while reading.
+    // It sits above the message body in the sender metadata.
     final body = find.byType(EmailPlainTextBody);
     expect(body, findsOneWidget);
-    expect(tester.getTopLeft(banner).dy, lessThan(tester.getTopLeft(body).dy));
+    expect(tester.getTopLeft(safetyIcon).dy, lessThan(tester.getTopLeft(body).dy));
     expect(tester.takeException(), isNull);
   });
 }

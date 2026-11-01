@@ -38,6 +38,18 @@ void main() {
       );
     });
 
+    test('tel link leaves the app', () {
+      expect(
+        shouldOpenEmailLinkExternally(
+          _action(
+            type: NavigationType.LINK_ACTIVATED,
+            url: 'tel:+1234567890',
+          ),
+        ),
+        isTrue,
+      );
+    });
+
     test('initial document load stays in the pane', () {
       // The webview loads the message HTML with the API host as its base URL,
       // so the document navigation arrives as an http main-frame request.

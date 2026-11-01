@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/network.dart';
 
 void main() {
   group('sanitizeEmailHtml', () {
@@ -51,14 +52,17 @@ void main() {
       expect(result, isNot(contains('javascript:')));
     });
 
-    test('removes embedded objects', () {
+    test('removes forms and embedded objects', () {
       final result = sanitizeEmailHtml(
         '<p>a</p><iframe src="https://evil.test"></iframe>'
-        '<object data="x"></object><embed src="y">',
+        '<object data="x"></object><embed src="y">'
+        '<form action="https://evil.test/login"><input type="password"></form>',
       );
       expect(result, isNot(contains('iframe')));
       expect(result, isNot(contains('object')));
       expect(result, isNot(contains('embed')));
+      expect(result, isNot(contains('form')));
+      expect(result, isNot(contains('evil.test')));
       expect(result, contains('<p>a</p>'));
     });
 
@@ -91,6 +95,92 @@ void main() {
           '<a href="https://example.com/a?b=1&c=2">link</a>'
           '<img src="https://cdn.test/a.png" alt="pic"></div>';
       expect(sanitizeEmailHtml(body), body);
+    });
+  });
+
+  group('emailHasRemoteImages & maskRemoteImages', () {
+    test('detects external http and https images', () {
+      expect(
+        emailHasRemoteImages('<p>hi</p><img src="https://tracker.com/pixel.gif">'),
+        isTrue,
+      );
+      expect(
+        emailHasRemoteImages("<img alt='photo' src='http://cdn.example.com/img.jpg'>"),
+        isTrue,
+      );
+      expect(
+        emailHasRemoteImages('<img src="//cdn.example.com/img.jpg">'),
+        isTrue,
+      );
+    });
+
+    test('does not treat inline attachments, base64 data, or fonts as remote', () {
+      expect(
+        emailHasRemoteImages('<img src="cid:part1.123@example.com">'),
+        isFalse,
+      );
+      expect(
+        emailHasRemoteImages('<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==">'),
+        isFalse,
+      );
+      expect(
+        emailHasRemoteImages('<p>No images at all</p>'),
+        isFalse,
+      );
+    });
+
+    test('masks remote image src with data-src and placeholder', () {
+      const input =
+          '<p>Hello</p><img class="banner" src="https://cdn.example.com/banner.png" alt="Banner">';
+      final masked = maskRemoteImages(input);
+      expect(masked, contains('data-src="https://cdn.example.com/banner.png"'));
+      expect(masked, contains('src="data:image/svg+xml,'));
+      expect(masked, contains('class="banner"'));
+      expect(masked, contains('alt="Banner"'));
+    });
+  });
+
+  group('shouldBlockRemoteImages', () {
+    MailEmail createEmail({String? folder, MailSenderAuthentication? authentication}) =>
+        MailEmail(
+          id: 'test-1',
+          mailboxId: 'box-1',
+          subject: 'Test',
+          body: '<p>Hi</p>',
+          isDraft: false,
+          folder: folder,
+          authentication: authentication,
+        );
+
+    test('auto-loads remote images for normal inbox and archive emails', () {
+      expect(shouldBlockRemoteImages(createEmail(folder: 'inbox')), isFalse);
+      expect(shouldBlockRemoteImages(createEmail(folder: 'archive')), isFalse);
+      expect(shouldBlockRemoteImages(createEmail(folder: 'sent')), isFalse);
+    });
+
+    test('blocks remote images for spam or junk folders', () {
+      expect(shouldBlockRemoteImages(createEmail(folder: 'spam')), isTrue);
+      expect(shouldBlockRemoteImages(createEmail(folder: 'junk')), isTrue);
+    });
+
+    test('blocks remote images for phishing or suspicious emails', () {
+      final phishingAuth = MailSenderAuthentication.fromJson({
+        'spf': 'fail',
+        'dkim': 'fail',
+        'phishing': true,
+      });
+      final warningAuth = MailSenderAuthentication.fromJson({
+        'spf': 'fail',
+        'warnings': ['Possible phishing: SPF verification failed'],
+      });
+      expect(
+        shouldBlockRemoteImages(createEmail(folder: 'inbox', authentication: phishingAuth)),
+        isTrue,
+      );
+      expect(
+        shouldBlockRemoteImages(createEmail(folder: 'inbox', authentication: warningAuth)),
+        isTrue,
+      );
     });
   });
 }
