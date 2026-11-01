@@ -553,11 +553,9 @@ packages:
   flutter_app_update:
     dependency: transitive
     description:
-      path: "packages/flutter_app_update"
-      ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      resolved-ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/flutter_app_update"
+      relative: true
+    source: path
     version: "3.2.4"
   flutter_blurhash:
     dependency: "direct main"
@@ -1105,11 +1103,9 @@ packages:
   island_ui_foundation:
     dependency: "direct main"
     description:
-      path: "packages/island_ui_foundation"
-      ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      resolved-ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/island_ui_foundation"
+      relative: true
+    source: path
     version: "1.0.0"
   jni:
     dependency: transitive
@@ -1847,29 +1843,23 @@ packages:
   solar_network_foundation:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_foundation"
-      ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      resolved-ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/solar_network_foundation"
+      relative: true
+    source: path
     version: "0.1.0"
   solar_network_sdk:
     dependency: "direct main"
     description:
-      path: "packages/solar_network_sdk"
-      ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      resolved-ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/solar_network_sdk"
+      relative: true
+    source: path
     version: "1.0.0"
   solsynth_express:
     dependency: "direct main"
     description:
-      path: "packages/solsynth_express"
-      ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      resolved-ref: "9fdfb1e385643ab9ccf30d638d15e4f87d56c20a"
-      url: "https://src.solsynth.dev/SoSYS/Socommon.git"
-    source: git
+      path: "../Solian/socommon/packages/solsynth_express"
+      relative: true
+    source: path
     version: "0.1.0"
   source_gen:
     dependency: transitive

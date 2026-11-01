@@ -3053,6 +3053,24 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
   }
 
   void _onBodyScroll(EmailBodyScroll sample) {
+    // When the email is scrolled to the top, always show the header.
+    if (sample.y <= 8.0) {
+      final headerChanged = _header.update(sample.y);
+      final footerChanged = _footer.update(sample);
+      if (!_header.expanded) {
+        _header.adoptOrigin(0);
+        if (!_header.expanded) {
+          _header.reset();
+        }
+        _layoutChangedAt = DateTime.now();
+        setState(() {});
+      } else if (headerChanged || footerChanged) {
+        _layoutChangedAt = DateTime.now();
+        setState(() {});
+      }
+      return;
+    }
+
     final changedAt = _layoutChangedAt;
     if (changedAt != null &&
         DateTime.now().difference(changedAt) < _layoutSettleWindow) {
@@ -3423,7 +3441,7 @@ class HeaderCollapseController {
     final delta = y - _lastY;
     _lastY = y;
     if (delta == 0) return false;
-    if (y <= 0) {
+    if (y <= 4.0) {
       _run = 0;
       if (!_expanded) {
         _expanded = true;
@@ -3458,6 +3476,9 @@ class HeaderCollapseController {
     _hasOrigin = true;
     _lastY = y;
     _run = 0;
+    if (y <= 4.0 && !_expanded) {
+      _expanded = true;
+    }
   }
 }
 
@@ -3755,23 +3776,30 @@ class _EmailSummary extends ConsumerWidget {
                         children: [
                           Row(
                             children: [
-                              Flexible(
-                                child: Text(
-                                  fromName.isEmpty
-                                      ? (email.from?.address ?? '')
-                                      : fromName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: text.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                              Expanded(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        fromName.isEmpty
+                                            ? (email.from?.address ?? '')
+                                            : fromName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.bodyMedium?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (hasSafetyWarning) ...[
+                                      const SizedBox(width: 6),
+                                      MailSenderSafetyIcon(email: email),
+                                    ],
+                                  ],
                                 ),
                               ),
-                              if (hasSafetyWarning) ...[
-                                const SizedBox(width: 6),
-                                MailSenderSafetyIcon(email: email),
-                              ],
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               if (email.createdAt != null)
                                 Text(
                                   _mailTimestamp(email.createdAt!),
@@ -6694,7 +6722,7 @@ class _CompactLabeledField extends StatelessWidget {
   final Widget child;
 
   /// Vertical breathing room inside a header row.
-  static const _padding = EdgeInsets.symmetric(horizontal: 12, vertical: 8);
+  static const _padding = EdgeInsets.symmetric(vertical: 8);
 
   /// Height of a single-line header row.
   static double heightOf(BuildContext context) {
@@ -6706,9 +6734,8 @@ class _CompactLabeledField extends StatelessWidget {
   }
 
   /// What every header row wears. The rows share one frame, so a row draws no
-  /// box of its own: it only tints while it holds the caret, and the envelope
-  /// around it owns the border. No slot may fall back to the app's outlined
-  /// input theme, or each row would grow a second box of its own.
+  /// box of its own: it uses no outline or background fill so that fields blend
+  /// seamlessly into the envelope card.
   ///
   /// The padding is deliberately below the theme's own so that one line plus
   /// the padding measures exactly [heightOf]: an oversized padding would push
@@ -6717,17 +6744,12 @@ class _CompactLabeledField extends StatelessWidget {
     BuildContext context, {
     Widget? suffixIcon,
   }) {
-    final scheme = Theme.of(context).colorScheme;
     return InputDecoration(
       suffixIcon: suffixIcon,
       isDense: true,
       contentPadding: _padding,
-      filled: true,
-      fillColor: WidgetStateColor.resolveWith(
-        (states) => states.contains(WidgetState.focused)
-            ? scheme.primary.withValues(alpha: 0.06)
-            : Colors.transparent,
-      ),
+      filled: false,
+      fillColor: Colors.transparent,
       border: InputBorder.none,
       enabledBorder: InputBorder.none,
       disabledBorder: InputBorder.none,
@@ -6741,31 +6763,34 @@ class _CompactLabeledField extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final height = heightOf(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Kept to the first line's height so a wrapped recipient row leaves the
-        // label beside its chips.
-        SizedBox(
-          width: 64,
-          height: height,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Kept to the first line's height so a wrapped recipient row leaves the
+          // label beside its chips.
+          SizedBox(
+            width: 64,
+            height: height,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              ),
             ),
           ),
-        ),
-        Expanded(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: height),
-            child: child,
+          Expanded(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: height),
+              child: child,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
