@@ -27,8 +27,6 @@ import 'package:solwatt/shared/widgets/app_scaffold.dart';
 import 'package:solwatt/ui/page_scaffold.dart' show shellScaffoldKey;
 import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_actions_sheet.dart';
-import 'package:solwatt/shared/widgets/pill_app_bar.dart';
-import 'package:solwatt/theme.dart';
 import 'package:solwatt/core/widgets/content/file_viewer_contents.dart';
 import 'package:solwatt/shared/widgets/responsive_sidebar.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart';
@@ -854,102 +852,81 @@ class FileListScreen extends HookConsumerWidget {
         : bodyContent;
 
     final mainContent = AppScaffold(
-      appBar: PillAppBar(
-        statusTop: MediaQuery.paddingOf(context).top,
-        child: Row(
-          children: [
-            IconButton(
-              icon: const Icon(Symbols.menu),
-              onPressed: () {
-                shellScaffoldKey.currentState?.openDrawer();
-              },
-            ),
-            const SizedBox(width: SolSpace.sm),
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SearchBar(
-                  controller: searchController,
-                  constraints: const BoxConstraints(
-                    maxWidth: 400,
-                    minHeight: 40,
-                    maxHeight: 40,
-                  ),
-                  hintText: 'searchFiles'.tr(),
-                  hintStyle: const WidgetStatePropertyAll(
-                    TextStyle(fontSize: 14),
-                  ),
-                  textStyle: const WidgetStatePropertyAll(
-                    TextStyle(fontSize: 14),
-                  ),
-                  enabled: query != null,
-                  onChanged: (value) {
-                    if (query == null) return;
-                    searchDebounceTimer.value?.cancel();
-                    searchDebounceTimer.value = Timer(
-                      const Duration(milliseconds: 300),
-                      () {
-                        query.value = value.isEmpty ? null : value;
-                      },
-                    );
-                  },
-                  leading: Icon(
-                    Symbols.search,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-              ),
-            ),
-            IconButton(
-              icon: Icon(
-                showFilters.value
-                    ? Symbols.filter_list_off
-                    : Symbols.filter_list,
-              ),
-              onPressed: activeTab == null || activeTab.file != null
-                  ? null
-                  : () => showFilters.value = !showFilters.value,
-              tooltip: showFilters.value
-                  ? 'hideFilters'.tr()
-                  : 'showFilters'.tr(),
-            ),
-            IconButton(
-              icon: Icon(
-                isSelectionModeValue
-                    ? Symbols.close
-                    : Symbols.select_check_box,
-              ),
-              onPressed: isSelectionMode == null
-                  ? null
-                  : () => isSelectionMode.value = !isSelectionMode.value,
-              tooltip: isSelectionModeValue
-                  ? 'exitSelectionMode'.tr()
-                  : 'enterSelectionMode'.tr(),
-            ),
-            if (modeValue == FileListMode.unindexed)
-              IconButton(
-                icon: Icon(
-                  recycledValue
-                      ? Symbols.delete_forever
-                      : Symbols.restore_from_trash,
-                ),
-                onPressed: () {
-                  if (recycled == null || activeTab == null) return;
-                  recycled.value = !recycled.value;
-                  ref
-                      .read(
-                        unindexedFileListFamilyProvider(activeTab.id).notifier,
-                      )
-                      .setRecycled(recycled.value);
-                },
-                tooltip: recycledValue
-                    ? 'showActiveFiles'.tr()
-                    : 'showRecycleBin'.tr(),
-              ),
-            const SizedBox(width: SolSpace.xs),
-          ],
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Symbols.menu),
+          onPressed: () {
+            shellScaffoldKey.currentState?.openDrawer();
+          },
         ),
+        title: SearchBar(
+          controller: searchController,
+          constraints: const BoxConstraints(maxWidth: 400, minHeight: 32),
+          hintText: 'searchFiles'.tr(),
+          hintStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
+          textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
+          enabled: query != null,
+          onChanged: (value) {
+            if (query == null) return;
+            searchDebounceTimer.value?.cancel();
+            searchDebounceTimer.value = Timer(
+              const Duration(milliseconds: 300),
+              () {
+                query.value = value.isEmpty ? null : value;
+              },
+            );
+          },
+          leading: Icon(
+            Symbols.search,
+            size: 20,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              showFilters.value ? Symbols.filter_list_off : Symbols.filter_list,
+            ),
+            onPressed: activeTab == null || activeTab.file != null
+                ? null
+                : () => showFilters.value = !showFilters.value,
+            tooltip: showFilters.value
+                ? 'hideFilters'.tr()
+                : 'showFilters'.tr(),
+          ),
+          IconButton(
+            icon: Icon(
+              isSelectionModeValue ? Symbols.close : Symbols.select_check_box,
+            ),
+            onPressed: isSelectionMode == null
+                ? null
+                : () => isSelectionMode.value = !isSelectionMode.value,
+            tooltip: isSelectionModeValue
+                ? 'exitSelectionMode'.tr()
+                : 'enterSelectionMode'.tr(),
+          ),
+          if (modeValue == FileListMode.unindexed)
+            IconButton(
+              icon: Icon(
+                recycledValue
+                    ? Symbols.delete_forever
+                    : Symbols.restore_from_trash,
+              ),
+              onPressed: () {
+                if (recycled == null || activeTab == null) return;
+                recycled.value = !recycled.value;
+                ref
+                    .read(
+                      unindexedFileListFamilyProvider(activeTab.id).notifier,
+                    )
+                    .setRecycled(recycled.value);
+              },
+              tooltip: recycledValue
+                  ? 'showActiveFiles'.tr()
+                  : 'showRecycleBin'.tr(),
+            ),
+          const Gap(8),
+        ],
       ),
       floatingActionButton:
           modeValue == FileListMode.normal &&

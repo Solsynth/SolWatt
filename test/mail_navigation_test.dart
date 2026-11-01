@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:island_ui_foundation/island_ui_foundation.dart';
+import 'package:material_ui/material_ui.dart' as mui;
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,16 +16,8 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/shared/widgets/window_frame.dart';
-import 'package:solwatt/shared/widgets/pill_app_bar.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
-
-/// An icon inside the page chrome, excluding the window frame's own buttons.
-///
-/// The custom frame paints minimize/maximize/close on every desktop test
-/// host, so an unscoped icon finder that used to be unique is ambiguous.
-Finder _pageIcon(IconData icon) =>
-    find.descendant(of: find.byType(Scaffold), matching: find.byIcon(icon));
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -193,8 +187,8 @@ void main() {
 
     // Phone chrome: an app bar carries the inbox switcher and the drawer,
     // instead of a burger inside the bottom navigation bar.
-    expect(find.byType(PillPageBar), findsOneWidget);
-    final appBar = find.byType(PillPageBar);
+    expect(find.byType(AppBar), findsOneWidget);
+    final appBar = find.byType(AppBar);
     expect(
       find.descendant(of: appBar, matching: find.text('Work')),
       findsOneWidget,
@@ -315,11 +309,11 @@ void main() {
     // The pane's toolbar is not an app bar, so it has to take the status bar
     // into its own height: growing the inset by 24 pushes its buttons down by
     // exactly that.
-    final detailToolbarTop = tester.getRect(_pageIcon(Symbols.close)).top;
+    final detailToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
     tester.view.padding = const FakeViewPadding(top: 24);
     await tester.pumpAndSettle();
     expect(
-      tester.getRect(_pageIcon(Symbols.close)).top - detailToolbarTop,
+      tester.getRect(find.byIcon(Symbols.close)).top - detailToolbarTop,
       24,
     );
     tester.view.padding = const FakeViewPadding();
@@ -328,7 +322,7 @@ void main() {
     // Back out of the conversation: the folder bar returns, and the list is
     // still at the root of its stack, so its app bar leads with the drawer —
     // not a Back button left over from the conversation that just closed.
-    await tester.tap(_pageIcon(Symbols.close));
+    await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(navBar, findsOneWidget);
@@ -344,17 +338,17 @@ void main() {
     expect(navBar, findsNothing);
 
     // Same for the composer's header.
-    final composeToolbarTop = tester.getRect(_pageIcon(Symbols.close)).top;
+    final composeToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
     tester.view.padding = const FakeViewPadding(top: 24);
     await tester.pumpAndSettle();
     expect(
-      tester.getRect(_pageIcon(Symbols.close)).top - composeToolbarTop,
+      tester.getRect(find.byIcon(Symbols.close)).top - composeToolbarTop,
       24,
     );
     tester.view.padding = const FakeViewPadding();
     await tester.pumpAndSettle();
 
-    await tester.tap(_pageIcon(Symbols.close));
+    await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(navBar, findsOneWidget);
@@ -369,11 +363,11 @@ void main() {
     expect(find.text('Mail settings'), findsOneWidget);
     // This page carries no app bar either: its title row keeps out of the
     // status bar the same way.
-    final settingsToolbarTop = tester.getRect(_pageIcon(Symbols.close)).top;
+    final settingsToolbarTop = tester.getRect(find.byIcon(Symbols.close)).top;
     tester.view.padding = const FakeViewPadding(top: 24);
     await tester.pumpAndSettle();
     expect(
-      tester.getRect(_pageIcon(Symbols.close)).top - settingsToolbarTop,
+      tester.getRect(find.byIcon(Symbols.close)).top - settingsToolbarTop,
       24,
     );
     tester.view.padding = const FakeViewPadding();
@@ -430,7 +424,7 @@ void main() {
     // Scroll back to the header so the close button is tappable again.
     await tester.fling(settingsList, const Offset(0, 800), 2000);
     await tester.pumpAndSettle();
-    await tester.tap(_pageIcon(Symbols.close));
+    await tester.tap(find.byIcon(Symbols.close));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     // The list's app bar leads with the drawer again after the settings page
@@ -496,10 +490,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsNothing);
     expect(
-      find.descendant(
-        of: find.byType(PillPageBar),
-        matching: find.text('Boards'),
-      ),
+      find.descendant(of: find.byType(AppBar), matching: find.text('Boards')),
       findsOneWidget,
     );
     final tabBar = find.byType(NavigationBar);
@@ -523,14 +514,7 @@ void main() {
     );
 
     // The tab bar switches back to the mail list and its folder bar.
-    // The root tab bar is icon-only (the pill keeps its 56px band), so the
-    // destination is addressed by its icon rather than its hidden label.
-    await tester.tap(
-      find.descendant(
-        of: tabBar,
-        matching: find.byIcon(Symbols.mail_outline),
-      ),
-    );
+    await tester.tap(find.descendant(of: tabBar, matching: find.text('Mail')));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
     expect(
@@ -722,8 +706,7 @@ void main() {
     expect(find.text('Display language'), findsOneWidget);
 
     // About is nested under Settings: the row pushes a page with Back. The
-    // appearance section grew with the glass switch, so the row can sit below
-    // the viewport and the lazy list has not built it yet.
+    // section sits below the viewport and the lazy list has not built it yet.
     final aboutTile = find.widgetWithText(ListTile, 'SolWatt');
     final settingsScroll = find.ancestor(
       of: find.text('Language'),
@@ -742,16 +725,6 @@ void main() {
     expect(find.text('App information'), findsOneWidget);
     expect(find.text('Links'), findsOneWidget);
     expect(find.text('Open-source licenses'), findsOneWidget);
-    // The developer credits sit below the fold; the list builds them on
-    // demand, so scroll the pane the way a user would.
-    await tester.scrollUntilVisible(
-      find.text('Developer'),
-      200,
-      scrollable: find.ancestor(
-        of: find.text('App information'),
-        matching: find.byType(Scrollable),
-      ),
-    );
     expect(find.text('Developer'), findsOneWidget);
     expect(find.byType(BackButton), findsOneWidget);
   });

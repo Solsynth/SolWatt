@@ -755,7 +755,18 @@ class FileListView extends HookConsumerWidget {
         currentPathBuilder += '/${pathParts[i]}';
         final path = currentPathBuilder;
 
-        breadcrumbs.add(Text('pathSeparator').tr());
+        breadcrumbs.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text(
+              '/',
+              style: TextStyle(
+                fontSize: 18,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
         if (i == pathParts.length - 1) {
           // Current directory
           breadcrumbs.add(

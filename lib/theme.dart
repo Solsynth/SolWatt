@@ -201,7 +201,7 @@ ThemeData createSolWattTheme(
       },
     ),
     // Material 2024 component appearance; the 2023 defaults look dated next
-    // to the pill chrome.
+    // to the app's own chrome.
     // ignore: deprecated_member_use
     progressIndicatorTheme: const ProgressIndicatorThemeData(year2023: false),
     // ignore: deprecated_member_use
@@ -241,13 +241,10 @@ ThemeData createSolWattTheme(
       // Titles read left aligned, like a document: the leading icon occupies
       // the left edge and the title starts right of it.
       centerTitle: false,
-      // App bars are always transparent; pill headers paint their own glass
-      // surface, and pages that still use a plain AppBar show the page behind
-      // it rather than a second slab of chrome.
       elevation: 0,
-      scrolledUnderElevation: 0,
-      surfaceTintColor: Colors.transparent,
-      backgroundColor: Colors.transparent,
+      scrolledUnderElevation: 1,
+      surfaceTintColor: colorScheme.surfaceTint,
+      backgroundColor: colorScheme.surface,
       foregroundColor: appBarForeground,
       iconTheme: IconThemeData(color: appBarForeground),
       actionsIconTheme: IconThemeData(color: appBarForeground),
@@ -525,11 +522,11 @@ ThemeData createSolWattTheme(
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      // The tab bar floats inside a glass capsule (see [PillBottomNav]), so
-      // the bar itself paints no surface of its own.
-      backgroundColor: Colors.transparent,
+      height: 64,
       elevation: 0,
+      backgroundColor: colorScheme.surfaceContainer,
       surfaceTintColor: Colors.transparent,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       indicatorColor: colorScheme.secondaryContainer,
       indicatorShape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(SolRadius.md),
@@ -537,7 +534,7 @@ ThemeData createSolWattTheme(
       labelTextStyle: WidgetStateProperty.resolveWith((states) {
         final selected = states.contains(WidgetState.selected);
         return textTheme.labelMedium?.copyWith(
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
           color: selected ? colorScheme.onSurface : onSurfaceVariant,
         );
       }),
@@ -545,6 +542,7 @@ ThemeData createSolWattTheme(
         final selected = states.contains(WidgetState.selected);
         return IconThemeData(
           size: 24,
+          fill: selected ? 1 : 0,
           color: selected ? colorScheme.onSecondaryContainer : onSurfaceVariant,
         );
       }),

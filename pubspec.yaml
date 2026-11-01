@@ -140,13 +140,6 @@ dependencies:
   skeletonizer: ^3.0.0
   styled_widget: ^0.4.1
   super_sliver_list: ^0.4.1
-
-  # Liquid-glass chrome (pill headers, the floating tab bar and the window
-  # title bar), fitted to the same iOS 27 material Solian renders its pills
-  # with. Full refraction needs Impeller + Flutter GPU; everywhere else the
-  # package paints its FakeGlass fallback, and GlassEffects can turn the
-  # material off entirely.
-  liquid_glass_renderer: ^1.0.0-dev.1
   # Builds the warm "paper" neutral ramp from the accent seed, matching
   # Solian's theme so both apps share one surface palette.
   material_color_utilities: ^0.13.0

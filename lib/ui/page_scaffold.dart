@@ -3,9 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:solwatt/shared/widgets/pill_app_bar.dart';
-import 'package:solwatt/theme.dart';
-
 /// Global key of the shell's root scaffold, used by pages that bring their own
 /// chrome (the drive file list's app bar) to open the navigation drawer.
 ///
@@ -34,9 +31,8 @@ Widget? appBarDrawerButton(BuildContext context) {
   // Only this stack counts: a parent that could pop (the tabs or the root
   // router) is not what Back would pop, and the shell's root page has to keep
   // offering the drawer.
-  final router = StackRouterScope.of(context)?.controller;
-  if (router != null && router.canPop(ignoreParentRoutes: true)) {
-    return BackButton(onPressed: () => router.maybePop());
+  if (context.router.canPop(ignoreParentRoutes: true)) {
+    return BackButton(onPressed: () => context.router.maybePop());
   }
   final scaffold = Scaffold.maybeOf(context);
   if (scaffold == null || !scaffold.hasDrawer) return null;
@@ -64,7 +60,7 @@ class PageScaffold extends StatelessWidget {
     this.bottom,
     this.floatingActionButton,
     this.maxContentWidth = 960,
-    this.padding,
+    this.padding = const EdgeInsets.fromLTRB(24, 16, 24, 24),
   });
 
   final String title;
@@ -77,48 +73,26 @@ class PageScaffold extends StatelessWidget {
   final PreferredSizeWidget? bottom;
   final Widget? floatingActionButton;
   final double maxContentWidth;
-  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final trailing = <Widget>[?action, ...actions];
-    // Wide layouts have no drawer button, but a page pushed above the tab
-    // root still needs its way back. The old `AppBar` inferred this through
-    // `automaticallyImplyLeading`; the pill bar has to ask for it. Pages
-    // rendered outside a router (tests, standalone hosts) simply get none.
-    final stackRouter = StackRouterScope.of(context)?.controller;
-    final leading =
-        appBarDrawerButton(context) ??
-        (stackRouter != null && stackRouter.canPop(ignoreParentRoutes: true)
-            ? BackButton(onPressed: () => stackRouter.maybePop())
-            : null);
-    // The page gutter follows the width, and the body keeps clear of the
-    // ribbon's own inset so the first card does not crowd the capsule.
-    final gutter = MediaQuery.sizeOf(context).width >= 600
-        ? SolSpace.pageWide
-        : SolSpace.page;
 
     return Scaffold(
       backgroundColor: scheme.surface,
-      appBar: PillPageBar(
-        statusTop: MediaQuery.paddingOf(context).top,
-        leading: leading,
+      appBar: AppBar(
+        leading: appBarDrawerButton(context),
+        // A subtitle needs a second line, which the default toolbar cannot
+        // hold.
+        toolbarHeight: subtitle == null ? null : 68,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.1,
-                color: scheme.onSurface,
-              ),
-            ),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
             if (subtitle case final String subtitle)
               Text(
                 subtitle,
@@ -128,7 +102,9 @@ class PageScaffold extends StatelessWidget {
               ),
           ],
         ),
-        actions: trailing,
+        actions: [
+          for (final widget in trailing) ...[widget, const SizedBox(width: 4)],
+        ],
         bottom: bottom,
       ),
       floatingActionButton: floatingActionButton,
@@ -136,17 +112,7 @@ class PageScaffold extends StatelessWidget {
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxContentWidth),
-          child: Padding(
-            padding:
-                padding ??
-                EdgeInsets.fromLTRB(
-                  gutter,
-                  SolSpace.lg,
-                  gutter,
-                  SolSpace.xxl,
-                ),
-            child: child,
-          ),
+          child: Padding(padding: padding, child: child),
         ),
       ),
     );

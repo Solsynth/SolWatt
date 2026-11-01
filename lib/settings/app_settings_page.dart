@@ -154,16 +154,6 @@ class AppSettingsHomePage extends ConsumerWidget {
                   ],
                 ),
               ),
-              const Divider(height: 1),
-              SwitchListTile(
-                contentPadding: _kSettingsTilePadding,
-                secondary: const Icon(Symbols.blur_on),
-                title: Text('settingsGlassEffects'.tr()),
-                subtitle: Text('settingsGlassEffectsDescription'.tr()),
-                value: ref.watch(appGlassEffectsProvider),
-                onChanged: (value) =>
-                    ref.read(appGlassEffectsProvider.notifier).set(value),
-              ),
             ],
           ),
           if (AppIconService.instance.isSupported) ...[

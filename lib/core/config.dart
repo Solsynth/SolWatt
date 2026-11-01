@@ -102,30 +102,6 @@ class AppAccentColorNotifier extends Notifier<int?> {
   }
 }
 
-// --- Glass chrome -----------------------------------------------------------
-
-const _kGlassEffectsKey = 'app_glass_effects';
-
-/// Whether pill headers, the floating tab bar and the title bar paint the
-/// liquid-glass material. Glass costs a backdrop copy plus a shader pass every
-/// frame; turning it off keeps every layout identical and swaps the capsules
-/// for flat theme fills. Defaults to on, matching Solian.
-final appGlassEffectsProvider =
-    NotifierProvider<AppGlassEffectsNotifier, bool>(
-      AppGlassEffectsNotifier.new,
-    );
-
-class AppGlassEffectsNotifier extends Notifier<bool> {
-  @override
-  bool build() =>
-      ref.watch(sharedPreferencesProvider).getBool(_kGlassEffectsKey) ?? true;
-
-  void set(bool enabled) {
-    ref.read(sharedPreferencesProvider).setBool(_kGlassEffectsKey, enabled);
-    state = enabled;
-  }
-}
-
 // --- App shell: last visited top-level tab --------------------------------
 
 const _kLastTabIndexKey = 'app_last_tab_index';
