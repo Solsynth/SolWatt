@@ -44,9 +44,9 @@ dependencies:
       ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
-  material_ui: ^1.6.0
-  flutter_hooks: ^0.21.3+1
-  hooks_riverpod: ^3.4.3
+  material_ui: ^1.11.0
+  flutter_hooks: ^0.21.4
+  hooks_riverpod: ^3.5.0
   window_manager:
     git:
       url: https://github.com/boyan01/window_manager.git
@@ -59,7 +59,7 @@ dependencies:
   freezed_annotation: ^3.1.0
   material_symbols_icons: ^4.2960.0
   dio: ^5.11.1
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   flutter_secure_storage: ^11.2.0
   flutter_web_auth_2: ^5.1.0
   logging: ^1.3.0
@@ -82,7 +82,7 @@ dependencies:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
       ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
-  file_picker: ^13.1.0
+  file_picker: ^13.3.3
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
   # colours in place, which needs a real parse rather than a regex.
@@ -103,9 +103,9 @@ dependencies:
   file_saver: ^0.7.0
   # Push notifications (Android/iOS/macOS): FCM token registration with the
   # Solar Network Metoer gateway, mirroring MaidKit's maidcafe_push service.
-  firebase_core: ^4.15.0
-  firebase_messaging: ^16.7.0
-  flutter_local_notifications: ^22.3.1
+  firebase_core: ^5.1.0
+  firebase_messaging: ^17.0.1
+  flutter_local_notifications: ^23.0.2
   device_info_plus: ^13.3.0
   package_info_plus: ^10.2.2
 
@@ -113,20 +113,20 @@ dependencies:
   animations: ^3.0.0
   # Pinned to the 4.x line that solar_network_foundation (Solian) requires:
   # it renders through the material_ui fork this app already depends on.
-  cached_network_image: ^4.0.4
+  cached_network_image: ^4.0.7
   collection: ^1.19.1
   convert: ^3.1.2
   desktop_drop: ^0.8.4
-  dismissible_page: ^1.0.2
+  dismissible_page: ^2.1.1
   flutter_blurhash: ^0.9.1
-  flutter_cache_manager: ^3.4.5
+  flutter_cache_manager: ^3.5.0
   flutter_image_compress: ^2.5.1
-  flutter_riverpod: ^3.4.3
+  flutter_riverpod: ^3.5.0
   flutter_staggered_grid_view: ^0.7.0
-  flutter_svg: ^2.3.0
-  gap: ^3.0.1
+  flutter_svg: ^2.4.0
+  gap: ^3.1.0
   gal: ^2.3.3
-  image: ^4.10.1
+  image: ^4.13.0
   media_kit: ^1.2.6
   media_kit_libs_video: ^1.0.7
   media_kit_video: ^2.0.1
@@ -135,7 +135,7 @@ dependencies:
   path: ^1.9.1
   photo_view: ^0.15.0
   pointycastle: ^4.0.0
-  riverpod_annotation: ^4.0.7
+  riverpod_annotation: ^4.0.8
   share_plus: ^13.3.1
   skeletonizer: ^3.0.0
   styled_widget: ^0.4.1
@@ -147,13 +147,13 @@ dependencies:
   visibility_detector: ^0.4.0+2
   cross_file: ^0.3.5+5
   shared_preferences: ^2.5.6
-  web: ^1.1.1
+  web: ^1.1.2
   relative_time: ^5.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  riverpod_generator: ^4.0.9
+  riverpod_generator: ^4.0.10
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
