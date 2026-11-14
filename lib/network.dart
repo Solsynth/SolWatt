@@ -3,10 +3,13 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'dart:io' show Platform;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:logging/logging.dart';
@@ -2173,8 +2176,9 @@ Dio _createLoggedDio([BaseOptions? options]) {
   final dio = Dio(options);
   dio.interceptors.add(
     InterceptorsWrapper(
-      onRequest: (request, handler) {
+      onRequest: (request, handler) async {
         Logger.root.fine('[API] ${request.method} ${request.uri}');
+        request.headers['User-Agent'] ??= await _computeUserAgent();
         handler.next(request);
       },
       onResponse: (response, handler) {
@@ -2196,6 +2200,51 @@ Dio _createLoggedDio([BaseOptions? options]) {
     ),
   );
   return dio;
+}
+
+String _sanitizeForHeader(String input) {
+  // Keep only ASCII printable characters (32-126); replace others with `_`.
+  return input.runes.map((rune) {
+    if (rune >= 32 && rune <= 126) {
+      return String.fromCharCode(rune);
+    } else {
+      return '_';
+    }
+  }).join();
+}
+
+/// Mirrors Solian's `Solian/<version>+<build> (<platform>)` header so the
+/// server can tell Solar Network clients apart.
+Future<String> _computeUserAgent() async {
+  final deviceInfo = DeviceInfoPlugin();
+  final String platformInfo;
+  if (kIsWeb) {
+    final info = await deviceInfo.webBrowserInfo;
+    platformInfo = 'Web; ${_sanitizeForHeader(info.vendor ?? 'Unknown')}';
+  } else if (Platform.isAndroid) {
+    final info = await deviceInfo.androidInfo;
+    platformInfo =
+        'Android; ${_sanitizeForHeader(info.brand)} ${_sanitizeForHeader(info.model)}; ${_sanitizeForHeader(info.id)}';
+  } else if (Platform.isIOS) {
+    final info = await deviceInfo.iosInfo;
+    platformInfo =
+        'iOS; ${_sanitizeForHeader(info.model)}; ${_sanitizeForHeader(info.name)}';
+  } else if (Platform.isMacOS) {
+    final info = await deviceInfo.macOsInfo;
+    platformInfo =
+        'MacOS; ${_sanitizeForHeader(info.model)}; ${_sanitizeForHeader(info.hostName)}';
+  } else if (Platform.isWindows) {
+    final info = await deviceInfo.windowsInfo;
+    platformInfo =
+        'Windows NT; ${_sanitizeForHeader(info.productName)}; ${_sanitizeForHeader(info.computerName)}';
+  } else if (Platform.isLinux) {
+    final info = await deviceInfo.linuxInfo;
+    platformInfo = 'Linux; ${_sanitizeForHeader(info.prettyName)}';
+  } else {
+    platformInfo = 'Unknown';
+  }
+  final packageInfo = await PackageInfo.fromPlatform();
+  return 'SolWatt/${packageInfo.version}+${packageInfo.buildNumber} ($platformInfo)';
 }
 
 /// Workspace plan tiers from WattEngine.Valve (`WorkspacePlan`).
