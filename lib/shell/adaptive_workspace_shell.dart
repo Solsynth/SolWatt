@@ -86,11 +86,12 @@ class _AdaptiveWorkspaceShellState
       kShellLenses[widget.selectedIndex.clamp(0, kShellLenses.length - 1)];
 
   /// Sends the reader to [lens]. The rail addresses a lens destination, so its
-  /// tab is pinned: arriving there activates the tab it already has instead of
-  /// spending a new one on every visit.
+  /// tab is pinned: arriving there reuses the tab that lens already has, and
+  /// lands the lens' own stack on its root page.
   void _selectLens(WorkspaceLens lens) {
     ref.read(workspaceTabsProvider.notifier).focusLens(lens);
     _gotoLens(lens);
+    _nestedStack(lens)?.popUntilRoot();
   }
 
   /// Switches the lens the canvas shows without touching the bar. Selecting a
@@ -305,8 +306,8 @@ class _AdaptiveWorkspaceShellState
         !sidebarCollapsed &&
         _lensOwnsSidebar(_activeLens) &&
         !tabs.showsDocument;
-    // Every lens the reader lands on gets its pinned tab, so the bar can
-    // always say where they are even before they open a document.
+    // A lens the reader arrives at through a road the rail does not own (a
+    // session restore, a deep link) still needs its pinned tab on the bar.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(workspaceTabsProvider.notifier).seedLens(_activeLens);

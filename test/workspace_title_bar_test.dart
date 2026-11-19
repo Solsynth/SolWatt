@@ -238,7 +238,9 @@ void main() {
     );
   });
 
-  testWidgets('lens tabs are pinned once, in rail order', (tester) async {
+  testWidgets('a rail click reuses the lens tab and never spends a new one', (
+    tester,
+  ) async {
     final container = await _container();
     addTearDown(container.dispose);
 
@@ -248,7 +250,7 @@ void main() {
       WorkspaceLens.mail,
       WorkspaceLens.todo,
     ]) {
-      controller.seedLens(lens);
+      controller.focusLens(lens);
     }
     final state = container.read(workspaceTabsProvider);
     expect(state.tabs, hasLength(3));
@@ -259,17 +261,34 @@ void main() {
       WorkspaceLens.drive,
     ]);
 
-    // Seeding twice does not duplicate a lens, and a document stays behind it.
-    controller.seedLens(WorkspaceLens.mail);
-    controller.register(
+    // A document opened in a lens keeps its tab, and going back to the rail
+    // retitles that lens' own tab rather than adding another one beside it.
+    controller.claim(
       domain: WorkspaceDomain.mail,
       entityId: 'thread-1',
       title: 'Q4 budget review',
       messageId: 'msg-1',
     );
-    final seeded = container.read(workspaceTabsProvider);
-    expect(seeded.tabs, hasLength(4));
-    expect(seeded.tabs.last.key, 'mail:thread-1');
+    controller.focusLens(WorkspaceLens.todo);
+    controller.focusLens(WorkspaceLens.mail, title: 'Inbox');
+    final returned = container.read(workspaceTabsProvider);
+    expect(returned.tabs, hasLength(4));
+    expect(returned.tabs.where((tab) => tab.isRoot), hasLength(3));
+    expect(
+      returned.tabs
+          .firstWhere(
+            (tab) => tab.key == WorkspaceTab.lensTabKey(WorkspaceLens.mail),
+          )
+          .title,
+      'Inbox',
+      reason: 'the lens tab is named after the pane the rail lands on',
+    );
+    expect(returned.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.mail));
+    // The document's tab survives the round trip untouched.
+    expect(
+      returned.tabs.where((tab) => tab.key == 'mail:thread-1'),
+      hasLength(1),
+    );
   });
 
   testWidgets('a conversation tab remembers the message it opens', (
