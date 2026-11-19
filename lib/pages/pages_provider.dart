@@ -6,16 +6,28 @@ import 'package:solwatt/workspace/workspace_models.dart';
 /// Pages are Ideask broads of kind 1 — the same rows, tree and workspace as
 /// task boards, only their payload is Markdown (`content`) instead of tasks.
 /// There is no separate page store: [broadsProvider] is the list for both.
-final pagesProvider = FutureProvider<List<Broad>>((ref) async {
-  final boards = await ref.watch(broadsProvider.future);
-  return boards.where((broad) => broad.isPage).toList(growable: false);
-});
+///
+/// The split is a projection, not a fetch: it keeps the list's own async state
+/// so a surface that already watches the broads can read `.value` in the same
+/// frame instead of waiting on a second round trip.
+final pagesProvider = Provider<AsyncValue<List<Broad>>>(
+  (ref) => ref
+      .watch(broadsProvider)
+      .whenData(
+        (broads) =>
+            broads.where((broad) => broad.isPage).toList(growable: false),
+      ),
+);
 
 /// The boards on the active workspace: everything that is not a page.
-final taskBoardsProvider = FutureProvider<List<Broad>>((ref) async {
-  final boards = await ref.watch(broadsProvider.future);
-  return boards.where((broad) => broad.isBoard).toList(growable: false);
-});
+final taskBoardsProvider = Provider<AsyncValue<List<Broad>>>(
+  (ref) => ref
+      .watch(broadsProvider)
+      .whenData(
+        (broads) =>
+            broads.where((broad) => broad.isBoard).toList(growable: false),
+      ),
+);
 
 /// The page the boards tab last opened, so its sidebar can mark the row that
 /// is on screen. Boards clear it: a board is not a page.

@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/boards/boards_screen.dart';
 import 'package:solwatt/pages/pages_screen.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
 /// Answers the broad read and records the save, so the test sees the exact
@@ -92,8 +95,9 @@ void main() {
     final container = await _container(_RecordingBroadClient(page: _page));
     addTearDown(container.dispose);
 
-    final pages = await container.read(pagesProvider.future);
-    final boards = await container.read(taskBoardsProvider.future);
+    await container.read(broadsProvider.future);
+    final pages = container.read(pagesProvider).value ?? const <Broad>[];
+    final boards = container.read(taskBoardsProvider).value ?? const <Broad>[];
 
     expect(pages.map((broad) => broad.id), ['page-1']);
     expect(boards.map((broad) => broad.id), ['board-1']);
@@ -133,5 +137,35 @@ void main() {
     expect(client.updates.single.id, 'page-1');
     expect(client.updates.single.name, 'Runbook');
     expect(client.updates.single.content, '# Deploy\n\nShip it twice.');
+  });
+
+  testWidgets('the boards tab lists boards and pages in one grid', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _container(_RecordingBroadClient(page: _page));
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      _app(
+        container,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 2,
+          onSelected: (_) {},
+          child: const BoardsListPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // One list, two kinds: the page keeps its own glyph, the board its lanes.
+    expect(find.text('Runbook'), findsWidgets);
+    expect(find.text('Roadmap'), findsWidgets);
+    expect(find.byIcon(Symbols.article_rounded), findsWidgets);
+    expect(find.byIcon(Symbols.view_kanban_rounded), findsWidgets);
   });
 }
