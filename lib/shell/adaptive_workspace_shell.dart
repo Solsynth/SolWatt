@@ -82,6 +82,18 @@ class AdaptiveWorkspaceShell extends ConsumerStatefulWidget {
 
 class _AdaptiveWorkspaceShellState
     extends ConsumerState<AdaptiveWorkspaceShell> {
+  /// Lens tabs the reader closed by hand. Seeding the bar must not bring one
+  /// back on the next rebuild; switching lenses clears the veto.
+  final Set<WorkspaceLens> _dismissedAnchors = {};
+
+  @override
+  void didUpdateWidget(AdaptiveWorkspaceShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedIndex != widget.selectedIndex) {
+      _dismissedAnchors.remove(_activeLens);
+    }
+  }
+
   WorkspaceLens get _activeLens =>
       kShellLenses[widget.selectedIndex.clamp(0, kShellLenses.length - 1)];
 
@@ -126,20 +138,30 @@ class _AdaptiveWorkspaceShellState
       }
       return;
     }
-    if (tab.domain == WorkspaceDomain.drive) {
-      ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
-    } else {
-      _nestedStack(
-        tab.lens,
-      )?.navigate(routeForDocument(tab.domain!, tab.entityId!)!);
+    switch (tab.domain) {
+      case WorkspaceDomain.drive:
+        ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
+      case WorkspaceDomain.pages:
+        ref.read(selectedPageIdProvider.notifier).select(tab.entityId);
+        _nestedStack(WorkspaceLens.pages)?.popUntilRoot();
+      case final domain?:
+        final route = routeForDocument(domain, tab.entityId!);
+        if (route != null) _nestedStack(tab.lens)?.navigate(route);
+      case null:
+        break;
     }
   }
 
-  /// Closes a document tab: its pane closes itself and its lens pops back to
-  /// the root page. The lens tab (the inbox, the folder browser) never closes.
+  /// Closes a tab. A document's pane closes itself and its lens pops back to
+  /// the root page; a lens tab is simply dismissed, and seeding leaves it
+  /// dismissed until the reader returns to that lens.
   void _closeTab(WorkspaceTab tab) {
-    if (tab.isRoot) return;
     final tabs = ref.read(workspaceTabsProvider.notifier);
+    if (tab.isRoot) {
+      _dismissedAnchors.add(tab.lens);
+      tabs.close(tab.key);
+      return;
+    }
     if (tab.domain == WorkspaceDomain.drive) {
       ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
     } else {
@@ -286,7 +308,7 @@ class _AdaptiveWorkspaceShellState
     // Every lens the reader lands on gets its tab, so the bar can always say
     // where they are even before they open a document.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || _dismissedAnchors.contains(_activeLens)) return;
       ref.read(workspaceTabsProvider.notifier).ensureLensTab(_activeLens);
     });
 
@@ -600,13 +622,6 @@ class _SlimLensRail extends ConsumerWidget {
               tooltip: 'Settings',
               selected: activeLens == WorkspaceLens.settings,
               onTap: () => onSelectLens(WorkspaceLens.settings),
-            ),
-            _RailIconButton(
-              icon: Symbols.workspaces_rounded,
-              tooltip: 'Workspaces',
-              selected: false,
-              onTap: () =>
-                  context.router.push(const WorkspaceManagementRoute()),
             ),
             const SizedBox(height: SolSpace.sm),
           ],

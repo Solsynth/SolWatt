@@ -31,6 +31,7 @@ import 'package:solwatt/workspace/components/related_items_strip.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 import 'package:solwatt/route.dart';
+import 'package:solwatt/shared/widgets/double_click_detector.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -934,11 +935,23 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     ref
         .read(mailPendingFocusProvider.notifier)
         .request(thread.id, fullScreen: fullScreen);
-    final route = MailDetailRoute(emailId: thread.latestMessage.id);
     if (fullScreen) {
-      context.router.push(route);
+      // Claim the tab before pushing: the detail page registers itself on the
+      // first frame, and reads the bar to know whether it is a document or the
+      // reading pane. Without this it would fold straight back into the inbox.
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .register(
+            domain: WorkspaceDomain.mail,
+            entityId: thread.id,
+            title: thread.subject.isEmpty ? 'noSubject'.tr() : thread.subject,
+            fullScreen: true,
+          );
+      context.router.push(MailDetailRoute(emailId: thread.latestMessage.id));
     } else {
-      context.router.navigate(route);
+      context.router.navigate(
+        MailDetailRoute(emailId: thread.latestMessage.id),
+      );
     }
   }
 
@@ -1271,13 +1284,14 @@ class MailDetailPage extends ConsumerWidget {
         // The conversation is fetched separately: the route carries one
         // message, and a thread's older messages live behind `GET /threads/:id`.
         final conversation = ref.watch(threadProvider(value.threadKey));
+        // A conversation the reader promoted has a tab of its own, and the bar
+        // already knows it; the pane beside the list does not, and folds into
+        // the inbox tab.
         return WorkspaceDocumentScope(
+          key: ValueKey(value.threadKey),
           domain: WorkspaceDomain.mail,
           entityId: value.threadKey,
           title: value.displaySubject,
-          // The pane beside the list is not a tab: the inbox tab stays the
-          // one the title bar shows while a conversation is read here.
-          fullScreen: false,
           child: _EmailDetailPanel(
             key: ValueKey(value.threadKey),
             email: value,
@@ -2341,10 +2355,12 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
               // the list beside the detail pane and pushes into it instead.
               if (widget.selecting || isWideScreen(context)) {
                 // A double click opens the conversation in a tab of its own; a
-                // single click keeps it in the reading pane.
+                // single click keeps it in the reading pane. The detector sits
+                // behind the row rather than in the gesture arena, so the first
+                // click still opens the pane without a double-tap timeout.
                 if (!widget.selecting && isWideScreen(context)) {
-                  return GestureDetector(
-                    onDoubleTap: () => widget.onOpenFullScreen(thread),
+                  return DoubleClickDetector(
+                    onDoubleClick: () => widget.onOpenFullScreen(thread),
                     child: tile(() => widget.onOpen(thread)),
                   );
                 }

@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/pages/page_models.dart';
 import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
@@ -94,117 +95,136 @@ class _WorkspaceNotesScreenState extends ConsumerState<WorkspaceNotesScreen> {
         .watch(pinnedItemsProvider)
         .any((p) => p.domain == WorkspaceDomain.pages && p.id == activePage.id);
 
-    return Scaffold(
-      body: Column(
-        children: [
-          WorkspaceCanvasHeader(
-            leading: Text(
-              activePage.icon,
-              style: const TextStyle(fontSize: 18),
-            ),
-            title: Text(
-              activePage.title.isEmpty ? 'Untitled Page' : activePage.title,
-            ),
-            subtitle: Text('${activePage.blocks.length} blocks'),
-            actions: [
-              IconButton(
-                tooltip: isPinned ? 'Unpin' : 'Pin to Favorites',
-                icon: Icon(
-                  Symbols.push_pin_rounded,
-                  fill: isPinned ? 1 : 0,
-                  size: 18,
-                ),
-                onPressed: () =>
-                    ref.read(pinnedItemsProvider.notifier).togglePin(entityRef),
+    // The page on screen is a document: reading it puts its title on the bar,
+    // and it reads in the lens pane, so the tab is a root tab of the lens.
+    return WorkspaceDocumentScope(
+      domain: WorkspaceDomain.pages,
+      entityId: activePage.id,
+      title: activePage.title.isEmpty ? 'Untitled Page' : activePage.title,
+      // A page reads in the pages lens, so it labels the lens tab rather than
+      // opening one of its own.
+      fullScreen: false,
+      child: Scaffold(
+        body: Column(
+          children: [
+            WorkspaceCanvasHeader(
+              leading: Text(
+                activePage.icon,
+                style: const TextStyle(fontSize: 18),
               ),
-              IconButton(
-                tooltip: 'Inspect in Peek',
-                icon: const Icon(Symbols.dock_to_right_rounded, size: 18),
-                onPressed: () =>
-                    ref.read(peekProvider.notifier).open(entityRef),
+              title: Text(
+                activePage.title.isEmpty ? 'Untitled Page' : activePage.title,
               ),
-              IconButton(
-                tooltip: 'New Page',
-                icon: const Icon(Symbols.add_rounded, size: 18),
-                onPressed: () => ref.read(pagesProvider.notifier).createPage(),
-              ),
-            ],
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: SolSpace.xxl,
-                vertical: SolSpace.xl,
-              ),
-              children: [
-                Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextField(
-                          controller: _titleController,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: 'Untitled Page',
-                          ),
-                          onChanged: (value) {
-                            ref
-                                .read(pagesProvider.notifier)
-                                .updatePage(activePage.copyWith(title: value));
-                          },
-                        ),
-                        const SizedBox(height: SolSpace.md),
-                        for (final block in activePage.blocks)
-                          _buildBlock(context, activePage, block),
-                        const SizedBox(height: SolSpace.md),
-                        Wrap(
-                          spacing: SolSpace.sm,
-                          children: [
-                            ActionChip(
-                              avatar: const Icon(Symbols.add_rounded, size: 16),
-                              label: const Text('Add text'),
-                              onPressed: () => _addBlock(
-                                activePage,
-                                PageBlockType.paragraph,
-                              ),
-                            ),
-                            ActionChip(
-                              avatar: const Icon(
-                                Symbols.check_box_rounded,
-                                size: 16,
-                              ),
-                              label: const Text('Add to-do'),
-                              onPressed: () =>
-                                  _addBlock(activePage, PageBlockType.todo),
-                            ),
-                            ActionChip(
-                              avatar: const Icon(
-                                Symbols.title_rounded,
-                                size: 16,
-                              ),
-                              label: const Text('Add heading'),
-                              onPressed: () =>
-                                  _addBlock(activePage, PageBlockType.heading2),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: SolSpace.xxl),
-                        RelatedItemsStrip(
-                          entity: entityRef,
-                          extraItems: activePage.mentions,
-                        ),
-                      ],
-                    ),
+              subtitle: Text('${activePage.blocks.length} blocks'),
+              actions: [
+                IconButton(
+                  tooltip: isPinned ? 'Unpin' : 'Pin to Favorites',
+                  icon: Icon(
+                    Symbols.push_pin_rounded,
+                    fill: isPinned ? 1 : 0,
+                    size: 18,
                   ),
+                  onPressed: () => ref
+                      .read(pinnedItemsProvider.notifier)
+                      .togglePin(entityRef),
+                ),
+                IconButton(
+                  tooltip: 'Inspect in Peek',
+                  icon: const Icon(Symbols.dock_to_right_rounded, size: 18),
+                  onPressed: () =>
+                      ref.read(peekProvider.notifier).open(entityRef),
+                ),
+                IconButton(
+                  tooltip: 'New Page',
+                  icon: const Icon(Symbols.add_rounded, size: 18),
+                  onPressed: () =>
+                      ref.read(pagesProvider.notifier).createPage(),
                 ),
               ],
             ),
-          ),
-        ],
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: SolSpace.xxl,
+                  vertical: SolSpace.xl,
+                ),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: _titleController,
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: 'Untitled Page',
+                            ),
+                            onChanged: (value) {
+                              ref
+                                  .read(pagesProvider.notifier)
+                                  .updatePage(
+                                    activePage.copyWith(title: value),
+                                  );
+                            },
+                          ),
+                          const SizedBox(height: SolSpace.md),
+                          for (final block in activePage.blocks)
+                            _buildBlock(context, activePage, block),
+                          const SizedBox(height: SolSpace.md),
+                          Wrap(
+                            spacing: SolSpace.sm,
+                            children: [
+                              ActionChip(
+                                avatar: const Icon(
+                                  Symbols.add_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Add text'),
+                                onPressed: () => _addBlock(
+                                  activePage,
+                                  PageBlockType.paragraph,
+                                ),
+                              ),
+                              ActionChip(
+                                avatar: const Icon(
+                                  Symbols.check_box_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Add to-do'),
+                                onPressed: () =>
+                                    _addBlock(activePage, PageBlockType.todo),
+                              ),
+                              ActionChip(
+                                avatar: const Icon(
+                                  Symbols.title_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Add heading'),
+                                onPressed: () => _addBlock(
+                                  activePage,
+                                  PageBlockType.heading2,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: SolSpace.xxl),
+                          RelatedItemsStrip(
+                            entity: entityRef,
+                            extraItems: activePage.mentions,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

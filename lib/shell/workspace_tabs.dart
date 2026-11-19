@@ -137,6 +137,12 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
   /// when the last surface for it goes away.
   final Map<String, int> _mounted = {};
 
+  /// Whether [entity] currently owns a tab of its own.
+  bool isDocument(WorkspaceDomain domain, String entityId) {
+    final key = WorkspaceTab.keyFor(domain, entityId);
+    return state.tabs.any((tab) => tab.key == key && !tab.isRoot);
+  }
+
   /// Registers the document on screen, adding or refreshing its tab.
   ///
   /// [fullScreen] false is a reading pane, not a tab: the lens' own tab stays
@@ -186,9 +192,8 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
   }) {
     final lensKey = WorkspaceTab.lensTabKey(lens);
     final tabs = [...state.tabs];
-    // Documents of other lenses keep their tabs; this lens' documents fold
-    // into the lens tab while the reader is in its root pane.
-    tabs.removeWhere((tab) => tab.lens == lens && !tab.isRoot);
+    // Documents keep their own tabs: reading a conversation beside the list
+    // only retitles the lens tab, it never closes a full-screen one.
     final existing = tabs.indexWhere((tab) => tab.key == lensKey);
     final lensTab = WorkspaceTab(
       key: lensKey,
@@ -248,6 +253,18 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
     state = WorkspaceTabState(tabs: tabs, activeKey: state.activeKey ?? key);
   }
 
+  /// Moves the lens anchor to [lens]. There is only ever one: it is the place
+  /// the reader stands, not a per-lens bookmark, so lens tabs never pile up.
+  void moveLensAnchor(WorkspaceLens lens) {
+    if (!ref.mounted) return;
+    final key = WorkspaceTab.lensTabKey(lens);
+    final tabs = [
+      ...state.tabs.where((tab) => !tab.isRoot),
+      WorkspaceTab(key: key, lens: lens, title: lens.label, isRoot: true),
+    ];
+    state = WorkspaceTabState(tabs: tabs, activeKey: key);
+  }
+
   /// Drops one surface for [key]; a document tab goes away with its last
   /// surface, a lens tab never does.
   void release(String key) {
@@ -280,12 +297,11 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
     state = WorkspaceTabState(tabs: state.tabs);
   }
 
-  /// Removes a document tab without touching any pane: the pane already closed
-  /// itself and is reporting that.
+  /// Removes a tab. Documents go away with their last surface; the lens tab is
+  /// closed like any other, because nothing in the bar is permanent.
   void close(String key) {
     if (!ref.mounted) return;
-    final tab = state.tabs.where((t) => t.key == key).firstOrNull;
-    if (tab == null || tab.isRoot) return;
+    if (!state.tabs.any((tab) => tab.key == key)) return;
     _mounted.remove(key);
     state = WorkspaceTabState(
       tabs: state.tabs.where((t) => t.key != key).toList(),
@@ -314,8 +330,10 @@ class WorkspaceDocumentScope extends ConsumerStatefulWidget {
   final String title;
 
   /// Whether the document owns the canvas (its own tab) or only the reading
-  /// pane beside the lens' list. A reading pane keeps the lens tab active.
-  final bool fullScreen;
+  /// pane beside the lens' list. Null means "ask the bar": a surface that the
+  /// bar already holds as a document is a full screen, and one it does not is
+  /// a pane.
+  final bool? fullScreen;
 
   final Widget child;
 
@@ -324,7 +342,7 @@ class WorkspaceDocumentScope extends ConsumerStatefulWidget {
     required this.domain,
     required this.entityId,
     required this.title,
-    this.fullScreen = true,
+    this.fullScreen,
     required this.child,
   });
 
@@ -367,7 +385,9 @@ class _WorkspaceDocumentScopeState
         domain: widget.domain,
         entityId: widget.entityId,
         title: widget.title,
-        fullScreen: widget.fullScreen,
+        fullScreen:
+            widget.fullScreen ??
+            tabs.isDocument(widget.domain, widget.entityId),
       );
     });
   }

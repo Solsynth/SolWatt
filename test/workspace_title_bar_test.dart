@@ -13,6 +13,7 @@ import 'package:solwatt/shell/mobile_workspace_chrome.dart';
 import 'package:solwatt/shell/workspace_title_bar.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
@@ -60,6 +61,9 @@ class _DocumentSurface extends StatelessWidget {
     domain: domain,
     entityId: id,
     title: title,
+    // The test's stub is always a document of its own; the real pages decide
+    // per surface (reading panes fold into the lens tab).
+    fullScreen: true,
     child: const Scaffold(body: SizedBox.expand()),
   );
 }
@@ -128,7 +132,8 @@ void main() {
     expect(remaining, hasLength(1));
     expect(remaining.single.isRoot, isTrue);
     expect(find.byType(WorkspaceTitleBar), findsOneWidget);
-    expect(find.byTooltip('Close tab'), findsNothing);
+    // Only the lens tab is left, and even it can be dismissed.
+    expect(find.byTooltip('Close tab'), findsOneWidget);
     expect(find.text('Q4 budget review'), findsNothing);
   });
 
@@ -174,6 +179,63 @@ void main() {
     expect(closed.tabs.single.isRoot, isTrue);
   });
 
+  testWidgets('closing a lens tab leaves the bar without resurrecting it', (
+    tester,
+  ) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    final controller = container.read(workspaceTabsProvider.notifier);
+    controller.ensureLensTab(WorkspaceLens.mail);
+    expect(container.read(workspaceTabsProvider).tabs, hasLength(1));
+
+    // A lens tab closes like any other, and `close` does not bring it back.
+    controller.close(WorkspaceTab.lensTabKey(WorkspaceLens.mail));
+    expect(container.read(workspaceTabsProvider).tabs, isEmpty);
+
+    // The anchor can only ever be one tab, and it follows the rail.
+    controller.moveLensAnchor(WorkspaceLens.todo);
+    controller.moveLensAnchor(WorkspaceLens.drive);
+    final state = container.read(workspaceTabsProvider);
+    expect(state.tabs, hasLength(1));
+    expect(state.tabs.single.lens, WorkspaceLens.drive);
+    expect(state.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.drive));
+  });
+
+  testWidgets('a reading pane never closes the full-screen tab beside it', (
+    tester,
+  ) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    final controller = container.read(workspaceTabsProvider.notifier);
+    const thread = 'thread-1';
+    controller.register(
+      domain: WorkspaceDomain.mail,
+      entityId: thread,
+      title: 'Q4 budget review',
+    );
+    expect(
+      container.read(workspaceTabsProvider).tabs,
+      hasLength(1),
+      reason: 'the promoted conversation owns one tab',
+    );
+
+    // Reading the same conversation in the pane must not remove that tab.
+    controller.register(
+      domain: WorkspaceDomain.mail,
+      entityId: thread,
+      title: 'Q4 budget review',
+      fullScreen: false,
+    );
+    final state = container.read(workspaceTabsProvider);
+    expect(state.tabs.where((tab) => tab.key == 'mail:$thread'), hasLength(1));
+    expect(
+      state.tabs.map((tab) => tab.key),
+      contains(WorkspaceTab.lensTabKey(WorkspaceLens.mail)),
+    );
+  });
+
   testWidgets('the rail lands the bar on a lens tab, never on nothing', (
     tester,
   ) async {
@@ -197,9 +259,7 @@ void main() {
     expect(container.read(workspaceTabsProvider).tabs, hasLength(3));
   });
 
-  testWidgets('a lens tab stays, a document tab closes with its surface', (
-    tester,
-  ) async {
+  testWidgets('every tab is closable, lens tab included', (tester) async {
     const mail = WorkspaceTab(
       key: 'mail:t-1',
       lens: WorkspaceLens.mail,
@@ -239,7 +299,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The lens tab carries no close button: the inbox is not dismissable.
     const inbox = WorkspaceTab(
       key: 'lens:mail',
       lens: WorkspaceLens.mail,
@@ -267,13 +326,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // One close button for the two documents; none for the lens tab.
-    expect(find.byTooltip('Close tab'), findsNWidgets(2));
+    // Three tabs, three close buttons: nothing in the bar is permanent.
+    expect(find.byTooltip('Close tab'), findsNWidgets(3));
+    // Tabs are closed in bar order, lens anchor first.
     await tester.tap(find.byTooltip('Close tab').first);
-    expect(closed, ['mail:t-1']);
+    expect(closed, ['lens:mail']);
 
     await tester.tap(find.byTooltip('Close all tabs'));
-    expect(closed, ['mail:t-1', 'lens:mail', 'mail:t-1', 'todo:b-1']);
+    expect(closed, ['lens:mail', 'lens:mail', 'mail:t-1', 'todo:b-1']);
   });
 
   testWidgets('selecting a document tab hands it to the shell', (tester) async {
@@ -369,6 +429,47 @@ void main() {
     await tester.tap(find.text('Launch board'));
     await tester.pumpAndSettle();
     expect(container.read(workspaceTabsProvider).activeKey, launch.key);
+  });
+
+  testWidgets('the bar carries the workspace avatar, not its name', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      _app(
+        container,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 1,
+          onSelected: (_) {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // A workspace with no picture falls back to the workspace icon, sized to
+    // the bar: the name itself is not spent on screen width.
+    final avatar = find.byType(CloudFileAvatar);
+    expect(avatar, findsWidgets);
+    expect(tester.getSize(avatar.first).width, lessThanOrEqualTo(28));
+    // The bar itself never prints the name; the tooltip carries it.
+    expect(
+      find.descendant(
+        of: find.byType(WorkspaceTitleBar),
+        matching: find.text('SolWatt'),
+      ),
+      findsNothing,
+    );
+
+    // The rail no longer duplicates the workspace picker.
+    expect(find.byTooltip('Workspaces'), findsNothing);
   });
 
   testWidgets('the title bar is always present and sits above every panel', (

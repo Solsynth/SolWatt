@@ -561,6 +561,9 @@ class FileListScreen extends HookConsumerWidget {
                               domain: WorkspaceDomain.drive,
                               entityId: viewingFile.value!.id,
                               title: viewingFile.value!.name,
+                              // Reading a file is its own tab, not a pane of
+                              // the browser's.
+                              fullScreen: true,
                               child: _DriveFileContentTab(
                                 file: viewingFile.value!,
                                 workspaceId: activeWorkspaceId,

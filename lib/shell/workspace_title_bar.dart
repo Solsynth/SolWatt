@@ -1,10 +1,14 @@
+import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
+import 'package:solwatt/route.dart';
+import 'package:solwatt/workspaces/workspace_actions.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/cloud_files.dart';
 
 /// The workspace title bar: the workspace it belongs to and the documents open
 /// in it, always present between the app's own title bar and every other piece
@@ -34,8 +38,9 @@ class WorkspaceTitleBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final name = ref.watch(selectedWorkspaceProvider).value?.name.trim();
-    final workspace = (name == null || name.isEmpty) ? 'SolWatt' : name;
+    final workspace = ref.watch(selectedWorkspaceProvider).value;
+    final name = workspace?.name.trim();
+    final label = (name == null || name.isEmpty) ? 'SolWatt' : name;
     final barHeight = compact ? 40.0 : 42.0;
     final documents = tabs.tabs;
 
@@ -63,33 +68,29 @@ class WorkspaceTitleBar extends ConsumerWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: SolSpace.lg,
-                    right: SolSpace.md,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Symbols.workspaces_rounded,
-                        size: 15,
-                        color: scheme.onSurfaceVariant,
+                // The workspace the app is in. Its avatar carries the identity
+                // and its name is the tooltip, so the bar spends its width on
+                // the documents instead of repeating a long string.
+                Tooltip(
+                  message: workspace == null
+                      ? label
+                      : '$label — tap to switch workspace',
+                  child: InkWell(
+                    onTap: () => showWorkspaceSwitcher(context, ref),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: SolSpace.md,
                       ),
-                      const SizedBox(width: SolSpace.sm),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 200),
-                        child: Text(
-                          workspace,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: scheme.onSurface,
-                              ),
-                        ),
+                      child: CloudFileAvatar(
+                        file: workspace?.picture,
+                        fallbackIcon: Symbols.workspaces_rounded,
+                        size: 24,
+                        assumeImage: true,
+                        borderRadius: workspace?.isIndividual == true
+                            ? SolRadius.pillRadius
+                            : null,
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 VerticalDivider(
@@ -157,6 +158,113 @@ class WorkspaceTitleBar extends ConsumerWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The workspace picker the title bar's avatar opens: every workspace the
+/// account can enter, with the active one ringed.
+Future<void> showWorkspaceSwitcher(BuildContext context, WidgetRef ref) {
+  return showModalBottomSheet<void>(
+    context: context,
+    useRootNavigator: true,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => const _WorkspaceSwitcherSheet(),
+  );
+}
+
+class _WorkspaceSwitcherSheet extends ConsumerWidget {
+  const _WorkspaceSwitcherSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final workspaces = ref.watch(workspacesProvider).value ?? const [];
+    final activeId = ref.watch(selectedWorkspaceProvider).value?.id;
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                SolSpace.xl,
+                SolSpace.sm,
+                SolSpace.xl,
+                SolSpace.md,
+              ),
+              child: Text(
+                'Switch workspace',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: workspaces.length,
+                itemBuilder: (context, index) {
+                  final workspace = workspaces[index];
+                  final active = workspace.id == activeId;
+                  return ListTile(
+                    leading: CloudFileAvatar(
+                      file: workspace.picture,
+                      fallbackIcon: Symbols.workspaces_rounded,
+                      size: 36,
+                      assumeImage: true,
+                      selected: active,
+                      borderRadius: workspace.isIndividual
+                          ? SolRadius.pillRadius
+                          : null,
+                    ),
+                    title: Text(
+                      workspace.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        color: active ? scheme.primary : scheme.onSurface,
+                      ),
+                    ),
+                    subtitle: Text(
+                      workspace.slug,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: active
+                        ? Icon(Symbols.check_rounded, color: scheme.primary)
+                        : null,
+                    onTap: active
+                        ? () => Navigator.of(context).pop()
+                        : () async {
+                            Navigator.of(context).pop();
+                            await activateWorkspaceAction(ref, workspace);
+                          },
+                  );
+                },
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Symbols.workspaces_rounded),
+              title: const Text('Manage workspaces'),
+              trailing: const Icon(Symbols.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                context.router.push(const WorkspaceManagementRoute());
+              },
+            ),
+            const SizedBox(height: SolSpace.sm),
+          ],
         ),
       ),
     );
@@ -252,23 +360,22 @@ class _TitleTab extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (!tab.isRoot)
-                  SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: IconButton(
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      iconSize: 15,
-                      tooltip: 'Close tab',
-                      onPressed: onClose,
-                      style: IconButton.styleFrom(
-                        foregroundColor: scheme.onSurfaceVariant,
-                        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-                      ),
-                      icon: const Icon(Symbols.close),
+                SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 15,
+                    tooltip: 'Close tab',
+                    onPressed: onClose,
+                    style: IconButton.styleFrom(
+                      foregroundColor: scheme.onSurfaceVariant,
+                      hoverColor: scheme.onSurface.withValues(alpha: 0.08),
                     ),
+                    icon: const Icon(Symbols.close),
                   ),
+                ),
               ],
             ),
           ),
