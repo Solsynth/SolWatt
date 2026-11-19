@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -81,6 +82,17 @@ Future<ProviderContainer> _container(_RecordingBroadClient client) async {
   );
 }
 
+/// The block types the page body currently holds.
+List<String> _documentTypes(WidgetTester tester) => tester
+    .widget<SolarBlockEditor>(find.byType(SolarBlockEditor, skipOffstage: false))
+    .controller
+    .editorState
+    .document
+    .root
+    .children
+    .map((node) => node.type)
+    .toList();
+
 Widget _app(ProviderContainer container, Widget child) =>
     UncontrolledProviderScope(
       container: container,
@@ -123,10 +135,30 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Runbook'), findsWidgets);
-    expect(find.text('# Deploy\n\nShip it.'), findsOneWidget);
+    // The body opens in the block editor: a heading, then the paragraph.
+    final editor = tester.widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
+    );
+    expect(
+      editor.controller.editorState.document.root.children.first.type,
+      'heading',
+    );
+    expect(
+      editor.controller.editorState.document.root.children.first.delta
+          ?.toPlainText(),
+      'Deploy',
+    );
+    expect(_documentTypes(tester), ['heading', 'paragraph']);
 
-    await tester.enterText(find.byType(TextField).at(1), '# Deploy\n\nShip it twice.');
-    await tester.pump();
+    // Typing lands in the editor's document; the save reads that mirror.
+    await tester.tap(find.byType(SolarBlockEditor));
+    await tester.pumpAndSettle();
+    tester.testTextInput.enterText('Ship it twice.');
+    await tester.pumpAndSettle();
+    expect(
+      editor.controller.markdown,
+      contains('Ship it twice.'),
+    );
     // ⌘S / Ctrl+S saves without leaving the editor.
     await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
@@ -136,7 +168,7 @@ void main() {
     expect(client.updates, hasLength(1));
     expect(client.updates.single.id, 'page-1');
     expect(client.updates.single.name, 'Runbook');
-    expect(client.updates.single.content, '# Deploy\n\nShip it twice.');
+    expect(client.updates.single.content, contains('Ship it twice.'));
   });
 
   testWidgets('the boards tab lists boards and pages in one grid', (

@@ -9,14 +9,16 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:flutter_quill/flutter_quill.dart';
-import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:island_editor/island_editor.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+// CloudFileChip exists in both this package and SolWatt's own cloud-file
+// widgets; the mail screen renders SolWatt's.
+import 'package:solar_network_foundation/solar_network_foundation.dart'
+    hide CloudFileChip;
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:super_context_menu/super_context_menu.dart';
-import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
 import 'package:solwatt/core/utils/file_types.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
@@ -29,7 +31,10 @@ import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
+import 'package:solwatt/workspace/editor/editor_mentions.dart';
+import 'package:solwatt/workspace/editor/solar_editor.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
+import 'package:solwatt/workspace/workspace_search.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/double_click_detector.dart';
@@ -6202,7 +6207,21 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   final _ccController = TextEditingController();
   final _bccController = TextEditingController();
   final _subjectController = TextEditingController();
-  final _quillController = QuillController.basic();
+  /// The body is the block editor. Mail persists `text/html`, so the
+  /// controller is HTML-mode: [SolarEditorController.htmlBody] is the body
+  /// that goes to the server and [SolarEditorController.setHTML] loads one.
+  late final SolarEditorController _body = createSolarEditor(
+    ref: ref,
+    placeholder: 'body'.tr(),
+    workspaceId: widget.mailbox.workspaceId,
+    // Esc ends the message, saving what was written; the sheet's own listener
+    // never sees the key because the editor consumes it first.
+    onEscape: () {
+      _close();
+      return true;
+    },
+  );
+  EditorMentions? _mentions;
   final List<({String id, String name})> _attachments = [];
   // Committed recipients, shown as chips; the controllers hold whatever is
   // still being typed.
@@ -6218,7 +6237,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   /// the discard button has to be careful about.
   var _dirty = false;
   var _submitting = false;
-  StreamSubscription<DocChange>? _documentChanges;
+  StreamSubscription<EditorTransactionValue>? _transactions;
   final _shortcutFocusNode = FocusNode();
   final _bodyFocusNode = FocusNode();
   MailMailbox? get _selectedMailbox =>
@@ -6263,14 +6282,10 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         _cc = others;
       }
       _subjectController.text = 'Re: ${replyingTo.displaySubject}';
-      _quillController.document = Document.fromDelta(
-        HtmlToDelta().convert(_quoteBody(replyingTo, forwarded: false)),
-      );
+      _body.setHTML(_quoteBody(replyingTo, forwarded: false));
     } else if (forwarding != null) {
       _subjectController.text = 'Fwd: ${forwarding.displaySubject}';
-      _quillController.document = Document.fromDelta(
-        HtmlToDelta().convert(_quoteBody(forwarding, forwarded: true)),
-      );
+      _body.setHTML(_quoteBody(forwarding, forwarded: true));
       _attachments.addAll(
         forwarding.attachments.map((file) => (id: file.id, name: file.name)),
       );
@@ -6285,8 +6300,16 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     ]) {
       controller.addListener(_markDirty);
     }
-    _documentChanges = _quillController.document.changes.listen(
-      (_) => _markDirty(),
+    _body.onChange = (_) => _markDirty();
+    _mentions = EditorMentions(
+      context,
+      _body.editorState,
+      fetch: (query) async =>
+          searchWorkspaceEntities(ref, query, limitPerDomain: 3),
+      isEnabled: () => !_submitting,
+    );
+    _transactions = _body.editorState.transactionStream.listen(
+      (_) => _mentions?.onTransaction(),
     );
   }
 
@@ -6323,7 +6346,10 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     final attribution = forwarded
         ? ''
         : '<p>${escape.convert('replyAttribution'.tr(namedArgs: {'date': sent, 'sender': sender}))}</p>';
-    return '\n\n$attribution<blockquote>$header$body</blockquote>';
+    // Empty paragraphs, not newlines: the editor's HTML codec treats a bare
+    // `\n` outside a block as untagged text and drops it, so a writer's
+    // "start typing above the quote" gap has to be a real paragraph.
+    return '<p></p><p></p>$attribution<blockquote>$header$body</blockquote>';
   }
 
   @override
@@ -6337,8 +6363,9 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
       controller.removeListener(_markDirty);
       controller.dispose();
     }
-    _documentChanges?.cancel();
-    _quillController.dispose();
+    _transactions?.cancel();
+    _mentions?.dispose();
+    _body.dispose();
     _shortcutFocusNode.dispose();
     _bodyFocusNode.dispose();
     super.dispose();
@@ -6394,10 +6421,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         cc: _recipients(_cc, _ccController, 'cc'),
         bcc: _recipients(_bcc, _bccController, 'bcc'),
         subject: _subjectController.text,
-        body: QuillDeltaToHtmlConverter(
-          _quillController.document.toDelta().toJson(),
-          ConverterOptions.forEmail(),
-        ).convert(),
+        body: _body.htmlBody,
         attachmentIds: _attachments.map((a) => a.id).toList(growable: false),
         replyToId: widget.replyingTo?.id,
         isDraft: draft,
@@ -6480,7 +6504,56 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
       },
     );
     if (url == null || url.isEmpty) return;
-    _quillController.formatSelection(LinkAttribute(url));
+    final selection = _body.editorState.selection;
+    if (selection == null || selection.isCollapsed) return;
+    await _body.editorState.formatDelta(selection, {
+      AppFlowyRichTextKeys.href: url,
+    });
+  }
+
+  /// Turns the block under the caret into [type], or into a heading when
+  /// [level] is set. Picking the type the block already has returns it to a
+  /// paragraph, so the menu acts as a switch like the editor's own toolbar.
+  void _formatBodyBlock({int? level, String? type}) {
+    final state = _body.editorState;
+    final selection = state.selection;
+    if (selection == null) {
+      // The formatting menu takes focus, and the editor clears its selection
+      // when it loses focus; put the caret back at the end of the last block
+      // so the menu's choice applies to the line the writer was in.
+      final last = state.document.root.children.lastOrNull;
+      final delta = last?.delta;
+      if (last == null || delta == null) return;
+      state.selection = Selection.collapsed(
+        Position(path: last.path, offset: delta.length),
+      );
+      _formatBodyBlock(level: level, type: type);
+      return;
+    }
+    final node = state.getNodeAtPath(selection.start.path);
+    if (node == null) return;
+
+    final isHeading = type == null && node.type == 'heading';
+    final sameHeading = isHeading && node.attributes['level'] == level;
+    final sameBlock = type != null && node.type == type;
+    final nextType = type ?? (sameHeading ? 'paragraph' : 'heading');
+    if (type == null && sameHeading || sameBlock && type == 'paragraph') {
+      // Already what the menu asked for: nothing to rewrite.
+      return;
+    }
+    final delta = (node.delta ?? Delta()).toJson();
+    state.formatNode(
+      selection,
+      (current) => current.copyWith(
+        type: nextType,
+        attributes: {
+          if (nextType == 'heading' && level != null) 'level': level,
+          'delta': delta,
+          'bgColor': current.attributes['bgColor'],
+          'textDirection': current.attributes['textDirection'],
+        },
+      ),
+    );
   }
 
   @override
@@ -6707,29 +6780,10 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                         child: child,
                       );
                     },
-                    child: QuillEditor.basic(
-                      key: const ValueKey('compose-body'),
-                      controller: _quillController,
+                    child: _ComposeBlockBody(
+                      controller: _body,
                       focusNode: _bodyFocusNode,
-                      config: QuillEditorConfig(
-                        placeholder: 'body'.tr(),
-                        expands: true,
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                        // A quoted reply brings its body's images along; render
-                        // them rather than failing the line that holds them.
-                        unknownEmbedBuilder: const _ComposeUnknownEmbed(),
-                        // Esc: quill's internal Shortcuts consumes Esc before
-                        // the sheet-level listener, so intercept it here.
-                        // ignore: experimental_member_use
-                        onKeyPressed: (event, node) {
-                          if (event is KeyDownEvent &&
-                              event.logicalKey == LogicalKeyboardKey.escape) {
-                            _close();
-                            return KeyEventResult.handled;
-                          }
-                          return null;
-                        },
-                      ),
+                      onKeyEvent: (event) => _mentions?.handleKey(event),
                     ),
                   ),
                 ),
@@ -6784,64 +6838,67 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                   (
                     icon: Symbols.format_bold,
                     label: 'bold'.tr(),
-                    apply: () =>
-                        _quillController.formatSelection(Attribute.bold),
+                    apply: () => _body.editorState.toggleAttribute(
+                      AppFlowyRichTextKeys.bold,
+                    ),
                   ),
                   (
                     icon: Symbols.format_italic,
                     label: 'italic'.tr(),
-                    apply: () =>
-                        _quillController.formatSelection(Attribute.italic),
+                    apply: () => _body.editorState.toggleAttribute(
+                      AppFlowyRichTextKeys.italic,
+                    ),
                   ),
                   (
                     icon: Symbols.format_underlined,
                     label: 'underline'.tr(),
-                    apply: () =>
-                        _quillController.formatSelection(Attribute.underline),
+                    apply: () => _body.editorState.toggleAttribute(
+                      AppFlowyRichTextKeys.underline,
+                    ),
                   ),
                   (
                     icon: Symbols.format_strikethrough,
                     label: 'strikethrough'.tr(),
-                    apply: () => _quillController.formatSelection(
-                      Attribute.strikeThrough,
+                    apply: () => _body.editorState.toggleAttribute(
+                      AppFlowyRichTextKeys.strikethrough,
                     ),
                   ),
                   (
                     icon: Symbols.format_h1,
                     label: 'heading1'.tr(),
-                    apply: () => _quillController.formatSelection(Attribute.h1),
+                    apply: () => _formatBodyBlock(level: 1),
                   ),
                   (
                     icon: Symbols.format_h2,
                     label: 'heading2'.tr(),
-                    apply: () => _quillController.formatSelection(Attribute.h2),
+                    apply: () => _formatBodyBlock(level: 2),
                   ),
                   (
                     icon: Symbols.format_h3,
                     label: 'heading3'.tr(),
-                    apply: () => _quillController.formatSelection(Attribute.h3),
+                    apply: () => _formatBodyBlock(level: 3),
                   ),
                   (
                     icon: Symbols.format_list_bulleted,
                     label: 'bulletList'.tr(),
-                    apply: () => _quillController.formatSelection(Attribute.ul),
+                    apply: () => _formatBodyBlock(type: 'bulleted_list'),
                   ),
                   (
                     icon: Symbols.format_list_numbered,
                     label: 'numberedList'.tr(),
-                    apply: () => _quillController.formatSelection(Attribute.ol),
+                    apply: () => _formatBodyBlock(type: 'numbered_list'),
                   ),
                   (
                     icon: Symbols.format_quote,
                     label: 'quote'.tr(),
-                    apply: () =>
-                        _quillController.formatSelection(Attribute.blockQuote),
+                    apply: () => _formatBodyBlock(type: 'quote'),
                   ),
                   (
                     icon: Symbols.code,
                     label: 'codeBlock'.tr(),
-                    apply: () =>
-                        _quillController.formatSelection(Attribute.codeBlock),
+                    apply: () => _body.editorState.toggleAttribute(
+                      AppFlowyRichTextKeys.code,
+                    ),
                   ),
                 ],
               ),
@@ -7393,47 +7450,42 @@ List<MailRecipient> _mergeRecipients(
   ];
 }
 
-/// Renders the embeds the compose editor has no builder for — a quoted
-/// reply's inline `<img src>` — instead of failing the line that holds them.
-class _ComposeUnknownEmbed extends EmbedBuilder {
-  const _ComposeUnknownEmbed();
+/// The composer's writing surface: the shared block editor in the card.
+///
+/// Esc ends the message rather than only dropping the caret: the editor's own
+/// Escape command clears the selection, so without this the writer would need
+/// a second press for the sheet-level close.
+class _ComposeBlockBody extends StatefulWidget {
+  const _ComposeBlockBody({
+    required this.controller,
+    required this.focusNode,
+    required this.onKeyEvent,
+  });
+
+  final SolarEditorController controller;
+  final FocusNode focusNode;
+  final KeyEventResult? Function(KeyEvent event)? onKeyEvent;
 
   @override
-  String get key => 'unknown';
+  State<_ComposeBlockBody> createState() => _ComposeBlockBodyState();
+}
 
-  /// Inline images sit on the text's middle rather than demanding a baseline.
+class _ComposeBlockBodyState extends State<_ComposeBlockBody> {
   @override
-  WidgetSpan buildWidgetSpan(Widget widget) =>
-      WidgetSpan(alignment: PlaceholderAlignment.middle, child: widget);
-
-  @override
-  Widget build(BuildContext context, EmbedContext embedContext) {
-    final source = embedContext.node.value.data;
-    if (source is! String || source.isEmpty) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Image.network(
-        source,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Symbols.broken_image,
-              size: 16,
-              color: scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                source,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) {
+    // The card's padding is the editor's own margin: expanding it here
+    // (`shrinkWrap: false`) lets the editor fill the card, so the writing area
+    // is the card minus nothing at all.
+    return KeyedSubtree(
+      key: const ValueKey('compose-body'),
+      child: Padding(
+        // Horizontal only: the card is the writing area, and vertical padding
+        // would take lines off a phone with the keyboard up.
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: solarBlockEditor(
+          widget.controller,
+          focusNode: widget.focusNode,
+          onKeyEvent: widget.onKeyEvent,
         ),
       ),
     );

@@ -1,7 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_quill/flutter_quill.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -213,7 +213,24 @@ String _closeTooltip(WidgetTester tester, Finder composer) => tester
 
 const _body = ValueKey('compose-body');
 
+/// The text the editor paints, read from the document it is editing.
+String _bodyText(WidgetTester tester) => tester
+    .widget<SolarBlockEditor>(find.byType(SolarBlockEditor, skipOffstage: false))
+    .controller
+    .editorState
+    .document
+    .root
+    .children
+    .map((node) => node.delta?.toPlainText() ?? '')
+    .join('\n');
+
 Future<void> _openComposer(WidgetTester tester) async {
+  // The shell starts on Today/Focus; the mail list — and its compose FAB —
+  // live on the Mail lens.
+  if (find.byType(FloatingActionButton).evaluate().isEmpty) {
+    await tester.tap(find.byTooltip('Mail').first);
+    await tester.pumpAndSettle();
+  }
   await tester.tap(find.byType(FloatingActionButton));
   await tester.pumpAndSettle();
 }
@@ -392,19 +409,24 @@ void main() {
     // Formatting lives behind Aa and still formats the selected line. The menu
     // opens over the editor, so the selection it applies to has to survive the
     // trip.
-    final quill = tester.widget<QuillEditor>(bodyFinder).controller;
-    quill.document.insert(0, 'Hello world');
-    quill.updateSelection(
-      const TextSelection(baseOffset: 0, extentOffset: 11),
-      ChangeSource.local,
+    final editor = tester.widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
     );
+    await tester.tap(bodyFinder);
+    await tester.pumpAndSettle();
+    tester.testTextInput.enterText('Hello world');
+    await tester.pumpAndSettle();
+    expect(editor.controller.editorState.selection, isNotNull);
     await tester.tap(find.byTooltip('Formatting'));
     await tester.pumpAndSettle();
     expect(find.text('Heading 1'), findsOneWidget);
     expect(find.text('Bold'), findsOneWidget);
     await tester.tap(find.text('Heading 1'));
     await tester.pumpAndSettle();
-    expect(quill.getSelectionStyle().attributes.keys, contains('header'));
+    expect(
+      editor.controller.editorState.document.root.children.first.type,
+      'heading',
+    );
 
     // Something written is something to save, so the control comes back.
     expect(_headerButton(tester, 'Save draft', composer).onPressed, isNotNull);
@@ -505,22 +527,23 @@ void main() {
       findsOneWidget,
     );
     final replyBody = find.byKey(_body);
-    final replyQuill = tester.widget<QuillEditor>(replyBody).controller;
-    expect(replyQuill.document.toPlainText(), contains('Hi from Alice'));
+    expect(
+      _bodyText(tester),
+      contains('Hi from Alice'),
+    );
     // The quoted image renders as an embed instead of failing the line that
     // holds it: the editor builds what it does not recognise.
     expect(tester.takeException(), isNull);
-    final quotedImage = tester.widget<Image>(
-      find.descendant(of: replyBody, matching: find.byType(Image)),
+    // The quoted image arrives as an image block, not as text: a paragraph or
+    // quote paints only its own delta, so the composer lifts embedded images
+    // to top-level blocks where the editor renders them.
+    final replyEditor = tester.widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
     );
-    expect(
-      quotedImage.image,
-      isA<NetworkImage>().having(
-        (network) => network.url,
-        'url',
-        'https://example.com/pic.png',
-      ),
-    );
+    final quotedImage = replyEditor.controller.editorState.document.root.children
+        .firstWhere((node) => node.type == 'image');
+    expect(quotedImage.attributes['url'], 'https://example.com/pic.png');
+    expect(replyBody, findsOneWidget);
 
     // A reply opens already addressed and already quoting, and none of that is
     // the writer's doing: closing it untouched leaves no draft behind.

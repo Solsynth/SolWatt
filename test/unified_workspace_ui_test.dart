@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
@@ -16,9 +17,9 @@ import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/entity_pill.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
-import 'package:solwatt/workspace/editor/workspace_rich_editor.dart';
 import 'package:solwatt/workspace/omnibox/federated_omnibox.dart';
 import 'package:solwatt/workspace/peek/peek_surface.dart';
+import 'package:solwatt/workspace/editor/solar_editor.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
@@ -307,11 +308,11 @@ void main() {
   });
 
   testWidgets(
-    'WorkspaceRichEditor triggers @ mention and / slash suggestions',
+    'solarBlockEditor mirrors edits into the markdown the pages save',
     (tester) async {
       final container = await _makeContainer();
       addTearDown(container.dispose);
-      final controller = TextEditingController();
+      final controller = SolarEditorController();
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(
@@ -320,23 +321,21 @@ void main() {
           Scaffold(
             body: Padding(
               padding: const EdgeInsets.all(24),
-              child: WorkspaceRichEditor(
-                controller: controller,
-                mode: WorkspaceEditorMode.mailComposer,
-              ),
+              child: solarBlockEditor(controller),
             ),
           ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), '/ta');
+      await tester.tap(find.byType(SolarBlockEditor));
       await tester.pumpAndSettle();
-      expect(find.text('/task'), findsOneWidget);
+      tester.testTextInput.enterText('Ship it.');
+      await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField), '@Q3');
-      await tester.pumpAndSettle();
-      expect(find.text('Q3 Roadmap'), findsOneWidget);
+      // The page editor saves this string, so the mirror must carry the edit.
+      expect(controller.markdown, contains('Ship it.'));
+      expect(controller.editorState.document.root.children, isNotEmpty);
     },
   );
 

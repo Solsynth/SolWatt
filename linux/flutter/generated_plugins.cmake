@@ -6,7 +6,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   desktop_webview_window
   file_saver
-  file_selector_linux
   flutter_secure_storage_linux
   irondash_engine_context
   media_kit_libs_linux

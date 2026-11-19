@@ -5,7 +5,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:island_editor/island_editor.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
 
 import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/network.dart';
@@ -17,8 +19,10 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
-import 'package:solwatt/workspace/editor/workspace_rich_editor.dart';
+import 'package:solwatt/workspace/editor/editor_mentions.dart';
+import 'package:solwatt/workspace/editor/solar_editor.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
+import 'package:solwatt/workspace/workspace_search.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
 /// One Ideask page: the Markdown body of a broad of kind 1.
@@ -39,8 +43,16 @@ class BroadDocScreen extends ConsumerStatefulWidget {
 
 class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
   final TextEditingController _title = TextEditingController();
-  final TextEditingController _body = TextEditingController();
   final FocusNode _bodyFocus = FocusNode();
+
+  /// The block editor owns the body. Pages persist Markdown, which is what
+  /// [SolarEditorController.markdown] mirrors on every transaction.
+  late final SolarEditorController _body = createSolarEditor(
+    ref: ref,
+    placeholder: 'Write Markdown. Type @ to mention…',
+  );
+  EditorMentions? _mentions;
+  StreamSubscription<EditorTransactionValue>? _transactions;
 
   /// The saved values the fields started from; dirtiness is a plain comparison
   /// so a reader who undoes their own edit is clean again.
@@ -56,11 +68,23 @@ class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
   void initState() {
     super.initState();
     _title.addListener(_onEdited);
-    _body.addListener(_onEdited);
+    _body.onChange = (_) => _onEdited();
+    _mentions = EditorMentions(
+      context,
+      _body.editorState,
+      fetch: (query) async =>
+          searchWorkspaceEntities(ref, query, limitPerDomain: 4),
+      isEnabled: () => !_preview,
+    );
+    _transactions = _body.editorState.transactionStream.listen(
+      (_) => _mentions?.onTransaction(),
+    );
   }
 
   @override
   void dispose() {
+    _transactions?.cancel();
+    _mentions?.dispose();
     _title.dispose();
     _body.dispose();
     _bodyFocus.dispose();
@@ -72,7 +96,7 @@ class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
   bool get _dirty =>
       _loaded &&
       (_title.text.trim() != _savedTitle.trim() ||
-          _body.text != _savedContent);
+          _body.markdown != _savedContent);
 
   void _adopt(Broad page) {
     if (_loaded) return;
@@ -80,7 +104,7 @@ class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
     _savedTitle = page.name;
     _savedContent = page.content ?? '';
     _title.text = _savedTitle;
-    _body.text = _savedContent;
+    _body.setMarkdown(_savedContent);
   }
 
   Future<void> _save() async {
@@ -91,7 +115,7 @@ class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
     try {
       final saved = await ref
           .read(pageActionsProvider)
-          .savePage(page, name: _title.text, content: _body.text);
+          .savePage(page, name: _title.text, content: _body.markdown);
       if (!mounted) return;
       setState(() {
         _savedTitle = saved.name;
@@ -247,44 +271,59 @@ class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
                 alignment: Alignment.topCenter,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 820),
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                      SolSpace.xxl,
-                      SolSpace.xl,
-                      SolSpace.xxl,
-                      SolSpace.xxl,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextField(
-                        controller: _title,
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: 'untitledPage'.tr(),
-                          contentPadding: EdgeInsets.zero,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          SolSpace.xxl,
+                          SolSpace.xl,
+                          SolSpace.xxl,
+                          SolSpace.sm,
+                        ),
+                        child: TextField(
+                          controller: _title,
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'untitledPage'.tr(),
+                            contentPadding: EdgeInsets.zero,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: SolSpace.md),
-                      if (_preview)
-                        MarkdownTextContent(
-                          content: _body.text.trim().isEmpty
-                              ? 'No content yet.'
-                              : _body.text,
-                        )
-                      else
-                        WorkspaceRichEditor(
-                          controller: _body,
-                          focusNode: _bodyFocus,
-                          mode: WorkspaceEditorMode.pageBlocks,
-                          minLines: 12,
-                          hintText:
-                              'Write Markdown. Type @ to mention or / for commands…',
-                          onSwitchLens: (entity) =>
-                              ref.read(peekProvider.notifier).open(entity),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: SolSpace.xxl,
+                          ),
+                          child: _preview
+                              ? SingleChildScrollView(
+                                  child: MarkdownTextContent(
+                                    content: _body.markdown.trim().isEmpty
+                                        ? 'No content yet.'
+                                        : _body.markdown,
+                                  ),
+                                )
+                              : solarBlockEditor(
+                                  _body,
+                                  focusNode: _bodyFocus,
+                                  onKeyEvent: (event) =>
+                                      _mentions?.handleKey(event),
+                                ),
                         ),
-                      const SizedBox(height: SolSpace.xxl),
-                      RelatedItemsStrip(entity: broadToEntityRef(page)),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          SolSpace.xxl,
+                          SolSpace.md,
+                          SolSpace.xxl,
+                          SolSpace.xxl,
+                        ),
+                        child: RelatedItemsStrip(
+                          entity: broadToEntityRef(page),
+                        ),
+                      ),
                     ],
                   ),
                 ),

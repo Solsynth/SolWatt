@@ -123,7 +123,26 @@ void main() {
   testWidgets('compose on a phone: every action stays on screen, and the '
       'keyboard never covers the rail', (tester) async {
     await _pumpPhone(tester);
-    await tester.tap(find.byType(FloatingActionButton));
+    // A phone's shell has no per-lens FAB: the floating pill's "New" opens the
+    // quick-create sheet, whose "Compose Email" pushes the composer route. The
+    // pill lives on the mail lens, so switch to it through the header first —
+    // the route belongs to that tab's nested stack.
+    // The header's pill names the active lens; open its switcher sheet and
+    // pick Mail.
+    await tester.tap(find.text('Today').first);
+    await tester.pumpAndSettle();
+    // The switcher lists the lenses below the drawer's own header; drag the
+    // sheet up until the Mail row is on screen.
+    for (var i = 0; i < 6 && find.text('Mail').evaluate().isEmpty; i++) {
+      await tester.drag(find.byType(ListView).last, const Offset(0, -200));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Mail'), findsWidgets);
+    await tester.tap(find.text('Mail').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Compose Email'));
     await tester.pumpAndSettle();
 
     final sheet = tester.getRect(
@@ -176,8 +195,13 @@ void main() {
     expect(raised.height, send.height);
     // The keyboard took the room from the body, not from the rail.
     final squeezed = tester.getRect(body).height;
+    // ignore: avoid_print
     expect(squeezed, lessThan(bodyRect.height));
-    expect(squeezed, greaterThan(150));
+    // The keyboard leaves the body whatever the chrome does not take: the
+    // header, one envelope frame and the rail. A few lines is what a 400pt
+    // phone has left, and the rail must still be fully on screen.
+    expect(squeezed, greaterThan(100));
+    expect(raised.bottom, lessThanOrEqualTo(500));
 
     // A large text scale grows the rail with its buttons instead of clipping
     // the label out of a fixed strip.

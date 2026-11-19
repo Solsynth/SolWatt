@@ -40,11 +40,11 @@ dependencies:
       # dependency by url + path + ref, and these packages depend on each other
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
-      # Bump all four refs together.
-      ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
+      # Bump all five refs together.
+      ref: 764e455a986d6a51a4b293400fa277b9dd674777
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
-  material_ui: ^1.11.0
+  material_ui: ^1.11.1
   flutter_hooks: ^0.21.4
   hooks_riverpod: ^3.5.0
   window_manager:
@@ -68,12 +68,20 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
+      ref: 764e455a986d6a51a4b293400fa277b9dd674777
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
+      ref: 764e455a986d6a51a4b293400fa277b9dd674777
+  # The block editor for page bodies and written mail. Solar Network forks
+  # AppFlowy 6.2 (fixed content loss, Solar-aware markdown) under this name;
+  # pages and mail share it so both round-trip the same markup.
+  island_editor:
+    git:
+      url: https://src.solsynth.dev/SoSYS/Socommon.git
+      path: packages/island_editor
+      ref: 764e455a986d6a51a4b293400fa277b9dd674777
   # Release update checks against the Solsynth Express distribution service
   # (the same package Solian wires): channel lookup, update check and the
   # release sheet with the per-platform installer.
@@ -81,8 +89,8 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: 9fdfb1e385643ab9ccf30d638d15e4f87d56c20a
-  file_picker: ^13.3.3
+      ref: 764e455a986d6a51a4b293400fa277b9dd674777
+  file_picker: ^13.4.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
   # colours in place, which needs a real parse rather than a regex.
@@ -95,17 +103,14 @@ dependencies:
   web_socket_channel: ^3.0.3
   easy_localization: ^3.0.8
   flutter_native_splash: ^2.4.8
-  flutter_quill: ^11.6.0
-  flutter_quill_delta_from_html: ^1.5.3
-  vsc_quill_delta_to_html: ^1.0.5
   flutter_inappwebview: ^6.1.5
   super_context_menu: ^0.10.0-dev.2
   file_saver: ^0.7.0
   # Push notifications (Android/iOS/macOS): FCM token registration with the
   # Solar Network Metoer gateway, mirroring MaidKit's maidcafe_push service.
-  firebase_core: ^5.1.0
-  firebase_messaging: ^17.0.1
-  flutter_local_notifications: ^23.0.2
+  firebase_core: ^5.2.0
+  firebase_messaging: ^17.1.0
+  flutter_local_notifications: ^23.0.3
   device_info_plus: ^13.3.0
   package_info_plus: ^10.2.2
 
@@ -125,8 +130,8 @@ dependencies:
   flutter_staggered_grid_view: ^0.7.0
   flutter_svg: ^2.4.0
   gap: ^3.1.0
-  gal: ^2.3.3
-  image: ^4.13.0
+  gal: ^3.0.1
+  image: ^4.13.1
   media_kit: ^1.2.6
   media_kit_libs_video: ^1.0.7
   media_kit_video: ^2.0.1

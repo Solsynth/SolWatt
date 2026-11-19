@@ -4,7 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:flutter_quill/flutter_quill.dart';
+import 'package:island_editor/island_editor.dart'
+    show AppFlowyEditorLocalizations;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solsynth_express/solsynth_express.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -136,7 +137,10 @@ class SolWattApp extends ConsumerWidget {
         // …) whose MaterialLocalizations is a *distinct* type from Flutter's;
         // the fork's delegates must be registered or those widgets assert.
         ...mui.GlobalMaterialLocalizations.delegates,
-        FlutterQuillLocalizations.delegate,
+        // The block editor's own strings: its slash menu, toolbars and
+        // clipboard commands read `AppFlowyEditorL10n.current`, which loads
+        // from this delegate and asserts without it.
+        AppFlowyEditorLocalizations.delegate,
       ],
       locale: context.locale,
       builder: (context, child) => AppOverlayHost(

@@ -46,7 +46,7 @@ lib/
   boards/github_integration.dart  # GitHub App link/sync UI for a board
   boards/task_comments.dart       # Task comments (local + GitHub-mirrored)
   pages/pages_provider.dart       # Ideask pages (broads of kind 1) and their writes
-  pages/pages_screen.dart         # One page: title + Markdown body, in the boards stack
+  pages/pages_screen.dart         # One page: title + block editor over its Markdown, in the boards stack
   mail/mail_screen.dart           # Mail tab: conversation list, detail pane, compose
   mail/mail_settings_page.dart    # Mail credentials + .eml/.mbox import
   mail/import/                    # EML/mbox parsing and the import service
@@ -413,10 +413,13 @@ directly, so the mail tab is conversation-first:
   — is what tells a written composer from an untouched one, so closing a reply
   that opened already addressed and quoting leaves no draft behind.
 - Replies carry `reply_to_id`; ElecPostal resolves the parent's thread, which
-  keeps the reply in the conversation. The quoted body arrives as Quill embeds,
-  and the composer builds what it does not recognise
-  (`_ComposeUnknownEmbed`): a quoted `<img>` renders as an image instead of
-  failing the line that holds it.
+  keeps the reply in the conversation. The composer is the shared block editor
+  (`workspace/editor/solar_editor.dart` over `island_editor`), and mail is
+  `text/html` at the boundary: `solarHTMLToDocument` / `solarDocumentToHTML`
+  in `solar_network_foundation` keep `<br>`, lists, quotes, headings, inline
+  code and colours. A quoted `<img>` arrives inside the quoted paragraph,
+  which this AppFlowy fork paints without its children, so the composer lifts
+  image blocks to the top level (`liftImagesToRoot`) to render them.
 - Row actions (read, star, move, delete) apply to every message of the
   conversation, since the API only mutates one message at a time.
 - Trash is the one place a delete is permanent. Everywhere else the delete
