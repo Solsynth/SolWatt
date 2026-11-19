@@ -411,26 +411,6 @@ class FileListScreen extends HookConsumerWidget {
       return null;
     }, [globalWorkspaceId, hasSelectedWorkspace]);
 
-    // The drive always sits on its own folder browser while no file is being
-    // read, so the title bar carries the drive's tab from the first frame.
-    // Only while the browser is what the drive shows: a file being read owns
-    // the bar with its own tab.
-    useEffect(() {
-      if (!hasSelectedWorkspace || viewingFile.value != null) return null;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted || viewingFile.value != null) return;
-        ref
-            .read(workspaceTabsProvider.notifier)
-            .showingLensRoot(
-              WorkspaceLens.drive,
-              title: modeValue == FileListMode.unindexed
-                  ? 'driveUnindexedTabTitle'.tr()
-                  : 'driveIndexedTabTitle'.tr(),
-            );
-      });
-      return null;
-    }, [hasSelectedWorkspace, modeValue, viewingFile.value?.id]);
-
     // Notifiers should be read fresh each time to avoid disposal issues
 
     // Sidebar content widget

@@ -13,6 +13,7 @@ import 'package:solwatt/shell/mobile_workspace_chrome.dart';
 import 'package:solwatt/shell/workspace_title_bar.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/omnibox/federated_omnibox.dart';
 import 'package:solwatt/workspace/peek/peek_surface.dart';
@@ -85,13 +86,26 @@ class _AdaptiveWorkspaceShellState
   WorkspaceLens get _activeLens =>
       kShellLenses[widget.selectedIndex.clamp(0, kShellLenses.length - 1)];
 
-  /// Sends the reader to [lens]. The rail addresses a lens destination, so its
-  /// tab is pinned: arriving there reuses the tab that lens already has, and
-  /// lands the lens' own stack on its root page.
+  /// Sends the reader to [lens]. The rail addresses a place, not a document,
+  /// so arriving at a lens costs no tab: the lens comes back on its root pane
+  /// and documents opened elsewhere keep the tabs they own.
   void _selectLens(WorkspaceLens lens) {
-    ref.read(workspaceTabsProvider.notifier).focusLens(lens);
+    // The drive reads a file in its own pane, not in the lens stack: leaving
+    // the lens ends that reading so the browser is what the reader comes back
+    // to.
+    if (lens != WorkspaceLens.drive) _closeDriveDocuments();
+    ref.read(workspaceTabsProvider.notifier).deactivate();
     _gotoLens(lens);
     _nestedStack(lens)?.popUntilRoot();
+  }
+
+  void _closeDriveDocuments() {
+    final driveTabs = ref.read(workspaceTabsProvider).tabs.where(
+      (tab) => tab.lens == WorkspaceLens.drive,
+    );
+    for (final tab in driveTabs) {
+      ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
+    }
   }
 
   /// Switches the lens the canvas shows without touching the bar. Selecting a
@@ -124,26 +138,10 @@ class _AdaptiveWorkspaceShellState
     }
   }
 
-  /// Brings a tab forward. Selecting a lens tab lands on that lens' root;
-  /// selecting a document puts the document back on screen.
+  /// Brings a tab forward: the lens it belongs to, then the document itself.
   void _selectTab(WorkspaceTab tab) {
-    ref.read(workspaceTabsProvider.notifier).activate(tab.key);
     _gotoLens(tab.lens);
-    if (tab.isRoot) {
-      _nestedStack(tab.lens)?.popUntilRoot();
-      // The drive shows whatever file its pane was reading; returning to its
-      // folder browser means closing that file's tab too.
-      if (tab.lens == WorkspaceLens.drive) {
-        for (final document in ref.read(workspaceTabsProvider).tabs) {
-          if (document.lens == WorkspaceLens.drive && !document.isRoot) {
-            ref
-                .read(drivePendingCloseProvider.notifier)
-                .request(document.entityId!);
-          }
-        }
-      }
-      return;
-    }
+    ref.read(workspaceTabsProvider.notifier).activate(tab.key);
     switch (tab.domain) {
       case WorkspaceDomain.mail:
         // The bar knows which message this conversation was showing, so
@@ -158,25 +156,20 @@ class _AdaptiveWorkspaceShellState
       case WorkspaceDomain.todo:
         final route = routeForTab(tab);
         if (route != null) _nestedStack(tab.lens)?.navigate(route);
-      case null:
-        break;
     }
   }
 
   /// Closes a document tab: its pane closes itself and its lens pops back to
-  /// the root page. Lens tabs are pinned, so they are not closable at all.
+  /// the root page.
   void _closeTab(WorkspaceTab tab) {
-    if (tab.isRoot) return;
-    final tabs = ref.read(workspaceTabsProvider.notifier);
     if (tab.domain == WorkspaceDomain.drive) {
       ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
     } else {
       _nestedStack(tab.lens)?.popUntilRoot();
     }
-    tabs.close(tab.key);
-    // The lens' pinned tab steps back in, so the bar always says where the
-    // reader is.
-    tabs.activate(WorkspaceTab.lensTabKey(tab.lens));
+    // The strip closes in the same rebuild as the pane, so the bar never names
+    // a document that is already gone.
+    ref.read(workspaceTabsProvider.notifier).close(tab.key);
   }
 
   StackRouter? _nestedStack(WorkspaceLens lens) => lensStackRouter(lens);
@@ -305,12 +298,6 @@ class _AdaptiveWorkspaceShellState
         !sidebarCollapsed &&
         _lensOwnsSidebar(_activeLens) &&
         !tabs.showsDocument;
-    // A lens the reader arrives at through a road the rail does not own (a
-    // session restore, a deep link) still needs its pinned tab on the bar.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(workspaceTabsProvider.notifier).seedLens(_activeLens);
-    });
 
     return CallbackShortcuts(
       bindings: {
@@ -341,117 +328,126 @@ class _AdaptiveWorkspaceShellState
                   ),
                 )
               : null,
-          body: Column(
-            children: [
-              // The workspace title bar sits directly under the app's own
-              // title bar and above every other surface — rail, sidebar,
-              // canvas and peek alike — on every width.
-              WorkspaceTitleBar(
-                tabs: tabs,
-                onSelect: _selectTab,
-                onClose: _closeTab,
-                onOpenOmnibox: _openOmnibox,
-                compact: viewport == _ViewportClass.mobile,
-              ),
-              Expanded(
-                child: switch (viewport) {
-                  _ViewportClass.desktop => _DesktopWorkspace(
-                    activeLens: _activeLens,
-                    sidebarCollapsed: sidebarCollapsed,
-                    showSidebar: showSidebar,
-                    onSelectLens: _selectLens,
-                    onToggleSidebar: () =>
-                        ref.read(sidebarCollapsedProvider.notifier).toggle(),
-                    onOpenOmnibox: _openOmnibox,
-                    onMailDroppedToTodo: _handleConvertMailToTask,
-                    onOpenEntity: _openEntityTab,
-                    onOpenFullView: _switchToEntity,
-                    canvas: widget.child,
-                  ),
-                  _ViewportClass.tablet => Stack(
+          body: switch (viewport) {
+            // The rail runs the full height of the body, flush to its top edge
+            // and bottom edge: it is the workspace's spine, and the strip
+            // starts beside it rather than running across its head.
+            _ViewportClass.desktop || _ViewportClass.tablet => Row(
+              children: [
+                _SlimLensRail(
+                  activeLens: _activeLens,
+                  sidebarCollapsed: sidebarCollapsed,
+                  // A lens with no sidebar has nothing for this button to
+                  // toggle.
+                  showSidebarToggle: viewport == _ViewportClass.tablet
+                      ? true
+                      : _lensOwnsSidebar(_activeLens),
+                  onSelectLens: _selectLens,
+                  onToggleSidebar: viewport == _ViewportClass.tablet
+                      ? () => shellScaffoldKey.currentState?.openDrawer()
+                      : () => ref
+                            .read(sidebarCollapsedProvider.notifier)
+                            .toggle(),
+                  onOpenOmnibox: _openOmnibox,
+                  onMailDroppedToTodo: _handleConvertMailToTask,
+                ),
+                Expanded(
+                  child: Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          right: SolSpace.sm,
-                          top: SolSpace.sm,
-                          bottom: SolSpace.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            _SlimLensRail(
-                              activeLens: _activeLens,
-                              sidebarCollapsed: true,
-                              showSidebarToggle: true,
-                              onSelectLens: _selectLens,
-                              onToggleSidebar: () =>
-                                  shellScaffoldKey.currentState?.openDrawer(),
-                              onOpenOmnibox: _openOmnibox,
-                              onMailDroppedToTodo: _handleConvertMailToTask,
-                            ),
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  SolRadius.md,
-                                ),
-                                child: widget.child,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TabletPeekSheet(onOpenFullView: _switchToEntity),
-                    ],
-                  ),
-                  _ViewportClass.mobile => Stack(
-                    children: [
-                      Column(
-                        children: [
-                          MobileContextHeader(
-                            activeLens: _activeLens,
-                            onSelectLens: _selectLens,
-                          ),
-                          Expanded(child: widget.child),
-                        ],
-                      ),
-                      MobileFloatingActionPill(
+                      // The strip is about the documents open in the
+                      // workspace; it collapses to nothing while none are.
+                      WorkspaceTitleBar(
+                        tabs: tabs,
+                        onSelect: _selectTab,
+                        onClose: _closeTab,
                         onOpenOmnibox: _openOmnibox,
-                        onSelectLens: _selectLens,
                       ),
-                      MobilePeekSheet(onOpenFullView: _switchToEntity),
+                      Expanded(
+                        child: viewport == _ViewportClass.desktop
+                            ? _DesktopWorkspace(
+                                activeLens: _activeLens,
+                                showSidebar: showSidebar,
+                                onSelectLens: _selectLens,
+                                onOpenEntity: _openEntityTab,
+                                onOpenFullView: _switchToEntity,
+                                canvas: widget.child,
+                              )
+                            : Stack(
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: SolSpace.sm,
+                                      bottom: SolSpace.sm,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(
+                                        SolRadius.md,
+                                      ),
+                                      child: widget.child,
+                                    ),
+                                  ),
+                                  TabletPeekSheet(
+                                    onOpenFullView: _switchToEntity,
+                                  ),
+                                ],
+                              ),
+                      ),
                     ],
                   ),
-                },
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            _ViewportClass.mobile => Stack(
+              children: [
+                Column(
+                  children: [
+                    // On a phone the strip is the only band at the top, so it
+                    // owns the status-bar inset as well.
+                    WorkspaceTitleBar(
+                      tabs: tabs,
+                      onSelect: _selectTab,
+                      onClose: _closeTab,
+                      onOpenOmnibox: _openOmnibox,
+                      compact: true,
+                    ),
+                    MobileContextHeader(
+                      activeLens: _activeLens,
+                      onSelectLens: _selectLens,
+                    ),
+                    Expanded(child: widget.child),
+                  ],
+                ),
+                MobileFloatingActionPill(
+                  onOpenOmnibox: _openOmnibox,
+                  onSelectLens: _selectLens,
+                ),
+                MobilePeekSheet(onOpenFullView: _switchToEntity),
+              ],
+            ),
+          },
         ),
       ),
     );
   }
 }
 
-/// Desktop chrome: the lens rail, the contextual sidebar when the lens owns
-/// one, then the canvas with its tab strip above it and the peek pane beside.
+/// Desktop chrome beside the rail: the contextual sidebar when the lens owns
+/// one, then the canvas with the peek pane beside it.
+///
+/// The rail and the strip are laid out by the shell itself; this is only the
+/// row they leave for the lens' own columns.
 class _DesktopWorkspace extends StatelessWidget {
   final WorkspaceLens activeLens;
-  final bool sidebarCollapsed;
   final bool showSidebar;
   final ValueChanged<WorkspaceLens> onSelectLens;
-  final VoidCallback onToggleSidebar;
-  final VoidCallback onOpenOmnibox;
-  final ValueChanged<WorkspaceEntityRef> onMailDroppedToTodo;
   final ValueChanged<WorkspaceEntityRef> onOpenEntity;
   final ValueChanged<WorkspaceEntityRef> onOpenFullView;
   final Widget canvas;
 
   const _DesktopWorkspace({
     required this.activeLens,
-    required this.sidebarCollapsed,
     required this.showSidebar,
     required this.onSelectLens,
-    required this.onToggleSidebar,
-    required this.onOpenOmnibox,
-    required this.onMailDroppedToTodo,
     required this.onOpenEntity,
     required this.onOpenFullView,
     required this.canvas,
@@ -462,21 +458,10 @@ class _DesktopWorkspace extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(
         right: SolSpace.sm,
-        top: SolSpace.sm,
         bottom: SolSpace.sm,
       ),
       child: Row(
         children: [
-          _SlimLensRail(
-            activeLens: activeLens,
-            sidebarCollapsed: sidebarCollapsed,
-            // A lens with no sidebar has nothing for this button to toggle.
-            showSidebarToggle: _lensOwnsSidebar(activeLens),
-            onSelectLens: onSelectLens,
-            onToggleSidebar: onToggleSidebar,
-            onOpenOmnibox: onOpenOmnibox,
-            onMailDroppedToTodo: onMailDroppedToTodo,
-          ),
           if (showSidebar) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(SolRadius.md),
@@ -524,14 +509,44 @@ class _SlimLensRail extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final workspace = ref.watch(selectedWorkspaceProvider).value;
+    final name = workspace?.name.trim();
+    final label = (name == null || name.isEmpty) ? 'SolWatt' : name;
 
     return Container(
       width: SolWorkspaceGeometry.railWidth,
       color: scheme.surfaceContainerLowest,
+      // The rail is the topmost surface of the shell body, so on a phone it —
+      // not the lens header below it — owns the status-bar strip.
       child: SafeArea(
         right: false,
         child: Column(
           children: [
+            const SizedBox(height: SolSpace.sm),
+            // The workspace the app is in: its avatar carries the identity and
+            // its name is the tooltip, so the rail keeps one icon of width.
+            Tooltip(
+              message: '$label — tap to switch workspace',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(SolRadius.sm),
+                onTap: () => showWorkspaceSwitcher(context, ref),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Center(
+                    child: CloudFileAvatar(
+                      file: workspace?.picture,
+                      fallbackIcon: Symbols.workspaces_rounded,
+                      size: 28,
+                      assumeImage: true,
+                      borderRadius: workspace?.isIndividual == true
+                          ? SolRadius.pillRadius
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: SolSpace.sm),
             _RailIconButton(
               icon: WorkspaceLens.today.icon,

@@ -101,16 +101,13 @@ void main() {
     expect(find.byType(WorkspaceTitleBar), findsOneWidget);
     expect(find.text('Q4 budget review'), findsOneWidget);
 
-    // The document's tab plus the lens tab the bar always anchors on.
+    // The strip holds the document and nothing else: the lens the rail picked
+    // is the rail's own state, not a tab.
     final state = container.read(workspaceTabsProvider);
-    expect(state.tabs, hasLength(2));
+    expect(state.tabs, hasLength(1));
     expect(
       state.activeKey,
       WorkspaceTab.keyFor(WorkspaceDomain.mail, 'thread-1'),
-    );
-    expect(
-      state.tabs.map((tab) => tab.key),
-      contains(WorkspaceTab.lensTabKey(WorkspaceLens.mail)),
     );
 
     // The reader moves elsewhere: the document keeps its tab, the way a
@@ -129,15 +126,13 @@ void main() {
     await tester.pumpAndSettle();
 
     final remaining = container.read(workspaceTabsProvider);
-    expect(remaining.tabs, hasLength(2));
+    expect(remaining.tabs, hasLength(1));
+    expect(remaining.activeKey, isNull);
     expect(find.text('Q4 budget review'), findsOneWidget);
-    // Both are closable here: the document, and the lens tab it sits beside.
     expect(find.byTooltip('Close tab'), findsOneWidget);
   });
 
-  testWidgets('a reading pane folds into its lens tab instead of adding one', (
-    tester,
-  ) async {
+  testWidgets('a reading pane never spends a tab', (tester) async {
     final container = await _container();
     addTearDown(container.dispose);
 
@@ -149,145 +144,61 @@ void main() {
       fullScreen: false,
     );
 
+    // Reading a conversation beside the list is not opening a document: the
+    // strip stays empty and the lens' own root keeps the canvas.
     final state = container.read(workspaceTabsProvider);
-    // One tab: the inbox the reader is still in, labelled with what it shows.
-    expect(state.tabs, hasLength(1));
-    expect(state.tabs.single.isRoot, isTrue);
-    expect(state.tabs.single.title, 'Q4 budget review');
-    expect(state.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.mail));
+    expect(state.tabs, isEmpty);
+    expect(state.activeKey, isNull);
+    expect(state.showsDocument, isFalse);
 
-    // The same conversation promoted to a full screen tab does get its own.
+    // The same conversation promoted to a full screen does get its own tab.
     controller.register(
       domain: WorkspaceDomain.mail,
       entityId: 'thread-1',
       title: 'Q4 budget review',
     );
     final promoted = container.read(workspaceTabsProvider);
-    expect(promoted.tabs, hasLength(2));
+    expect(promoted.tabs, hasLength(1));
     expect(
       promoted.activeKey,
       WorkspaceTab.keyFor(WorkspaceDomain.mail, 'thread-1'),
     );
 
-    // Closing the promoted document steps back onto the inbox tab, which the
-    // pane kept alive.
-    controller.close(WorkspaceTab.keyFor(WorkspaceDomain.mail, 'thread-1'));
-    final closed = container.read(workspaceTabsProvider);
-    expect(closed.tabs, hasLength(1));
-    expect(closed.tabs.single.isRoot, isTrue);
-  });
-
-  testWidgets('the rail switches to the lens tab it already pinned', (
-    tester,
-  ) async {
-    final container = await _container();
-    addTearDown(container.dispose);
-
-    final controller = container.read(workspaceTabsProvider.notifier);
-    controller.focusLens(WorkspaceLens.mail);
-    expect(container.read(workspaceTabsProvider).tabs, hasLength(1));
-
-    // A lens tab is pinned: the rail has no other road back to its lens, so
-    // closing it is a no-op rather than a way to lose the destination.
-    controller.close(WorkspaceTab.lensTabKey(WorkspaceLens.mail));
-    expect(container.read(workspaceTabsProvider).tabs, hasLength(1));
-
-    // Leaving and coming back reuses that tab: no pile, rail order at front.
-    controller.focusLens(WorkspaceLens.todo);
-    controller.focusLens(WorkspaceLens.mail);
-    final state = container.read(workspaceTabsProvider);
-    expect(state.tabs, hasLength(2));
-    expect(state.tabs.map((tab) => tab.lens), [
-      WorkspaceLens.mail,
-      WorkspaceLens.todo,
-    ]);
-    expect(state.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.mail));
-  });
-
-  testWidgets('a reading pane never closes the full-screen tab beside it', (
-    tester,
-  ) async {
-    final container = await _container();
-    addTearDown(container.dispose);
-
-    final controller = container.read(workspaceTabsProvider.notifier);
-    const thread = 'thread-1';
+    // Demoting it folds the pane back beside the list: the document is no
+    // longer a full screen, so it stops being a tab.
     controller.register(
       domain: WorkspaceDomain.mail,
-      entityId: thread,
-      title: 'Q4 budget review',
-    );
-    expect(
-      container.read(workspaceTabsProvider).tabs,
-      hasLength(1),
-      reason: 'the promoted conversation owns one tab',
-    );
-
-    // Reading the same conversation in the pane must not remove that tab.
-    controller.register(
-      domain: WorkspaceDomain.mail,
-      entityId: thread,
+      entityId: 'thread-1',
       title: 'Q4 budget review',
       fullScreen: false,
     );
-    final state = container.read(workspaceTabsProvider);
-    expect(state.tabs.where((tab) => tab.key == 'mail:$thread'), hasLength(1));
-    expect(
-      state.tabs.map((tab) => tab.key),
-      contains(WorkspaceTab.lensTabKey(WorkspaceLens.mail)),
-    );
+    expect(container.read(workspaceTabsProvider).tabs, isEmpty);
   });
 
-  testWidgets('a rail click reuses the lens tab and never spends a new one', (
+  testWidgets('a rail click never spends a tab and keeps the open ones', (
     tester,
   ) async {
     final container = await _container();
     addTearDown(container.dispose);
 
     final controller = container.read(workspaceTabsProvider.notifier);
-    for (final lens in [
-      WorkspaceLens.drive,
-      WorkspaceLens.mail,
-      WorkspaceLens.todo,
-    ]) {
-      controller.focusLens(lens);
-    }
-    final state = container.read(workspaceTabsProvider);
-    expect(state.tabs, hasLength(3));
-    expect(state.tabs.every((tab) => tab.isRoot), isTrue);
-    expect(state.tabs.map((tab) => tab.lens).toList(), [
-      WorkspaceLens.mail,
-      WorkspaceLens.todo,
-      WorkspaceLens.drive,
-    ]);
-
-    // A document opened in a lens keeps its tab, and going back to the rail
-    // retitles that lens' own tab rather than adding another one beside it.
     controller.claim(
       domain: WorkspaceDomain.mail,
       entityId: 'thread-1',
       title: 'Q4 budget review',
       messageId: 'msg-1',
     );
-    controller.focusLens(WorkspaceLens.todo);
-    controller.focusLens(WorkspaceLens.mail, title: 'Inbox');
-    final returned = container.read(workspaceTabsProvider);
-    expect(returned.tabs, hasLength(4));
-    expect(returned.tabs.where((tab) => tab.isRoot), hasLength(3));
+
+    // The rail addresses a place: arriving at a lens shows its root pane, and
+    // nothing on the strip claims the canvas.
+    controller.deactivate();
+    final state = container.read(workspaceTabsProvider);
+    expect(state.activeKey, isNull);
+    expect(state.showsDocument, isFalse);
     expect(
-      returned.tabs
-          .firstWhere(
-            (tab) => tab.key == WorkspaceTab.lensTabKey(WorkspaceLens.mail),
-          )
-          .title,
-      'Inbox',
-      reason: 'the lens tab is named after the pane the rail lands on',
-    );
-    expect(returned.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.mail));
-    // The document's tab survives the round trip untouched.
-    expect(
-      returned.tabs.where((tab) => tab.key == 'mail:thread-1'),
-      hasLength(1),
+      state.tabs.map((tab) => tab.key),
+      ['mail:thread-1'],
+      reason: 'the document keeps the tab the reader opened it in',
     );
   });
 
@@ -316,14 +227,14 @@ void main() {
       reason: 'the tab reopens the message it was created for',
     );
 
-    // The rail moves between pinned lens tabs; it never spends a document's.
-    controller.focusLens(WorkspaceLens.mail);
+    // The rail shows the inbox; the tab is still there and comes back whole.
+    controller.deactivate();
     expect(container.read(workspaceTabsProvider).showsDocument, isFalse);
     controller.activate(tab.key);
     expect(container.read(workspaceTabsProvider).showsDocument, isTrue);
   });
 
-  testWidgets('documents close, pinned lens tabs stay', (tester) async {
+  testWidgets('every tab on the strip closes', (tester) async {
     const mail = WorkspaceTab(
       key: 'mail:t-1',
       lens: WorkspaceLens.mail,
@@ -363,35 +274,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    const inbox = WorkspaceTab(
-      key: 'lens:mail',
-      lens: WorkspaceLens.mail,
-      title: 'Inbox',
-      isRoot: true,
-    );
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          theme: createSolWattTheme(Brightness.light),
-          home: Scaffold(
-            body: WorkspaceTitleBar(
-              tabs: const WorkspaceTabState(
-                tabs: [inbox, mail, board],
-                activeKey: 'lens:mail',
-              ),
-              onSelect: (_) {},
-              onClose: (tab) => closed.add(tab.key),
-              onOpenOmnibox: () {},
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // Two documents, two close buttons: a pinned lens tab is the rail's own
-    // destination and has no close affordance.
+    // The strip only ever holds documents, so each one has a close button.
     expect(find.byTooltip('Close tab'), findsNWidgets(2));
     await tester.tap(find.byTooltip('Close tab').first);
     expect(closed, ['mail:t-1']);
@@ -482,8 +365,8 @@ void main() {
 
     expect(find.text('Architecture.pdf'), findsOneWidget);
     expect(find.text('Launch board'), findsOneWidget);
-    // Two documents (the second registered by hand) plus the drive lens tab.
-    expect(container.read(workspaceTabsProvider).tabs, hasLength(3));
+    // Two documents: the drive file and the board registered by hand.
+    expect(container.read(workspaceTabsProvider).tabs, hasLength(2));
 
     // Selecting a tab activates it.
     final launch = container
@@ -495,7 +378,7 @@ void main() {
     expect(container.read(workspaceTabsProvider).activeKey, launch.key);
   });
 
-  testWidgets('the bar carries the workspace avatar, not its name', (
+  testWidgets('the workspace avatar lives on the rail, not the strip', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1280, 800);
@@ -519,11 +402,18 @@ void main() {
     await tester.pumpAndSettle();
 
     // A workspace with no picture falls back to the workspace icon, sized to
-    // the bar: the name itself is not spent on screen width.
+    // the rail: the name itself is not spent on screen width.
     final avatar = find.byType(CloudFileAvatar);
     expect(avatar, findsWidgets);
     expect(tester.getSize(avatar.first).width, lessThanOrEqualTo(32));
-    // The bar itself never prints the name; the tooltip carries it.
+    expect(
+      find.descendant(
+        of: find.byType(WorkspaceTitleBar),
+        matching: avatar,
+      ),
+      findsNothing,
+      reason: 'the workspace belongs to the rail',
+    );
     expect(
       find.descendant(
         of: find.byType(WorkspaceTitleBar),
@@ -531,12 +421,9 @@ void main() {
       ),
       findsNothing,
     );
-
-    // The rail no longer duplicates the workspace picker.
-    expect(find.byTooltip('Workspaces'), findsNothing);
   });
 
-  testWidgets('the title bar is always present and sits above every panel', (
+  testWidgets('the strip is there for documents and gone without them', (
     tester,
   ) async {
     Future<void> pumpAt(Size size) async {
@@ -559,27 +446,53 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // Desktop: full width, flush to the top, above the sidebar and canvas.
+    // Nothing open: the strip collapses to one step of air, so the canvas
+    // keeps a gap from the top edge instead of starting flush against it.
     await pumpAt(const Size(1280, 800));
-    final desktopBar = tester.getRect(find.byType(WorkspaceTitleBar));
-    expect(desktopBar.top, 0);
-    expect(desktopBar.width, 1280);
-    final sidebar = tester.getRect(find.byType(ContextualSidebar));
-    expect(sidebar.top, greaterThanOrEqualTo(desktopBar.bottom));
+    final collapsed = tester.getRect(find.byType(WorkspaceTitleBar));
+    expect(collapsed.top, 0);
+    expect(collapsed.height, SolSpace.sm);
+    // The rail is flush to the top of the body: its first row — the workspace
+    // avatar — sits where the rail's own inset puts it, with no strip above.
+    final avatar = tester.getRect(find.byType(CloudFileAvatar).first);
+    expect(avatar.top, lessThan(SolSpace.md + SolSpace.sm));
 
-    // Tablet.
-    await pumpAt(const Size(800, 800));
-    var bar = tester.getRect(find.byType(WorkspaceTitleBar));
-    expect(bar.top, 0);
-    expect(bar.width, 800);
+    // A document brings the strip back, above rail and canvas alike.
+    final withBoard = await _container();
+    addTearDown(withBoard.dispose);
+    withBoard
+        .read(workspaceTabsProvider.notifier)
+        .claim(
+          domain: WorkspaceDomain.todo,
+          entityId: 'b-1',
+          title: 'Launch board',
+        );
+    await tester.pumpWidget(
+      _app(
+        withBoard,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 2,
+          onSelected: (_) {},
+          child: const SizedBox.expand(),
+        ),
+        size: const Size(1280, 800),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSize(find.byType(WorkspaceTitleBar)).height,
+      greaterThan(0),
+    );
 
-    // Phone: the lens switcher below it, never beside it.
+    // Phone: the strip owns the status-bar inset, and the lens switcher sits
+    // under it rather than beside it.
     await pumpAt(const Size(390, 844));
-    bar = tester.getRect(find.byType(WorkspaceTitleBar));
-    expect(bar.top, 0);
-    expect(bar.width, 390);
+    final phoneBar = tester.getRect(find.byType(WorkspaceTitleBar));
+    expect(phoneBar.top, 0);
+    expect(phoneBar.width, 390);
     final switcher = tester.getRect(find.byType(MobileContextHeader));
-    expect(switcher.top, greaterThanOrEqualTo(bar.bottom));
+    expect(switcher.top, greaterThanOrEqualTo(phoneBar.bottom));
   });
 
   testWidgets('the title bar keeps its place with documents open', (
@@ -811,11 +724,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final tabs = container
-        .read(workspaceTabsProvider)
-        .tabs
-        .where((tab) => !tab.isRoot)
-        .toList();
+    final tabs = container.read(workspaceTabsProvider).tabs;
     expect(tabs, hasLength(1));
     expect(tabs.single.title, 'Second draft');
     expect(find.byIcon(Symbols.article_rounded), findsWidgets);

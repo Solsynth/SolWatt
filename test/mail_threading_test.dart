@@ -273,7 +273,7 @@ void main() {
 
       WorkspaceTabState tabs() => container.read(workspaceTabsProvider);
       String? mailDocumentKey() => tabs().tabs
-          .where((tab) => tab.domain == WorkspaceDomain.mail && !tab.isRoot)
+          .where((tab) => tab.domain == WorkspaceDomain.mail)
           .map((tab) => tab.key)
           .firstOrNull;
       // The lens stack the title bar drives, resolved the way the shell
@@ -322,9 +322,7 @@ void main() {
 
       // Going back to the inbox tab and returning must not lose the reading:
       // the bar reopens the message the tab remembers, on the same stack.
-      container
-          .read(workspaceTabsProvider.notifier)
-          .activate(WorkspaceTab.lensTabKey(WorkspaceLens.mail));
+      container.read(workspaceTabsProvider.notifier).deactivate();
       await tester.pumpAndSettle();
       container.read(workspaceTabsProvider.notifier).activate(key!);
       await tester.pumpAndSettle();

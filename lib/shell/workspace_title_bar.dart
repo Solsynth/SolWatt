@@ -10,13 +10,15 @@ import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 
-/// The workspace title bar: the workspace it belongs to and the documents open
-/// in it, always present between the app's own title bar and every other piece
-/// of chrome.
+/// The strip of documents open in the workspace.
 ///
-/// The tabs are the drive's browser-style chrome: flat, square-cornered, the
-/// selected one sitting on the content surface under a primary accent line.
-/// Nothing here is a pill.
+/// It follows MaidKit's strip: the bar is the paper, and the selected tab is a
+/// raised tone on it — no accent rule, no outline, no border against the
+/// canvas below. The workspace itself lives on the rail, so the bar spends its
+/// whole width on documents.
+///
+/// With nothing open the strip is not chrome at all: it collapses to nothing
+/// so the canvas starts where the rail's top does.
 class WorkspaceTitleBar extends ConsumerWidget {
   final WorkspaceTabState tabs;
   final ValueChanged<WorkspaceTab> onSelect;
@@ -38,133 +40,91 @@ class WorkspaceTitleBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final workspace = ref.watch(selectedWorkspaceProvider).value;
-    final name = workspace?.name.trim();
-    final label = (name == null || name.isEmpty) ? 'SolWatt' : name;
     final barHeight = compact ? 40.0 : 50.0;
     final documents = tabs.tabs;
+    // A phone's status bar belongs to the topmost band, so an empty strip
+    // still reserves that inset even though it draws nothing.
+    final topInset = MediaQuery.paddingOf(context).top;
+    // Even collapsed the strip keeps one step of air: the canvas never sits
+    // flush against the top edge of the body.
+    final collapsedHeight = topInset + SolSpace.sm;
 
     return Material(
-      color: scheme.surfaceContainerLow,
-      // The bar is the topmost surface of the shell body, so on a phone it —
-      // not the lens header below it — owns the status-bar strip.
-      child: SafeArea(
-        bottom: false,
-        left: false,
-        right: false,
-        child: AnimatedSize(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: Container(
-            height: barHeight,
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: scheme.outlineVariant.withValues(alpha: 0.55),
-                ),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // The workspace the app is in. Its avatar carries the identity
-                // and its name is the tooltip, so the bar spends its width on
-                // the documents instead of repeating a long string.
-                Tooltip(
-                  message: workspace == null
-                      ? label
-                      : '$label — tap to switch workspace',
-                  child: InkWell(
-                    onTap: () => showWorkspaceSwitcher(context, ref),
-                    child: SizedBox(
-                      width: 56,
-                      height: 48,
-                      child: Center(
-                        child: CloudFileAvatar(
-                          file: workspace?.picture,
-                          fallbackIcon: Symbols.workspaces_rounded,
-                          size: 32,
-                          assumeImage: true,
-                          borderRadius: workspace?.isIndividual == true
-                              ? SolRadius.pillRadius
-                              : null,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: documents.isEmpty
-                      ? Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: SolSpace.md,
-                          ),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'No open tabs',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
+      color: scheme.surfaceContainerLowest,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: documents.isEmpty
+            ? SizedBox(height: collapsedHeight, width: double.infinity)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (topInset > 0) SizedBox(height: topInset),
+                  SizedBox(
+                    height: barHeight,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: SolSpace.sm,
+                            ),
+                            // Chips take the width their titles need and no
+                            // more: the strip stays scannable instead of
+                            // dividing the bar into mostly empty slices.
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final tab in documents)
+                                  _AnimatedTabSlot(
+                                    child: _TitleTab(
+                                      tab: tab,
+                                      height: barHeight,
+                                      selected: tabs.isActive(tab),
+                                      onSelect: () => onSelect(tab),
+                                      onClose: () => onClose(tab),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
-                        )
-                      : ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: documents.length,
-                          itemBuilder: (context, index) {
-                            final tab = documents[index];
-                            return _AnimatedTabSlot(
-                              child: _TitleTab(
-                                tab: tab,
-                                selected: tabs.isActive(tab),
-                                showDivider:
-                                    index > 0 &&
-                                    !tabs.isActive(documents[index - 1]) &&
-                                    !tabs.isActive(tab),
-                                onSelect: () => onSelect(tab),
-                                // Pinned tabs are the lens destinations the
-                                // rail switches between; only documents close.
-                                onClose: tab.isRoot ? null : () => onClose(tab),
-                              ),
-                            );
-                          },
                         ),
-                ),
-                if (documents.any((tab) => !tab.isRoot))
-                  IconButton(
-                    tooltip: 'Close all document tabs',
-                    iconSize: 16,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () =>
-                        documents.where((tab) => !tab.isRoot).forEach(onClose),
-                    icon: Icon(
-                      Symbols.clear_all_rounded,
-                      color: scheme.onSurfaceVariant,
+                        IconButton(
+                          tooltip: 'Close all document tabs',
+                          iconSize: 16,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => documents.forEach(onClose),
+                          icon: Icon(
+                            Symbols.clear_all_rounded,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Search — Cmd K or Ctrl K',
+                          iconSize: 17,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: onOpenOmnibox,
+                          icon: Icon(
+                            Symbols.search_rounded,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(width: SolSpace.xs),
+                      ],
                     ),
                   ),
-                IconButton(
-                  tooltip: 'Search — Cmd K or Ctrl K',
-                  iconSize: 17,
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onOpenOmnibox,
-                  icon: Icon(
-                    Symbols.search_rounded,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: SolSpace.xs),
-              ],
-            ),
-          ),
-        ),
+                ],
+              ),
       ),
     );
   }
 }
 
-/// The workspace picker the title bar's avatar opens: every workspace the
-/// account can enter, with the active one ringed.
+/// The workspace picker the rail's avatar opens: every workspace the account
+/// can enter, with the active one ringed.
 Future<void> showWorkspaceSwitcher(BuildContext context, WidgetRef ref) {
   return showModalBottomSheet<void>(
     context: context,
@@ -295,95 +255,94 @@ class _AnimatedTabSlot extends StatelessWidget {
   }
 }
 
-/// One tab, painted like the drive's browser tabs: square, flat, selected tab
-/// on the content surface with a primary accent on top.
+/// One tab, cut from the bar's paper: transparent until selected, when it
+/// takes the raised surface tone the chips in MaidKit's strip use.
 class _TitleTab extends StatelessWidget {
   final WorkspaceTab tab;
   final bool selected;
-  final bool showDivider;
-  final VoidCallback onSelect;
 
-  /// Null on a pinned lens tab: the rail owns that destination, so the bar
-  /// does not offer to close it.
-  final VoidCallback? onClose;
+  /// Height of the bar the chip sits in; the chip insets itself from it.
+  final double height;
+  final VoidCallback onSelect;
+  final VoidCallback onClose;
 
   const _TitleTab({
     required this.tab,
     required this.selected,
-    required this.showDivider,
+    required this.height,
     required this.onSelect,
     required this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final border = scheme.outlineVariant.withValues(alpha: 0.55);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final radius = BorderRadius.circular(SolRadius.xs);
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 132, maxWidth: 236),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onSelect,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              color: selected ? scheme.surface : Colors.transparent,
-              border: Border(
-                left: showDivider ? BorderSide(color: border) : BorderSide.none,
-                top: selected
-                    ? BorderSide(color: scheme.primary, width: 2)
-                    : BorderSide.none,
-                right: selected ? BorderSide(color: border) : BorderSide.none,
+    return SizedBox(
+      height: height,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: Material(
+          type: MaterialType.canvas,
+          color: selected ? scheme.surface : Colors.transparent,
+          borderRadius: radius,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onSelect,
+            borderRadius: radius,
+            // The right inset is the gap before the close button; the title
+            // keeps the same air on its left so the label never sits flush
+            // against the chip edge.
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: SolSpace.sm + 2,
+                right: SolSpace.xs,
               ),
-            ),
-            padding: const EdgeInsets.fromLTRB(SolSpace.md, 0, SolSpace.xs, 0),
-            child: Row(
-              children: [
-                Icon(
-                  tab.icon,
-                  size: 16,
-                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: SolSpace.sm),
-                Expanded(
-                  child: Text(
-                    tab.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                      color: selected
-                          ? scheme.onSurface
-                          : scheme.onSurfaceVariant,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    tab.icon,
+                    size: 16,
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: SolSpace.sm - 2),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 240),
+                    child: Text(
+                      tab.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: selected
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                ),
-                if (onClose case final close?)
-                  SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: IconButton(
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      iconSize: 15,
-                      tooltip: 'Close tab',
-                      onPressed: close,
-                      style: IconButton.styleFrom(
-                        foregroundColor: scheme.onSurfaceVariant,
-                        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
-                      ),
-                      icon: const Icon(Symbols.close),
+                  const SizedBox(width: SolSpace.sm),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 15,
+                    tooltip: 'Close tab',
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(24, 24),
+                      maximumSize: const Size(24, 24),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: scheme.onSurfaceVariant,
+                      hoverColor: scheme.onSurface.withValues(alpha: 0.08),
                     ),
-                  )
-                else
-                  // A pinned tab keeps the button's width so every label sits
-                  // on the same rhythm as the documents beside it.
-                  const SizedBox(width: 26),
-              ],
+                    onPressed: onClose,
+                    icon: const Icon(Symbols.close),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
