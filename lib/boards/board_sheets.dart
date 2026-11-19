@@ -1,13 +1,12 @@
 part of 'boards_screen.dart';
 
-/// Task editor, lane picker, group manager, and assignee search — the sheets
-/// the board pushes above itself.
+/// Task editor and assignee search — the sheets the board pushes above
+/// itself.
 Future<void> _taskForm(
   BuildContext context,
   WidgetRef ref,
   String broadId, {
   WorkTask? task,
-  String? initialGroupId,
 }) async {
   WorkTask? editable = task;
   if (task != null) {
@@ -23,11 +22,7 @@ Future<void> _taskForm(
     context: context,
     useRootNavigator: true,
     isScrollControlled: true,
-    builder: (_) => _TaskEditorSheet(
-      broadId: broadId,
-      task: editable,
-      initialGroupId: task == null ? initialGroupId : null,
-    ),
+    builder: (_) => _TaskEditorSheet(broadId: broadId, task: editable),
   );
   if (result == null) return;
   try {
@@ -56,63 +51,6 @@ Future<void> _taskForm(
   }
 }
 
-/// Move a task to another lane without dragging it — the only way to do it on
-/// a keyboard, and the pointer-friendly way on a phone.
-class _MoveTaskSheet extends StatelessWidget {
-  const _MoveTaskSheet({
-    required this.task,
-    required this.lanes,
-    required this.currentGroupId,
-  });
-
-  final WorkTask task;
-  final List<_TaskColumn> lanes;
-  final String? currentGroupId;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-
-    return SheetScaffold(
-      titleText: 'moveToGroup'.tr(),
-      heightFactor: 0.6,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: [
-          Text(
-            task.name,
-            style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 12),
-          for (var index = 0; index < lanes.length; index++)
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              leading: Container(
-                width: 4,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: _laneColor(index),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              title: Text(lanes[index].title),
-              subtitle: Text(
-                'tasksCount'.plural(lanes[index].tasks.length),
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              trailing: lanes[index].groupId == currentGroupId
-                  ? Icon(Symbols.check, color: scheme.primary)
-                  : null,
-              enabled: lanes[index].groupId != currentGroupId,
-              onTap: () => Navigator.pop(context, lanes[index]),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TaskFormResult {
   const _TaskFormResult({
     required this.draft,
@@ -127,12 +65,10 @@ class _TaskEditorSheet extends ConsumerStatefulWidget {
   const _TaskEditorSheet({
     required this.broadId,
     this.task,
-    this.initialGroupId,
   });
 
   final String broadId;
   final WorkTask? task;
-  final String? initialGroupId;
 
   @override
   ConsumerState<_TaskEditorSheet> createState() => _TaskEditorSheetState();
@@ -146,7 +82,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
   var _priority = 0;
   DateTime? _deadline;
   int? _completeReason;
-  String? _groupId;
   late bool _showDescription;
   late bool _showContent;
   final List<SnCloudFileReference> _attachments = [];
@@ -163,7 +98,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     _priority = task?.priority ?? 0;
     _deadline = task?.deadlineAt;
     _completeReason = task?.completeReason;
-    _groupId = task?.groupId ?? widget.initialGroupId;
     _showDescription = task?.hasDescription == true;
     _showContent = task?.hasContent == true;
     if (task != null) {
@@ -266,8 +200,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
       showSnackBar('nameIsRequired'.tr());
       return;
     }
-    final hadGroup = widget.task?.groupId != null;
-    final ungroup = hadGroup && _groupId == null;
     Navigator.pop(
       context,
       _TaskFormResult(
@@ -282,8 +214,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
           tags: _parseTags(),
           deadlineAt: _deadline,
           completeReason: _completeReason,
-          groupId: _groupId,
-          ungroup: ungroup ? true : null,
           assigneeAccountIds: _assignees.map((item) => item.accountId).toList(),
         ),
         assigneeAccountIds: _assignees.map((item) => item.accountId).toList(),
@@ -296,7 +226,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final task = widget.task;
-    final groups = ref.watch(taskGroupsProvider(widget.broadId));
 
     return SheetScaffold(
       titleText: task == null ? 'newTask'.tr() : 'editTask'.tr(),
@@ -377,39 +306,6 @@ class _TaskEditorSheetState extends ConsumerState<_TaskEditorSheet> {
               ),
               const SizedBox(height: 8),
             ],
-            const SizedBox(height: 8),
-            groups.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text(
-                'groupsUnavailable'.tr(args: [wattApiErrorMessage(error)]),
-                style: text.bodySmall?.copyWith(color: scheme.error),
-              ),
-              data: (items) {
-                final validGroupId = items.any((group) => group.id == _groupId)
-                    ? _groupId
-                    : null;
-                return DropdownButtonFormField<String?>(
-                  key: ValueKey('group-$validGroupId-${items.length}'),
-                  initialValue: validGroupId,
-                  decoration: InputDecoration(
-                    labelText: 'group'.tr(),
-                    prefixIcon: inputPrefixIcon(Symbols.folder),
-                  ),
-                  items: [
-                    DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('ungrouped'.tr()),
-                    ),
-                    for (final group in items)
-                      DropdownMenuItem<String?>(
-                        value: group.id,
-                        child: Text(group.name),
-                      ),
-                  ],
-                  onChanged: (value) => setState(() => _groupId = value),
-                );
-              },
-            ),
             const SizedBox(height: 16),
             Text('priority'.tr(), style: text.titleSmall),
             const SizedBox(height: 8),
@@ -792,207 +688,3 @@ class _AssigneePickerSheetState extends State<_AssigneePickerSheet> {
   }
 }
 
-Future<void> _manageGroups(
-  BuildContext context,
-  WidgetRef ref,
-  String broadId,
-) {
-  return showModalBottomSheet<void>(
-    context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    builder: (_) => _TaskGroupsSheet(broadId: broadId),
-  );
-}
-
-class _TaskGroupsSheet extends ConsumerStatefulWidget {
-  const _TaskGroupsSheet({required this.broadId});
-
-  final String broadId;
-
-  @override
-  ConsumerState<_TaskGroupsSheet> createState() => _TaskGroupsSheetState();
-}
-
-class _TaskGroupsSheetState extends ConsumerState<_TaskGroupsSheet> {
-  final _name = TextEditingController();
-  var _busy = false;
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _create() async {
-    final name = _name.text.trim();
-    if (name.isEmpty) {
-      showSnackBar('groupNameRequired'.tr());
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .createTaskGroup(widget.broadId, name: name);
-      _name.clear();
-      ref.invalidate(taskGroupsProvider(widget.broadId));
-      showSnackBar('groupCreated'.tr());
-    } catch (error) {
-      showSnackBar(wattApiErrorMessage(error));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _rename(TaskGroup group) async {
-    final name = await showNameInputSheet(
-      context,
-      title: 'renameGroup'.tr(),
-      label: 'name'.tr(),
-      confirmLabel: 'save'.tr(),
-      initialValue: group.name,
-      icon: Symbols.folder,
-    );
-    if (name == null || name.trim().isEmpty || name.trim() == group.name) {
-      return;
-    }
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .updateTaskGroup(group.id, name: name.trim());
-      ref.invalidate(taskGroupsProvider(widget.broadId));
-      showSnackBar('groupUpdated'.tr());
-    } catch (error) {
-      showSnackBar(wattApiErrorMessage(error));
-    }
-  }
-
-  Future<void> _delete(TaskGroup group) async {
-    final confirmed = await showConfirmAlert(
-      'deleteGroupConfirm'.tr(namedArgs: {'name': group.name}),
-      'deleteGroupTitle'.tr(namedArgs: {'name': group.name}),
-      icon: Symbols.delete,
-      isDanger: true,
-      confirmLabel: 'delete'.tr(),
-    );
-    if (!confirmed) return;
-    try {
-      await ref.read(wattEngineClientProvider).deleteTaskGroup(group.id);
-      ref.invalidate(taskGroupsProvider(widget.broadId));
-      ref.invalidate(tasksProvider);
-      showSnackBar('groupDeleted'.tr());
-    } catch (error) {
-      showSnackBar(wattApiErrorMessage(error));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final groups = ref.watch(taskGroupsProvider(widget.broadId));
-    final scheme = Theme.of(context).colorScheme;
-
-    return SheetScaffold(
-      titleText: 'taskGroups'.tr(),
-      heightFactor: 0.7,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'organizeBoardTasks'.tr(),
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _name,
-                    enabled: !_busy,
-                    decoration: InputDecoration(
-                      labelText: 'newGroup'.tr(),
-                      hintText: 'inProgress'.tr(),
-                      prefixIcon: inputPrefixIcon(Symbols.folder),
-                    ),
-                    onSubmitted: (_) => _create(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy ? null : _create,
-                  child: Text('add'.tr()),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: groups.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, _) => EmptyState(
-                  icon: Symbols.error,
-                  title: 'couldNotLoadGroups'.tr(),
-                  message: wattApiErrorMessage(error),
-                  action: FilledButton(
-                    onPressed: () =>
-                        ref.invalidate(taskGroupsProvider(widget.broadId)),
-                    child: Text('tryAgain'.tr()),
-                  ),
-                ),
-                data: (items) {
-                  if (items.isEmpty) {
-                    return EmptyState(
-                      icon: Symbols.view_column,
-                      title: 'noGroupsYet'.tr(),
-                      message: 'createGroupToOrganize'.tr(),
-                    );
-                  }
-                  return ListView.separated(
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final group = items[index];
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Container(
-                          width: 4,
-                          height: 20,
-                          decoration: BoxDecoration(
-                            color: _laneColor(index + 1),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        title: Text(group.name),
-                        subtitle: Text('${'position'.tr()} ${group.position}'),
-                        trailing: PopupMenuButton<String>(
-                          tooltip: 'more'.tr(),
-                          onSelected: (value) {
-                            if (value == 'rename') _rename(group);
-                            if (value == 'delete') _delete(group);
-                          },
-                          itemBuilder: (_) => [
-                            PopupMenuItem(
-                              value: 'rename',
-                              child: Text('rename'.tr()),
-                            ),
-                            PopupMenuItem(
-                              value: 'delete',
-                              child: Text('delete'.tr()),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

@@ -176,7 +176,6 @@ class RealtimeBridge {
       _taskDebounce.remove(broadId);
       _log.info('Refreshing tasks for board $broadId');
       _ref.invalidate(tasksProvider);
-      _ref.invalidate(taskGroupsProvider(broadId));
     });
   }
 

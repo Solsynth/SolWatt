@@ -1092,45 +1092,6 @@ class WattEngineClient {
         '/ideask/tasks/$taskId/assignees/$assigneeAccountId',
       );
 
-  Future<List<TaskGroup>> listTaskGroups(String broadId) async {
-    final response = await _get<List<dynamic>>(
-      '/ideask/broads/$broadId/groups',
-    );
-    return (response.data ?? const [])
-        .whereType<Map>()
-        .map((item) => TaskGroup.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
-  }
-
-  Future<TaskGroup> createTaskGroup(
-    String broadId, {
-    required String name,
-    int? position,
-  }) async {
-    final response = await _request<Map<String, dynamic>>(
-      'POST',
-      '/ideask/broads/$broadId/groups',
-      data: {'name': name, 'position': ?position},
-    );
-    return TaskGroup.fromJson(response.data ?? const {});
-  }
-
-  Future<TaskGroup> updateTaskGroup(
-    String groupId, {
-    required String name,
-    int? position,
-  }) async {
-    final response = await _request<Map<String, dynamic>>(
-      'PATCH',
-      '/ideask/task-groups/$groupId',
-      data: {'name': name, 'position': ?position},
-    );
-    return TaskGroup.fromJson(response.data ?? const {});
-  }
-
-  Future<void> deleteTaskGroup(String groupId) =>
-      _request<void>('DELETE', '/ideask/task-groups/$groupId');
-
   // --- Task comments -----------------------------------------------------------
 
   Future<List<TaskComment>> listTaskComments(String taskId) async {
@@ -2903,27 +2864,6 @@ class Broad {
   );
 }
 
-class TaskGroup {
-  const TaskGroup({
-    required this.id,
-    required this.name,
-    required this.broadId,
-    this.position = 0,
-  });
-
-  final String id;
-  final String name;
-  final String broadId;
-  final int position;
-
-  factory TaskGroup.fromJson(Map<String, dynamic> json) => TaskGroup(
-    id: json['id']?.toString() ?? '',
-    name: json['name']?.toString() ?? 'Untitled group',
-    broadId: json['broad_id']?.toString() ?? '',
-    position: (json['position'] as num?)?.toInt() ?? 0,
-  );
-}
-
 class TaskAssignee {
   const TaskAssignee({
     required this.id,
@@ -2960,19 +2900,15 @@ class TaskListFilters {
     this.search,
     this.status,
     this.priority,
-    this.groupId,
-    this.ungrouped,
     this.assigneeAccountId,
     this.tag,
     this.deadlineFrom,
     this.deadlineTo,
-  }) : assert(groupId == null || ungrouped != true);
+  });
 
   final String? search;
   final TaskStatus? status;
   final int? priority;
-  final String? groupId;
-  final bool? ungrouped;
   final String? assigneeAccountId;
   final String? tag;
   final DateTime? deadlineFrom;
@@ -2981,9 +2917,6 @@ class TaskListFilters {
   bool get isEmpty =>
       search == null &&
       status == null &&
-      priority == null &&
-      groupId == null &&
-      ungrouped != true &&
       assigneeAccountId == null &&
       tag == null &&
       deadlineFrom == null &&
@@ -2993,8 +2926,6 @@ class TaskListFilters {
     if (search?.trim().isNotEmpty == true) 'search': search!.trim(),
     if (status != null) 'status': status!.apiValue,
     if (priority != null) 'priority': priority,
-    if (groupId?.isNotEmpty == true) 'groupId': groupId,
-    if (ungrouped == true) 'ungrouped': true,
     if (assigneeAccountId?.trim().isNotEmpty == true)
       'assigneeAccountId': assigneeAccountId!.trim(),
     if (tag?.trim().isNotEmpty == true) 'tag': tag!.trim(),
@@ -3007,8 +2938,6 @@ class TaskListFilters {
     String? search,
     TaskStatus? status,
     int? priority,
-    String? groupId,
-    bool? ungrouped,
     String? assigneeAccountId,
     String? tag,
     DateTime? deadlineFrom,
@@ -3016,7 +2945,6 @@ class TaskListFilters {
     bool clearSearch = false,
     bool clearStatus = false,
     bool clearPriority = false,
-    bool clearGroup = false,
     bool clearAssigneeAccountId = false,
     bool clearTag = false,
     bool clearDeadlineFrom = false,
@@ -3025,8 +2953,6 @@ class TaskListFilters {
     search: clearSearch ? null : search ?? this.search,
     status: clearStatus ? null : status ?? this.status,
     priority: clearPriority ? null : priority ?? this.priority,
-    groupId: clearGroup ? null : groupId ?? this.groupId,
-    ungrouped: clearGroup ? null : ungrouped ?? this.ungrouped,
     assigneeAccountId: clearAssigneeAccountId
         ? null
         : assigneeAccountId ?? this.assigneeAccountId,
@@ -3041,8 +2967,6 @@ class TaskListFilters {
       other.search == search &&
       other.status == status &&
       other.priority == priority &&
-      other.groupId == groupId &&
-      other.ungrouped == ungrouped &&
       other.assigneeAccountId == assigneeAccountId &&
       other.tag == tag &&
       other.deadlineFrom == deadlineFrom &&
@@ -3053,8 +2977,6 @@ class TaskListFilters {
     search,
     status,
     priority,
-    groupId,
-    ungrouped,
     assigneeAccountId,
     tag,
     deadlineFrom,
@@ -3107,7 +3029,6 @@ class WorkTask {
     this.completeReason,
     this.broadId,
     this.parentTaskId,
-    this.groupId,
     this.assignees = const [],
     this.gitHubIssue,
   });
@@ -3125,7 +3046,6 @@ class WorkTask {
   final int? completeReason;
   final String? broadId;
   final String? parentTaskId;
-  final String? groupId;
   final List<TaskAssignee> assignees;
   final GitHubIssueLink? gitHubIssue;
 
@@ -3145,29 +3065,9 @@ class WorkTask {
   List<String> get assigneeAccountIds =>
       assignees.map((item) => item.accountId).toList(growable: false);
 
-  WorkTask withGroupId(String? groupId) => WorkTask(
-    id: id,
-    name: name,
-    description: description,
-    content: content,
-    attachments: attachments,
-    tags: tags,
-    priority: priority,
-    serialNumber: serialNumber,
-    taskKey: taskKey,
-    deadlineAt: deadlineAt,
-    completedAt: completedAt,
-    completeReason: completeReason,
-    broadId: broadId,
-    parentTaskId: parentTaskId,
-    groupId: groupId,
-    assignees: assignees,
-    gitHubIssue: gitHubIssue,
-  );
-
   /// Copy with the completion flag flipped, timestamped when first completed.
   /// The pushed detail screen owns its task copy, so it can show the toggle
-  /// before the round trip; [withGroupId] mirrors the same fields.
+  /// before the round trip.
   WorkTask withCompletion(bool completed) => WorkTask(
     id: id,
     name: name,
@@ -3183,7 +3083,6 @@ class WorkTask {
     completeReason: completed ? (completeReason ?? 0) : null,
     broadId: broadId,
     parentTaskId: parentTaskId,
-    groupId: groupId,
     assignees: assignees,
     gitHubIssue: gitHubIssue,
   );
@@ -3212,7 +3111,6 @@ class WorkTask {
       completeReason: (json['complete_reason'] as num?)?.toInt(),
       broadId: json['broad_id']?.toString(),
       parentTaskId: json['parent_task_id']?.toString(),
-      groupId: json['group_id']?.toString(),
       assignees:
           (json['assignees'] as List?)
               ?.whereType<Map>()
@@ -4202,8 +4100,6 @@ class WorkTaskDraft {
     this.tags,
     this.deadlineAt,
     this.completeReason,
-    this.groupId,
-    this.ungroup,
     this.parentTaskId,
     this.assigneeAccountIds = const [],
   });
@@ -4215,8 +4111,6 @@ class WorkTaskDraft {
   final List<String>? tags;
   final DateTime? deadlineAt;
   final int? completeReason;
-  final String? groupId;
-  final bool? ungroup;
   final String? parentTaskId;
   final List<String> assigneeAccountIds;
 
@@ -4230,7 +4124,6 @@ class WorkTaskDraft {
     'deadline_at': deadlineAt?.toUtc().toIso8601String(),
     'parent_task_id': parentTaskId,
     'assignee_account_ids': assigneeAccountIds,
-    'group_id': ?groupId,
     'tags': ?tags,
   };
 
@@ -4242,8 +4135,6 @@ class WorkTaskDraft {
     'priority': priority,
     'deadline_at': deadlineAt?.toUtc().toIso8601String(),
     'complete_reason': ?completeReason,
-    'group_id': ?groupId,
-    if (ungroup == true) 'ungroup': true,
     'tags': ?tags,
   };
 }
@@ -4557,11 +4448,6 @@ final tasksProvider = FutureProvider.family<List<WorkTask>, TaskListRequest>(
   (ref, request) async => ref
       .watch(wattEngineClientProvider)
       .listTasks(request.broadId, filters: request.filters),
-);
-
-final taskGroupsProvider = FutureProvider.family<List<TaskGroup>, String>(
-  (ref, broadId) async =>
-      ref.watch(wattEngineClientProvider).listTaskGroups(broadId),
 );
 
 /// Linked GitHub repositories for a board.

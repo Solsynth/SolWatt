@@ -1,6 +1,6 @@
 part of 'boards_screen.dart';
 
-/// One board: a header that names it, a toolbar that narrows it, the lanes,
+/// One board: a header that names it, a toolbar that narrows it, the tasks,
 /// and the task detail — an inline panel beside the board on wide screens, a
 /// pushed screen on narrow ones.
 ///
@@ -17,14 +17,11 @@ class TaskBoardPage extends ConsumerStatefulWidget {
 }
 
 class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
-  /// Lane moves that the server has not confirmed yet, keyed by task id. Lets
-  /// a card show up in the lane it was dropped into before the round trip.
-  final Map<String, String?> _groupOverrides = {};
   final ValueNotifier<bool> _showTaskDetail = ValueNotifier(false);
 
   /// The task the detail surface is showing, or null when none is open. A
   /// notifier because the phone sheet and the wide panel are both built once
-  /// and then have to follow the detail fetch and lane moves.
+  /// and then have to follow the detail fetch and edits.
   final ValueNotifier<WorkTask?> _selectedTask = ValueNotifier(null);
   final TextEditingController _search = TextEditingController();
   Timer? _searchDebounce;
@@ -75,7 +72,7 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
   }
 
   /// The wide-screen panel body. It follows [_selectedTask] so the detail
-  /// fetch and lane moves land on screen without reopening the panel.
+  /// fetch and edits land on screen without reopening the panel.
   Widget _taskDetail({required VoidCallback onClose}) {
     return ValueListenableBuilder<WorkTask?>(
       valueListenable: _selectedTask,
@@ -88,63 +85,8 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
               onEdit: () => _taskForm(context, ref, _broadId, task: task),
               onToggleComplete: () =>
                   _toggleTaskComplete(context, ref, _broadId, task),
-              onMoveTask: (groupId) => _onMoveTask(task, groupId),
             ),
     );
-  }
-
-  List<WorkTask> _effectiveTasks(List<WorkTask> serverTasks) {
-    if (_groupOverrides.isEmpty) return serverTasks;
-    return [
-      for (final task in serverTasks)
-        if (_groupOverrides.containsKey(task.id))
-          task.withGroupId(_groupOverrides[task.id])
-        else
-          task,
-    ];
-  }
-
-  Future<void> _onMoveTask(WorkTask task, String? targetGroupId) async {
-    final alreadyThere = targetGroupId == null
-        ? task.groupId == null
-        : task.groupId == targetGroupId;
-    if (alreadyThere) return;
-
-    setState(() {
-      _groupOverrides[task.id] = targetGroupId;
-      if (_selectedTask.value?.id == task.id) {
-        _selectedTask.value = _selectedTask.value!.withGroupId(targetGroupId);
-      }
-    });
-
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .updateTask(
-            task.id,
-            WorkTaskDraft(
-              name: task.name,
-              description: task.displayDescription,
-              content: task.displayContent,
-              priority: task.priority,
-              attachmentIds: task.attachments.map((file) => file.id).toList(),
-              tags: task.tags,
-              deadlineAt: task.deadlineAt,
-              completeReason: task.completeReason,
-              groupId: targetGroupId,
-              ungroup: targetGroupId == null ? true : null,
-            ),
-          );
-      ref.invalidate(tasksProvider(_taskRequest));
-      await ref.read(tasksProvider(_taskRequest).future);
-      if (!mounted) return;
-      setState(() => _groupOverrides.remove(task.id));
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _groupOverrides.remove(task.id));
-      showSnackBar(wattApiErrorMessage(error));
-      ref.invalidate(tasksProvider(_taskRequest));
-    }
   }
 
   @override
@@ -173,21 +115,17 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     }
 
     final tasks = ref.watch(tasksProvider(_taskRequest));
-    final groups = ref.watch(taskGroupsProvider(_broadId));
-    final groupItems = groups.asData?.value ?? const <TaskGroup>[];
     final taskCount = tasks.asData?.value.length;
 
     void openFilters() =>
-        _showTaskFilters(context, groupItems, _filters, _setFilters);
+        _showTaskFilters(context, _filters, _setFilters);
     void openGitHub() => showGitHubIntegrationSheet(
       context,
       ref,
       broadId: _broadId,
       broadName: broad.name,
     );
-    void openGroups() => _manageGroups(context, ref, _broadId);
-    void newTask({String? groupId}) =>
-        _taskForm(context, ref, _broadId, initialGroupId: groupId);
+    void newTask() => _taskForm(context, ref, _broadId);
 
     return WorkspaceDocumentScope(
       domain: WorkspaceDomain.todo,
@@ -208,11 +146,6 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                 icon: const Icon(Symbols.hub),
                 tooltip: 'githubIntegration'.tr(),
                 onPressed: openGitHub,
-              ),
-              IconButton(
-                icon: const Icon(Symbols.view_column),
-                tooltip: 'manageGroups'.tr(),
-                onPressed: openGroups,
               ),
               IconButton(
                 icon: Badge(
@@ -236,7 +169,6 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
               ),
               _BoardOverflowMenu(
                 onGitHub: openGitHub,
-                onGroups: openGroups,
                 onFilters: openFilters,
                 hasFilters: !_filters.isEmpty,
               ),
@@ -256,7 +188,6 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                     _onSearchChanged('');
                   },
                   filters: _filters,
-                  groups: groupItems,
                   taskCount: taskCount,
                   onFiltersChanged: _setFilters,
                   onOpenFilters: openFilters,
@@ -266,29 +197,19 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                     loading: () => const PageLoading(),
                     error: (error, _) => PageError(
                       message: wattApiErrorMessage(error),
-                      onRetry: () {
-                        ref.invalidate(tasksProvider(_taskRequest));
-                        ref.invalidate(taskGroupsProvider(_broadId));
-                      },
+                      onRetry: () =>
+                          ref.invalidate(tasksProvider(_taskRequest)),
                     ),
-                    data: (taskItems) => groups.when(
-                      loading: () => const PageLoading(),
-                      error: (error, _) => PageError(
-                        message: wattApiErrorMessage(error),
-                        onRetry: () =>
-                            ref.invalidate(taskGroupsProvider(_broadId)),
-                      ),
-                      data: (groupItems) {
-                        final columns = _buildColumns(
-                          groupItems,
-                          _effectiveTasks(taskItems),
-                        );
-                        if (columns.every((column) => column.tasks.isEmpty) &&
-                            _filters.isEmpty) {
+                    data: (taskItems) {
+                      // An empty board lands on the search-empty state only
+                      // when a filter is what emptied it; otherwise there is
+                      // simply nothing on it yet.
+                      if (taskItems.isEmpty) {
+                        if (_filters.isEmpty) {
                           return EmptyState(
                             icon: Symbols.task_alt,
                             title: 'noTasksYet'.tr(),
-                            message: 'addTaskOrCreateGroups'.tr(),
+                            message: 'addFirstTask'.tr(),
                             action: FilledButton.icon(
                               onPressed: newTask,
                               icon: const Icon(Symbols.add_task),
@@ -296,95 +217,57 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
                             ),
                           );
                         }
-                        // An empty board lands here only when a filter is what
-                        // emptied it: an unfiltered board always shows its lanes
-                        // so a task can be created straight into one.
-                        if (columns.every((column) => column.tasks.isEmpty)) {
-                          return EmptyState(
-                            icon: Symbols.filter_alt_off,
-                            title: 'noMatchingTasks'.tr(),
-                            message: 'noMatchingTasksDetail'.tr(),
-                            action: FilledButton.icon(
-                              onPressed: () =>
-                                  _setFilters(const TaskListFilters()),
-                              icon: const Icon(Symbols.filter_alt_off),
-                              label: Text('clearFilters'.tr()),
-                            ),
-                          );
-                        }
-
-                        // A board with no groups has nothing to lane: no card, no
-                        // column chrome, just the tasks — one full-width column
-                        // on a phone, a waterfall where the width affords it.
-                        if (groupItems.isEmpty) {
-                          final tasks = columns.single.tasks;
-                          Widget tile(WorkTask task) => _TaskDetailLauncher(
-                            task: task,
-                            broadId: _broadId,
-                            openWide: () => _openTask(task),
-                            cardBuilder: (onOpen) => _TaskCard(
-                              task: task,
-                              onOpen: onOpen,
-                              onToggleComplete: () => _toggleTaskComplete(
-                                context,
-                                ref,
-                                _broadId,
-                                task,
-                              ),
-                              onDelete: () =>
-                                  _deleteTask(context, ref, _broadId, task),
-                              onMove: null,
-                            ),
-                          );
-                          if (!wide) {
-                            return ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                              itemCount: tasks.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (context, index) =>
-                                  tile(tasks[index]),
-                            );
-                          }
-                          return MasonryGridView.extent(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                            maxCrossAxisExtent: 320,
-                            mainAxisSpacing: 8,
-                            crossAxisSpacing: 8,
-                            itemCount: tasks.length,
-                            itemBuilder: (context, index) => tile(tasks[index]),
-                          );
-                        }
-
-                        return ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                          itemCount: columns.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final column = columns[index];
-                            return _TaskLane(
-                              broadId: _broadId,
-                              column: column,
-                              color: _laneColor(index),
-                              onOpenTask: _openTask,
-                              onToggleComplete: (task) => _toggleTaskComplete(
-                                context,
-                                ref,
-                                _broadId,
-                                task,
-                              ),
-                              onDeleteTask: (task) =>
-                                  _deleteTask(context, ref, _broadId, task),
-                              onMoveTask: (task, groupId) =>
-                                  _onMoveTask(task, groupId),
-                              onAddTask: () => newTask(groupId: column.groupId),
-                              laneOptions: columns,
-                            );
-                          },
+                        return EmptyState(
+                          icon: Symbols.filter_alt_off,
+                          title: 'noMatchingTasks'.tr(),
+                          message: 'noMatchingTasksDetail'.tr(),
+                          action: FilledButton.icon(
+                            onPressed: () =>
+                                _setFilters(const TaskListFilters()),
+                            icon: const Icon(Symbols.filter_alt_off),
+                            label: Text('clearFilters'.tr()),
+                          ),
                         );
-                      },
-                    ),
+                      }
+
+                      // The tasks are the board: no lane card, no column
+                      // chrome — one full-width column on a phone, a waterfall
+                      // where the width affords it.
+                      Widget tile(WorkTask task) => _TaskDetailLauncher(
+                        task: task,
+                        broadId: _broadId,
+                        openWide: () => _openTask(task),
+                        cardBuilder: (onOpen) => _TaskCard(
+                          task: task,
+                          onOpen: onOpen,
+                          onToggleComplete: () => _toggleTaskComplete(
+                            context,
+                            ref,
+                            _broadId,
+                            task,
+                          ),
+                          onDelete: () =>
+                              _deleteTask(context, ref, _broadId, task),
+                        ),
+                      );
+                      if (!wide) {
+                        return ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          itemCount: taskItems.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) =>
+                              tile(taskItems[index]),
+                        );
+                      }
+                      return MasonryGridView.extent(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        maxCrossAxisExtent: 320,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        itemCount: taskItems.length,
+                        itemBuilder: (context, index) => tile(taskItems[index]),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -501,13 +384,11 @@ class _BoardHeading extends StatelessWidget {
 class _BoardOverflowMenu extends StatelessWidget {
   const _BoardOverflowMenu({
     required this.onGitHub,
-    required this.onGroups,
     required this.onFilters,
     required this.hasFilters,
   });
 
   final VoidCallback onGitHub;
-  final VoidCallback onGroups;
   final VoidCallback onFilters;
   final bool hasFilters;
 
@@ -521,7 +402,6 @@ class _BoardOverflowMenu extends StatelessWidget {
       ),
       onSelected: (value) => switch (value) {
         'github' => onGitHub(),
-        'groups' => onGroups(),
         _ => onFilters(),
       },
       itemBuilder: (_) => [
@@ -531,14 +411,6 @@ class _BoardOverflowMenu extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Symbols.hub),
             title: Text('githubIntegration'.tr()),
-          ),
-        ),
-        PopupMenuItem(
-          value: 'groups',
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Symbols.view_column),
-            title: Text('manageGroups'.tr()),
           ),
         ),
         PopupMenuItem(
@@ -561,7 +433,6 @@ class _BoardToolbar extends StatelessWidget {
     required this.onSearchChanged,
     required this.onSearchCleared,
     required this.filters,
-    required this.groups,
     required this.taskCount,
     required this.onFiltersChanged,
     required this.onOpenFilters,
@@ -571,7 +442,6 @@ class _BoardToolbar extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onSearchCleared;
   final TaskListFilters filters;
-  final List<TaskGroup> groups;
   final int? taskCount;
   final ValueChanged<TaskListFilters> onFiltersChanged;
   final VoidCallback onOpenFilters;
@@ -637,259 +507,6 @@ class _BoardToolbar extends StatelessWidget {
   }
 }
 
-/// One lane: its identity rail, how much of it is done, and its tasks.
-class _TaskLane extends StatelessWidget {
-  const _TaskLane({
-    required this.broadId,
-    required this.column,
-    required this.color,
-    required this.onOpenTask,
-    required this.onToggleComplete,
-    required this.onDeleteTask,
-    required this.onMoveTask,
-    required this.onAddTask,
-    required this.laneOptions,
-  });
-
-  final String broadId;
-  final _TaskColumn column;
-  final Color color;
-  final ValueChanged<WorkTask> onOpenTask;
-  final ValueChanged<WorkTask> onToggleComplete;
-  final ValueChanged<WorkTask> onDeleteTask;
-  final void Function(WorkTask task, String? groupId) onMoveTask;
-  final VoidCallback onAddTask;
-  final List<_TaskColumn> laneOptions;
-
-  static const double width = 300;
-  static const double _bodyPadding = 10;
-
-  bool _accepts(WorkTask task) => column.isUngrouped
-      ? task.groupId != null
-      : task.groupId != column.groupId;
-
-  Future<void> _pickLane(BuildContext context, WorkTask task) async {
-    final target = await showModalBottomSheet<_TaskColumn>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _MoveTaskSheet(
-        task: task,
-        lanes: laneOptions,
-        currentGroupId: column.groupId,
-      ),
-    );
-    if (target == null) return;
-    onMoveTask(task, target.groupId);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final laneSurface = scheme.surfaceContainerLow;
-
-    return DragTarget<WorkTask>(
-      onWillAcceptWithDetails: (details) => _accepts(details.data),
-      onAcceptWithDetails: (details) =>
-          onMoveTask(details.data, column.groupId),
-      builder: (context, candidate, rejected) {
-        final hovering = candidate.isNotEmpty;
-        return SizedBox(
-          width: width,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: hovering
-                  ? Color.alphaBlend(color.withValues(alpha: 0.07), laneSurface)
-                  : laneSurface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: hovering
-                    ? color.withValues(alpha: 0.6)
-                    : scheme.outlineVariant,
-                width: hovering ? 1.5 : 1,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 4, 6),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 4,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          column.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'addTask'.tr(),
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Symbols.add, size: 20),
-                        onPressed: onAddTask,
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: column.tasks.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              hovering
-                                  ? 'dropTaskHere'.tr()
-                                  : column.isUngrouped
-                                  ? 'noUngroupedTasks'.tr()
-                                  : 'noTasksInGroup'.tr(),
-                              textAlign: TextAlign.center,
-                              style: text.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(
-                            _bodyPadding,
-                            0,
-                            _bodyPadding,
-                            12,
-                          ),
-                          itemCount: column.tasks.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final task = column.tasks[index];
-                            return _TaskDetailLauncher(
-                              task: task,
-                              broadId: broadId,
-                              openWide: () => onOpenTask(task),
-                              cardBuilder: (onOpen) => _DraggableTaskCard(
-                                width: width - _bodyPadding * 2,
-                                task: task,
-                                onOpen: onOpen,
-                                onToggleComplete: () => onToggleComplete(task),
-                                onDelete: () => onDeleteTask(task),
-                                onMove: () => _pickLane(context, task),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _TaskColumn {
-  const _TaskColumn({
-    required this.title,
-    required this.tasks,
-    this.groupId,
-    this.isUngrouped = false,
-  });
-
-  final String title;
-  final List<WorkTask> tasks;
-  final String? groupId;
-  final bool isUngrouped;
-}
-
-List<_TaskColumn> _buildColumns(List<TaskGroup> groups, List<WorkTask> tasks) {
-  final groupIds = {for (final group in groups) group.id};
-  final byGroup = <String, List<WorkTask>>{};
-  final ungrouped = <WorkTask>[];
-
-  for (final task in tasks) {
-    final groupId = task.groupId;
-    if (groupId == null || !groupIds.contains(groupId)) {
-      ungrouped.add(task);
-    } else {
-      byGroup.putIfAbsent(groupId, () => []).add(task);
-    }
-  }
-
-  return [
-    _TaskColumn(title: 'ungrouped'.tr(), tasks: ungrouped, isUngrouped: true),
-    for (final group in groups)
-      _TaskColumn(
-        title: group.name,
-        groupId: group.id,
-        tasks: byGroup[group.id] ?? const [],
-      ),
-  ];
-}
-
-class _DraggableTaskCard extends StatelessWidget {
-  const _DraggableTaskCard({
-    required this.width,
-    required this.task,
-    required this.onOpen,
-    required this.onToggleComplete,
-    required this.onDelete,
-    required this.onMove,
-  });
-
-  final double width;
-  final WorkTask task;
-  final VoidCallback onOpen;
-  final VoidCallback onToggleComplete;
-  final VoidCallback onDelete;
-  final VoidCallback onMove;
-
-  @override
-  Widget build(BuildContext context) {
-    final card = _TaskCard(
-      task: task,
-      onOpen: onOpen,
-      onToggleComplete: onToggleComplete,
-      onDelete: onDelete,
-      onMove: onMove,
-    );
-
-    // `affinity` (not `axis`) is what keeps the lane scrollable: it makes the
-    // card compete for horizontal drags only, so a vertical drag inside the
-    // lane still reaches its list.
-    return Draggable<WorkTask>(
-      data: task,
-      affinity: Axis.horizontal,
-      maxSimultaneousDrags: 1,
-      feedback: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.transparent,
-        child: SizedBox(
-          width: width,
-          child: Opacity(opacity: 0.92, child: card),
-        ),
-      ),
-      childWhenDragging: Opacity(
-        opacity: 0.35,
-        child: IgnorePointer(child: card),
-      ),
-      child: card,
-    );
-  }
-}
-
 /// A task, as a ticket: identity stamp, title, and one dense meta line. The
 /// card's left rail is the only colour on it and it is only there when the task
 /// asks for attention (overdue, urgent, high) — a silent rail means "normal".
@@ -903,17 +520,12 @@ class _TaskCard extends StatelessWidget {
     required this.onOpen,
     required this.onToggleComplete,
     required this.onDelete,
-    this.onMove,
   });
 
   final WorkTask task;
   final VoidCallback onOpen;
   final VoidCallback onToggleComplete;
   final VoidCallback onDelete;
-
-  /// Moves the task into another group. Null when the board has no groups, so
-  /// the card leaves the action out instead of offering a dead one.
-  final VoidCallback? onMove;
 
   @override
   Widget build(BuildContext context) {
@@ -1020,12 +632,6 @@ class _TaskCard extends StatelessWidget {
               title: Text('openTask'.tr()),
               onTap: () => Navigator.pop(context, 'open'),
             ),
-            if (onMove != null)
-              ListTile(
-                leading: const Icon(Symbols.swap_horiz),
-                title: Text('moveToGroup'.tr()),
-                onTap: () => Navigator.pop(context, 'move'),
-              ),
             ListTile(
               leading: const Icon(Symbols.delete),
               title: Text('deleteTask'.tr()),
@@ -1038,8 +644,6 @@ class _TaskCard extends StatelessWidget {
     switch (action) {
       case 'open':
         onOpen();
-      case 'move':
-        onMove?.call();
       case 'delete':
         onDelete();
     }
@@ -1270,7 +874,6 @@ class _TaskDetailSidebar extends StatelessWidget {
     required this.onClose,
     required this.onEdit,
     required this.onToggleComplete,
-    required this.onMoveTask,
   });
 
   final WorkTask task;
@@ -1278,7 +881,6 @@ class _TaskDetailSidebar extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onEdit;
   final VoidCallback onToggleComplete;
-  final ValueChanged<String?> onMoveTask;
 
   @override
   Widget build(BuildContext context) {
@@ -1312,7 +914,6 @@ class _TaskDetailSidebar extends StatelessWidget {
               task: task,
               broadId: broadId,
               onToggleComplete: onToggleComplete,
-              onMoveTask: onMoveTask,
             ),
           ),
         ],
@@ -1329,7 +930,6 @@ class _TaskDetailBody extends ConsumerWidget {
     required this.task,
     required this.broadId,
     required this.onToggleComplete,
-    required this.onMoveTask,
   });
 
   final WorkTask task;
@@ -1337,15 +937,11 @@ class _TaskDetailBody extends ConsumerWidget {
   /// The board the task belongs to: the list endpoint may omit it on the task.
   final String broadId;
   final VoidCallback onToggleComplete;
-  final ValueChanged<String?> onMoveTask;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final groups =
-        ref.watch(taskGroupsProvider(broadId)).asData?.value ??
-        const <TaskGroup>[];
     final completeLabel = _completeReasonLabel(task.completeReason);
     final priority = _priorityMeta(task.priority);
 
@@ -1404,31 +1000,6 @@ class _TaskDetailBody extends ConsumerWidget {
                 label: priority.label,
                 icon: priority.icon,
                 tone: priority.tone,
-              ),
-            ),
-          ),
-          _PropertyRow(
-            icon: Symbols.view_column,
-            label: 'group'.tr(),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String?>(
-                isDense: true,
-                isExpanded: true,
-                value: groups.any((group) => group.id == task.groupId)
-                    ? task.groupId
-                    : null,
-                items: [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('ungrouped'.tr()),
-                  ),
-                  for (final group in groups)
-                    DropdownMenuItem<String?>(
-                      value: group.id,
-                      child: Text(group.name),
-                    ),
-                ],
-                onChanged: onMoveTask,
               ),
             ),
           ),
@@ -1535,8 +1106,8 @@ class _TaskDetailBody extends ConsumerWidget {
 }
 
 /// Narrow-screen task detail: a full route pushed from the card
-/// ([_TaskDetailLauncher]). It owns its task copy so the completion toggle and
-/// lane move land before the round trip; [_TaskDetailBody] renders the record.
+/// ([_TaskDetailLauncher]). It owns its task copy so the completion toggle
+/// lands before the round trip; [_TaskDetailBody] renders the record.
 class _TaskDetailPage extends ConsumerStatefulWidget {
   const _TaskDetailPage({required this.broadId, required this.task});
 
@@ -1586,45 +1157,11 @@ class _TaskDetailPageState extends ConsumerState<_TaskDetailPage> {
               tags: before.tags,
               deadlineAt: before.deadlineAt,
               completeReason: complete ? 0 : null,
-              groupId: before.groupId,
             ),
           );
       ref.invalidate(tasksProvider);
       if (!mounted) return;
       showSnackBar(complete ? 'taskCompleted'.tr() : 'taskReopened'.tr());
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _task = before);
-      showSnackBar(wattApiErrorMessage(error));
-    }
-  }
-
-  Future<void> _moveTask(String? targetGroupId) async {
-    final before = _task;
-    final alreadyThere = targetGroupId == null
-        ? before.groupId == null
-        : before.groupId == targetGroupId;
-    if (alreadyThere) return;
-    setState(() => _task = before.withGroupId(targetGroupId));
-    try {
-      await ref
-          .read(wattEngineClientProvider)
-          .updateTask(
-            before.id,
-            WorkTaskDraft(
-              name: before.name,
-              description: before.displayDescription,
-              content: before.displayContent,
-              priority: before.priority,
-              attachmentIds: before.attachments.map((file) => file.id).toList(),
-              tags: before.tags,
-              deadlineAt: before.deadlineAt,
-              completeReason: before.completeReason,
-              groupId: targetGroupId,
-              ungroup: targetGroupId == null ? true : null,
-            ),
-          );
-      ref.invalidate(tasksProvider);
     } catch (error) {
       if (!mounted) return;
       setState(() => _task = before);
@@ -1650,7 +1187,6 @@ class _TaskDetailPageState extends ConsumerState<_TaskDetailPage> {
         task: _task,
         broadId: widget.broadId,
         onToggleComplete: _toggleComplete,
-        onMoveTask: _moveTask,
       ),
     );
   }
@@ -1749,7 +1285,6 @@ Future<void> _toggleTaskComplete(
             tags: task.tags,
             deadlineAt: task.deadlineAt,
             completeReason: complete ? 0 : null,
-            groupId: task.groupId,
           ),
         );
     ref.invalidate(tasksProvider);
@@ -1781,20 +1316,6 @@ Future<void> _deleteTask(
     showSnackBar(wattApiErrorMessage(error));
   }
 }
-
-/// Lane identity colours. Mid tones so the rail and the meter stay legible on
-/// both the light and the dark lane surface; hues picked to stay clear of the
-/// amber primary and of the semantic error/tertiary tones.
-const List<Color> _laneColors = [
-  Color(0xFF3E6C9E),
-  Color(0xFF2A7F72),
-  Color(0xFF7A5BA8),
-  Color(0xFFA85A79),
-  Color(0xFF5E7F42),
-  Color(0xFFA8703A),
-];
-
-Color _laneColor(int index) => _laneColors[index % _laneColors.length];
 
 Color _toneColor(ColorScheme scheme, StatusChipTone tone) => switch (tone) {
   StatusChipTone.primary => scheme.primary,
@@ -1899,37 +1420,31 @@ Future<void> _openExternalUrl(String url) async {
 /// board keeps its width; the toolbar shows what the sheet produced.
 Future<void> _showTaskFilters(
   BuildContext context,
-  List<TaskGroup> groups,
   TaskListFilters filters,
   ValueChanged<TaskListFilters> onApply,
 ) async {
   final next = await showModalBottomSheet<TaskListFilters>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _TaskFiltersSheet(filters: filters, groups: groups),
+    builder: (_) => _TaskFiltersSheet(filters: filters),
   );
   if (next != null) onApply(next);
 }
 
 class _TaskFiltersSheet extends StatefulWidget {
-  const _TaskFiltersSheet({required this.filters, required this.groups});
+  const _TaskFiltersSheet({required this.filters});
 
   final TaskListFilters filters;
-  final List<TaskGroup> groups;
 
   @override
   State<_TaskFiltersSheet> createState() => _TaskFiltersSheetState();
 }
 
 class _TaskFiltersSheetState extends State<_TaskFiltersSheet> {
-  static const _anyGroup = '__any_group__';
-  static const _ungrouped = '__ungrouped__';
-
   late final TextEditingController _tag;
   late final TextEditingController _assigneeAccountId;
   late TaskStatus? _status;
   late int? _priority;
-  late String _group;
   late DateTime? _deadlineFrom;
   late DateTime? _deadlineTo;
 
@@ -1943,9 +1458,6 @@ class _TaskFiltersSheetState extends State<_TaskFiltersSheet> {
     );
     _status = filters.status;
     _priority = filters.priority;
-    _group = filters.ungrouped == true
-        ? _ungrouped
-        : filters.groupId ?? _anyGroup;
     _deadlineFrom = filters.deadlineFrom;
     _deadlineTo = filters.deadlineTo;
   }
@@ -1982,8 +1494,6 @@ class _TaskFiltersSheetState extends State<_TaskFiltersSheet> {
         search: widget.filters.search,
         status: _status,
         priority: _priority,
-        groupId: _group == _anyGroup || _group == _ungrouped ? null : _group,
-        ungrouped: _group == _ungrouped ? true : null,
         assigneeAccountId: _assigneeAccountId.text.trim().isEmpty
             ? null
             : _assigneeAccountId.text.trim(),
@@ -2033,24 +1543,6 @@ class _TaskFiltersSheetState extends State<_TaskFiltersSheet> {
                   ),
               ],
               onChanged: (value) => setState(() => _priority = value),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _group,
-              decoration: InputDecoration(labelText: 'group'.tr()),
-              items: [
-                DropdownMenuItem(
-                  value: _anyGroup,
-                  child: Text('anyGroup'.tr()),
-                ),
-                DropdownMenuItem(
-                  value: _ungrouped,
-                  child: Text('ungrouped'.tr()),
-                ),
-                for (final group in widget.groups)
-                  DropdownMenuItem(value: group.id, child: Text(group.name)),
-              ],
-              onChanged: (value) => setState(() => _group = value ?? _anyGroup),
             ),
             const SizedBox(height: 12),
             TextField(

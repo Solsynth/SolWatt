@@ -39,8 +39,6 @@ const roadmapBoard = Broad(
 
 const choresBoard = Broad(id: 'board-b', name: 'Chores', workspaceId: 'ws-1');
 
-const doingGroup = TaskGroup(id: 'group-1', name: 'Doing', broadId: 'board-a');
-
 /// The Mail tab is where the shell opens, so the harness has to keep it
 /// rendering; its content is irrelevant here.
 const testMailbox = MailMailbox(
@@ -62,7 +60,6 @@ final boardTasks = [
       name: 'Task $index',
       broadId: 'board-a',
       taskKey: index == 6 ? null : 'RM-$index',
-      groupId: 'group-1',
       description: index == 1 ? 'Notes with *emphasis*' : null,
       content: index == 1 ? '**Bold** detail\n\n- item' : null,
       tags: index == 2 ? const ['design', 'urgent', 'api'] : const [],
@@ -116,10 +113,6 @@ Future<void> pumpBoardsApp(
           (ref) async => const [roadmapBoard, choresBoard],
         ),
         tasksProvider.overrideWith((ref, request) async => boardTasks),
-        taskGroupsProvider.overrideWith(
-          (ref, broadId) async =>
-              broadId == roadmapBoard.id ? const [doingGroup] : const [],
-        ),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
         if (client != null) wattEngineClientProvider.overrideWithValue(client),

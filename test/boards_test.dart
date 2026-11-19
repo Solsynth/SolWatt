@@ -30,8 +30,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('RM'), findsOneWidget); // task prefix stamp
-    expect(find.text('Ungrouped'), findsOneWidget);
-    expect(find.text('Doing'), findsOneWidget);
     expect(find.text('Task 1'), findsOneWidget);
     // A bare tile (no key stamp, no meta line) hugs its single title line: the
     // floating actions must not pad it with an empty band under the title.
@@ -87,9 +85,8 @@ void main() {
     expect(find.text('RM'), findsNothing);
     expect(find.byType(NavigationRail), findsOneWidget);
 
-    // A board without groups shows its tasks directly: no lane card, no group
-    // header, and its cards drop the move action that has nothing to target.
-    expect(find.text('Ungrouped'), findsNothing);
+    // A board lists its tasks directly: no lane card, no group header, and
+    // its cards drop the move action that has nothing to target.
     expect(find.text('Task 1'), findsOneWidget);
     // A waterfall, not one column: the first two cards sit side by side.
     expect(
@@ -132,10 +129,6 @@ void main() {
     // ---- Task detail on a phone: a pushed screen, not a sheet ----
     await tester.tap(find.text('Roadmap'));
     await tester.pumpAndSettle();
-    // The lanes scroll sideways: bring the first card into reach before
-    // tapping it.
-    await tester.ensureVisible(find.text('Task 1'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Task 1'));
     // The container transform runs, then the detail pulls its comment thread:
     // pump the entrance instead of settling the whole tree.
@@ -156,43 +149,7 @@ void main() {
     expect(find.text('Mark completed'), findsNothing);
     expect(find.text('Task 1'), findsOneWidget);
 
-    // ---- Lanes on a phone: drag to move, drag to scroll ----
-    await tester.tap(find.text('Roadmap'));
-    await tester.pumpAndSettle();
-
-    // Widen so the second lane is fully on screen: the drag below has to start
-    // on a card that is actually hit-testable.
-    tester.view.physicalSize = const Size(700, 800);
-    await tester.pumpAndSettle();
-    // Still the pushed board, so still no shell chrome over it.
-    expect(find.byType(NavigationBar), findsNothing);
-
-    // A horizontal drag still picks the card up for a lane move.
-    final card = find.text('Task 1');
-    expect(find.byWidgetPredicate(_isDraggingCard), findsNothing);
-    final gesture = await tester.startGesture(tester.getCenter(card));
-    await gesture.moveBy(const Offset(-40, 0));
-    await tester.pump();
-    expect(find.byWidgetPredicate(_isDraggingCard), findsOneWidget);
-    await gesture.up(); // released inside its own lane: no move, no request
-    await tester.pumpAndSettle();
-    expect(find.byWidgetPredicate(_isDraggingCard), findsNothing);
-
-    // A vertical drag on a card scrolls the lane instead. Without the card's
-    // `affinity` the immediate drag recognizer swallows the gesture and the
-    // lane is stuck with whatever fits on screen.
-    double laneOffset() => tester
-        .stateList<ScrollableState>(find.byType(Scrollable))
-        .firstWhere((state) => state.position.axis == Axis.vertical)
-        .position
-        .pixels;
-
-    final before = laneOffset();
-    await tester.drag(card, const Offset(0, -80));
-    await tester.pumpAndSettle();
-    expect(laneOffset(), greaterThan(before + 30));
-
-    // ---- A group-less board on a phone: one full-width column ----
+    // ---- A board on a phone: one full-width column ----
     tester.view.physicalSize = const Size(400, 800);
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Symbols.arrow_back));
@@ -220,12 +177,6 @@ void main() {
     expect((container as dynamic).closedColor.a, 0);
   });
 }
-
-/// The card as it is rendered at the drag source while a drag is under way.
-bool _isDraggingCard(Widget widget) =>
-    widget is Opacity &&
-    widget.opacity == 0.35 &&
-    widget.child is IgnorePointer;
 
 /// The app shell's scaffold: the page scaffolds around it own no drawer.
 Scaffold _shellScaffold(WidgetTester tester) => tester

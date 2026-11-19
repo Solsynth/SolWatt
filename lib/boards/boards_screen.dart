@@ -35,7 +35,6 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/markdown.dart';
-import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
