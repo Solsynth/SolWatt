@@ -1,3 +1,4 @@
+import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,9 @@ import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/route.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/theme.dart';
 
 const _mailboxWork = MailMailbox(
@@ -198,6 +202,134 @@ void main() {
         tester.view.physicalSize.width / tester.view.devicePixelRatio -
             SolSpace.sm * 2,
       );
+    },
+  );
+
+  testWidgets(
+    'a conversation tab shows the conversation, and keeps showing it after a '
+    'round trip through the inbox tab',
+    (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('window_manager'),
+        (call) async => switch (call.method) {
+          'isMaximized' => false,
+          _ => null,
+        },
+      );
+
+      final client = _FakeMailClient();
+      final prefs = await SharedPreferences.getInstance();
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1.0;
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPreferencesProvider.overrideWithValue(prefs),
+            appAccessProvider.overrideWith(
+              (ref) => const AsyncValue.data(AppAccess.ready),
+            ),
+            selectedWorkspaceProvider.overrideWith((ref) async => _workspace),
+            mailboxesProvider.overrideWith((ref) async => const [_mailboxWork]),
+            mailHostProvider.overrideWith((ref) async => 'example.com'),
+            mailboxUnreadCountsProvider.overrideWith(
+              (ref) async => const {'mb-1': 2},
+            ),
+            mailCredentialsProvider.overrideWith(
+              (ref) async => const <MailCredential>[],
+            ),
+            mailSenderIndexProvider.overrideWith(
+              (ref) async => const <String, MailAddressSuggestion>{},
+            ),
+            threadsProvider.overrideWith(
+              (ref, query) async =>
+                  PaginatedResult<MailThread>(items: [_thread], totalCount: 1),
+            ),
+            threadProvider.overrideWith((ref, id) async => _conversation),
+            emailProvider.overrideWith((ref, id) async => _conversation.last),
+            wattEngineClientProvider.overrideWith((ref) => client),
+            realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
+            websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
+          ],
+          child: EasyLocalization(
+            supportedLocales: const [Locale('en', 'US')],
+            path: 'assets/i18n',
+            fallbackLocale: const Locale('en', 'US'),
+            useFallbackTranslations: true,
+            child: Builder(
+              builder: (context) {
+                container = ProviderScope.containerOf(context);
+                return const SolWattApp();
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 10),
+      );
+
+      WorkspaceTabState tabs() => container.read(workspaceTabsProvider);
+      String? mailDocumentKey() => tabs().tabs
+          .where((tab) => tab.domain == WorkspaceDomain.mail && !tab.isRoot)
+          .map((tab) => tab.key)
+          .firstOrNull;
+      // The lens stack the title bar drives, resolved the way the shell
+      // resolves it: the lens routes hang off the shell's tabs router.
+      List<String> mailStack() =>
+          appRouter
+              .innerRouterOf<TabsRouter>(AppShellRoute.name)
+              ?.innerRouterOf<StackRouter>('MailRoute')
+              ?.stack
+              .map((page) => page.name ?? '')
+              .toList() ??
+          const [];
+
+      // The shell opens on Today, so reach the mail lens the way a reader does.
+      await tester.tap(find.byTooltip('Mail').first);
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 10),
+      );
+
+      final row = find.ancestor(
+        of: find.text('Carol'),
+        matching: find.byType(ListTile),
+      );
+      expect(row, findsOneWidget);
+
+      // Double click: the conversation is promoted to a tab of its own.
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.tap(row);
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 10),
+      );
+
+      final key = mailDocumentKey();
+      expect(key, 'mail:t-1', reason: 'the conversation owns one tab');
+      expect(tabs().activeKey, key);
+      // The tab is not empty: the conversation is on the canvas and the list
+      // column has given it the whole width.
+      expect(find.text('Newest message body'), findsOneWidget);
+      expect(find.text('Oldest message body'), findsOneWidget);
+      expect(mailStack(), ['MailListRoute', 'MailDetailRoute']);
+
+      // Going back to the inbox tab and returning must not lose the reading:
+      // the bar reopens the message the tab remembers, on the same stack.
+      container
+          .read(workspaceTabsProvider.notifier)
+          .activate(WorkspaceTab.lensTabKey(WorkspaceLens.mail));
+      await tester.pumpAndSettle();
+      container.read(workspaceTabsProvider.notifier).activate(key!);
+      await tester.pumpAndSettle();
+      expect(find.text('Newest message body'), findsOneWidget);
+      expect(mailStack(), ['MailListRoute', 'MailDetailRoute']);
     },
   );
 

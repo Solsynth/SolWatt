@@ -179,8 +179,7 @@ class _AdaptiveWorkspaceShellState
     tabs.activate(WorkspaceTab.lensTabKey(tab.lens));
   }
 
-  StackRouter? _nestedStack(WorkspaceLens lens) =>
-      appRouter.innerRouterOf<StackRouter>(lens.routeName);
+  StackRouter? _nestedStack(WorkspaceLens lens) => lensStackRouter(lens);
 
   void _switchToEntity(WorkspaceEntityRef entity) {
     switch (entity.domain) {

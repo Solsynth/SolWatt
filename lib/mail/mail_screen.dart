@@ -55,17 +55,11 @@ class MailPage extends ConsumerWidget {
     return MailWorkspaceLayout(
       fullScreen: fullScreen,
       list: const _MailListWidget(),
-      pane: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        layoutBuilder: (current, previous) => Stack(
-          fit: StackFit.expand,
-          alignment: Alignment.center,
-          children: [...previous, ?current],
-        ),
-        child: AutoRouter(key: ValueKey(context.router.topRoute.route.name)),
-      ),
+      // One router, never re-keyed: this widget owns the lens' nested stack, so
+      // giving it a key that follows the route remounts it on every navigation
+      // and drops the reader back on the list — the opened tab then has nothing
+      // to show. The pages animate their own transitions.
+      pane: const AutoRouter(),
     );
   }
 }
@@ -96,10 +90,15 @@ class MailWorkspaceLayout extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!fullScreen) ...[
-              SizedBox(width: listWidth, child: list),
-              const SizedBox(width: SolSpace.sm),
-            ],
+            // The three slots never move: collapsing the list must not shift
+            // the pane to another position in the row, because the pane owns
+            // the lens' nested router and Flutter would rebuild it from its
+            // initial routes — leaving the tab with nothing to show.
+            SizedBox(
+              width: fullScreen ? 0 : listWidth,
+              child: fullScreen ? const SizedBox.shrink() : list,
+            ),
+            SizedBox(width: fullScreen ? 0 : SolSpace.sm),
             Expanded(child: pane),
           ],
         ),
@@ -965,8 +964,14 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     // rather than reading the same conversation in a pane beside it.
     final tabs = ref.read(workspaceTabsProvider.notifier);
     if (tabs.isDocument(WorkspaceDomain.mail, thread.id)) {
-      tabs.activate(WorkspaceTab.keyFor(WorkspaceDomain.mail, thread.id));
-      context.router.navigate(route);
+      // The conversation already owns a tab: bring it forward. Skipping this
+      // when the tab is already active is what kept a double click from
+      // pushing a second copy of the same conversation onto the stack.
+      if (ref.read(workspaceTabsProvider).activeKey !=
+          WorkspaceTab.keyFor(WorkspaceDomain.mail, thread.id)) {
+        tabs.activate(WorkspaceTab.keyFor(WorkspaceDomain.mail, thread.id));
+        context.router.navigate(route);
+      }
       return;
     }
     if (fullScreen) {
@@ -982,9 +987,10 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
             messageId: thread.latestMessage.id,
           );
     }
-    // Navigate, never push: the lens stack holds one conversation at a time.
-    // Pushing instead stacked a detail on top of a detail on every open, which
-    // is what buried the app behind a pile of routes.
+    // `navigate`, never `push`: the mail stack holds the list and one
+    // conversation, and asking for a conversation that is already there
+    // replaces it instead of stacking a second copy. Tabs name conversations,
+    // so whichever tab is on screen, this keeps the stack to two pages.
     context.router.navigate(route);
   }
 

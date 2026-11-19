@@ -100,6 +100,17 @@ WorkspaceLens lensOfDomain(WorkspaceDomain domain) => switch (domain) {
   WorkspaceDomain.drive => WorkspaceLens.drive,
 };
 
+/// The stack a lens' documents live in.
+///
+/// The lens routes are children of the shell's [AutoTabsRouter], not of the
+/// app's root stack, so [appRouter] knows nothing about them: the lookup has to
+/// start at the tabs controller of the shell route. Asking the root router for
+/// `MailRoute` returns null, which silently turns every navigate into a no-op.
+StackRouter? lensStackRouter(WorkspaceLens lens) {
+  final tabs = appRouter.innerRouterOf<TabsRouter>(AppShellRoute.name);
+  return (tabs ?? appRouter).innerRouterOf<StackRouter>(lens.routeName);
+}
+
 /// A drive file the strip asked to close. The drive owns the reading pane, so
 /// the strip hands the id over and the drive closes what it actually shows.
 final drivePendingCloseProvider = NotifierProvider<DrivePendingClose, String?>(
