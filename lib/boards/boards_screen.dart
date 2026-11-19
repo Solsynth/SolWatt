@@ -23,6 +23,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:solwatt/boards/create_broad_sheet.dart';
 import 'package:solwatt/boards/github_integration.dart';
 import 'package:solwatt/boards/task_comments.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
@@ -167,7 +168,7 @@ class _BoardsListPageState extends ConsumerState<BoardsListPage> {
         .where((board) => _selected.contains(board.id))
         .length;
 
-    void createBoard() => _boardForm(context, ref);
+    void createBroad() => showCreateBroadSheet(context, ref);
 
     return PageScaffold(
       title: 'boards'.tr(),
@@ -185,13 +186,13 @@ class _BoardsListPageState extends ConsumerState<BoardsListPage> {
           ? null
           : wide
           ? FilledButton.tonalIcon(
-              onPressed: createBoard,
+              onPressed: createBroad,
               icon: const Icon(Symbols.add, size: 18),
               label: Text('newBoard'.tr()),
             )
           : IconButton.filledTonal(
               tooltip: 'newBoard'.tr(),
-              onPressed: createBoard,
+              onPressed: createBroad,
               icon: const Icon(Symbols.add),
             ),
       actions: _selecting
@@ -228,12 +229,14 @@ class _BoardsListPageState extends ConsumerState<BoardsListPage> {
               title: 'noBoardsEmpty'.tr(),
               message: 'createBoardToOrganize'.tr(),
               action: FilledButton.icon(
-                onPressed: createBoard,
+                onPressed: createBroad,
                 icon: const Icon(Symbols.add),
                 label: Text('newBoard'.tr()),
               ),
             );
           }
+          // Boards and pages are one list: both are Ideask broads, and the
+          // reader organizes them together, so the tab never splits them.
           return wide
               ? _BoardGrid(
                   boards: items,
@@ -317,8 +320,14 @@ class _WorkspacePickerSheet extends StatelessWidget {
   }
 }
 
+/// Opens a broad in the board kind's document: a board's lanes or a page's
+/// Markdown body. Both live in this tab's stack.
 void _openBoard(BuildContext context, Broad board) {
-  context.router.push(TaskBoardRoute(broadId: board.id));
+  context.router.push(
+    board.isPage
+        ? BroadDocRoute(pageId: board.id)
+        : TaskBoardRoute(broadId: board.id),
+  );
 }
 
 /// Cover-first board cards. Used on wide screens, where a 2–4 column grid
@@ -439,7 +448,9 @@ class _BoardCard extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Icon(
-                    Symbols.view_kanban,
+                    board.isPage
+                        ? Symbols.article_rounded
+                        : Symbols.view_kanban,
                     size: 84,
                     color: scheme.onSurfaceVariant.withValues(alpha: 0.15),
                   ),
@@ -454,8 +465,9 @@ class _BoardCard extends StatelessWidget {
                     children: [
                       CloudFileAvatar(
                         file: board.iconImage,
-                        fallbackIcon: Symbols.view_kanban,
-                        size: 36,
+                        fallbackIcon: board.isPage
+                            ? Symbols.article_rounded
+                            : Symbols.view_kanban,
                       ),
                       const Spacer(),
                       if (selectionMode)
@@ -577,8 +589,9 @@ class _BoardRow extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
         leading: CloudFileAvatar(
-          file: board.iconImage,
-          fallbackIcon: Symbols.view_kanban,
+          fallbackIcon: board.isPage
+              ? Symbols.article_rounded
+              : Symbols.view_kanban,
           size: 44,
         ),
         title: Row(
@@ -638,7 +651,11 @@ class _BoardMenu extends ConsumerWidget {
           case 'open':
             _openBoard(context, board);
           case 'edit':
-            _boardForm(context, ref, board: board);
+            if (board.isPage) {
+              _openBoard(context, board);
+            } else {
+              _boardForm(context, ref, board: board);
+            }
           case 'delete':
             _deleteBoard(context, ref, board);
         }
@@ -799,7 +816,6 @@ Color _raisedSurface(ColorScheme scheme, Brightness brightness) =>
     brightness == Brightness.dark
     ? scheme.surfaceContainerHigh
     : scheme.surfaceContainerLowest;
-
 Future<void> _boardForm(
   BuildContext context,
   WidgetRef ref, {

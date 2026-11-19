@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
@@ -33,8 +34,8 @@ class PeekPanelContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final peek = ref.watch(peekProvider);
-    final isPinned = ref
-        .watch(pinnedItemsProvider)
+    final isFavorite = ref
+        .watch(favoritesProvider)
         .any((p) => p.domain == entity.domain && p.id == entity.id);
 
     return Material(
@@ -54,14 +55,14 @@ class PeekPanelContent extends ConsumerWidget {
             subtitle: Text(entity.domain.label),
             actions: [
               IconButton(
-                tooltip: isPinned ? 'Unpin' : 'Pin',
+                tooltip: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
                 icon: Icon(
-                  Symbols.push_pin_rounded,
-                  fill: isPinned ? 1 : 0,
+                  Symbols.star_rounded,
+                  fill: isFavorite ? 1 : 0,
                   size: 18,
                 ),
                 onPressed: () =>
-                    ref.read(pinnedItemsProvider.notifier).togglePin(entity),
+                    ref.read(favoritesProvider.notifier).toggleFavorite(entity),
               ),
               if (showPopOut)
                 IconButton(
@@ -131,7 +132,9 @@ class _PeekBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final pages = ref.watch(pagesProvider);
+    final page = entity.domain == WorkspaceDomain.pages
+        ? ref.watch(pageProvider(entity.id))
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,28 +178,31 @@ class _PeekBody extends ConsumerWidget {
             entity.metadata['isBoard'] == true) ...[
           _BoardTasksPreview(broadId: entity.id),
         ] else if (entity.domain == WorkspaceDomain.pages) ...[
-          for (final page in pages.where((p) => p.id == entity.id)) ...[
-            for (final block in page.blocks)
-              Padding(
-                padding: const EdgeInsets.only(bottom: SolSpace.sm),
-                child:
-                    block.type.name == 'entityEmbed' &&
-                        block.embeddedEntity != null
-                    ? EntityCard(entity: block.embeddedEntity!, compact: true)
-                    : Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(SolSpace.md),
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainer,
-                          borderRadius: BorderRadius.circular(SolRadius.sm),
-                        ),
-                        child: Text(
-                          block.text.isEmpty ? ' ' : block.text,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-              ),
-          ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(SolSpace.md),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(SolRadius.sm),
+            ),
+            child: page?.when(
+                  // A still placeholder: the peek must not animate while the
+                  // page loads, or a widget test can never settle.
+                  loading: () => Text(
+                    'Loading page…',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  error: (error, _) => const Text('Could not load this page.'),
+                  data: (broad) => MarkdownTextContent(
+                    content: (broad?.content ?? '').trim().isEmpty
+                        ? 'This page is empty.'
+                        : broad!.content!.trim(),
+                  ),
+                ) ??
+                const SizedBox.shrink(),
+          ),
         ] else if (entity.subtitle != null && entity.subtitle!.isNotEmpty) ...[
           Container(
             width: double.infinity,

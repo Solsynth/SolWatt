@@ -1,334 +1,309 @@
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:solwatt/pages/page_models.dart';
+import 'package:solwatt/drive/favorites.dart';
+import 'package:solwatt/network.dart';
 import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/route.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
+import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/theme.dart';
-import 'package:solwatt/workspace/components/entity_card.dart';
+import 'package:solwatt/ui/markdown.dart';
+import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/components/related_items_strip.dart';
-import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/editor/workspace_rich_editor.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
+/// One Ideask page: the Markdown body of a broad of kind 1.
+///
+/// It lives in the boards tab's nested stack beside the board, because a page
+/// and a board are the same kind of thing to the service — a broad with a
+/// tree, a workspace, an icon and a cover. The page's payload is `content`;
+/// the board's is its task list.
 @RoutePage()
-class WorkspaceNotesScreen extends ConsumerStatefulWidget {
-  const WorkspaceNotesScreen({super.key});
+class BroadDocScreen extends ConsumerStatefulWidget {
+  const BroadDocScreen({super.key, @PathParam('pageId') required this.pageId});
+
+  final String pageId;
 
   @override
-  ConsumerState<WorkspaceNotesScreen> createState() =>
-      _WorkspaceNotesScreenState();
+  ConsumerState<BroadDocScreen> createState() => _BroadDocScreenState();
 }
 
-class _WorkspaceNotesScreenState extends ConsumerState<WorkspaceNotesScreen> {
-  final TextEditingController _titleController = TextEditingController();
-  final Map<String, TextEditingController> _blockControllers = {};
-  String? _loadedPageId;
+class _BroadDocScreenState extends ConsumerState<BroadDocScreen> {
+  final TextEditingController _title = TextEditingController();
+  final TextEditingController _body = TextEditingController();
+  final FocusNode _bodyFocus = FocusNode();
+
+  /// The saved values the fields started from; dirtiness is a plain comparison
+  /// so a reader who undoes their own edit is clean again.
+  String _savedTitle = '';
+  String _savedContent = '';
+  bool _loaded = false;
+  bool _saving = false;
+  bool _preview = false;
+
+  String get _pageId => widget.pageId;
+
+  @override
+  void initState() {
+    super.initState();
+    _title.addListener(_onEdited);
+    _body.addListener(_onEdited);
+  }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    for (final c in _blockControllers.values) {
-      c.dispose();
-    }
+    _title.dispose();
+    _body.dispose();
+    _bodyFocus.dispose();
     super.dispose();
   }
 
-  void _syncControllers(WorkspacePageDoc page) {
-    if (_loadedPageId == page.id) return;
-    _loadedPageId = page.id;
-    _titleController.text = page.title;
-    for (final c in _blockControllers.values) {
-      c.dispose();
-    }
-    _blockControllers.clear();
-    for (final block in page.blocks) {
-      _blockControllers[block.id] = TextEditingController(text: block.text);
+  void _onEdited() => setState(() {});
+
+  bool get _dirty =>
+      _loaded &&
+      (_title.text.trim() != _savedTitle.trim() ||
+          _body.text != _savedContent);
+
+  void _adopt(Broad page) {
+    if (_loaded) return;
+    _loaded = true;
+    _savedTitle = page.name;
+    _savedContent = page.content ?? '';
+    _title.text = _savedTitle;
+    _body.text = _savedContent;
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final page = ref.read(pageProvider(_pageId)).value;
+    if (page == null) return;
+    setState(() => _saving = true);
+    try {
+      final saved = await ref
+          .read(pageActionsProvider)
+          .savePage(page, name: _title.text, content: _body.text);
+      if (!mounted) return;
+      setState(() {
+        _savedTitle = saved.name;
+        _savedContent = saved.content ?? '';
+        // The server normalizes the title; mirror it so dirtiness settles.
+        _title.text = _savedTitle;
+      });
+      showSnackBar('pageSaved'.tr());
+    } catch (error) {
+      showSnackBar(wattApiErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  TextEditingController _controllerFor(PageBlock block) {
-    return _blockControllers.putIfAbsent(
-      block.id,
-      () => TextEditingController(text: block.text),
+  Future<void> _delete(Broad page) async {
+    final confirmed = await showConfirmAlert(
+      'deletePageConfirm'.tr(namedArgs: {'name': page.name}),
+      'deletePageTitle'.tr(),
+      icon: Symbols.delete,
+      isDanger: true,
+      confirmLabel: 'delete'.tr(),
     );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(pageActionsProvider).deletePage(page);
+      if (mounted) _popPage(context);
+    } catch (error) {
+      showSnackBar(wattApiErrorMessage(error));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final pages = ref.watch(pagesProvider);
-    final selectedId = ref.watch(selectedPageIdProvider);
-    final activePage =
-        pages.where((p) => p.id == selectedId).firstOrNull ?? pages.firstOrNull;
+    final page = ref.watch(pageProvider(_pageId));
+    final scheme = Theme.of(context).colorScheme;
 
-    if (activePage == null) {
-      return Scaffold(
-        body: Column(
-          children: [
-            WorkspaceCanvasHeader(
-              title: const Text('Pages'),
-              actions: [
-                FilledButton.icon(
-                  onPressed: () =>
-                      ref.read(pagesProvider.notifier).createPage(),
-                  icon: const Icon(Symbols.add_rounded, size: 18),
-                  label: const Text('New Page'),
-                ),
-              ],
-            ),
-            const Expanded(
-              child: Center(
-                child: Text('No pages yet. Create your first page.'),
-              ),
-            ),
-          ],
-        ),
-      );
+    final loaded = page.value;
+    if (loaded != null && !loaded.isPage) {
+      // A board id behind the page route: send the reader to the board rather
+      // than editing its task list as prose.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.router.replace(TaskBoardRoute(broadId: loaded.id));
+        }
+      });
     }
+    if (loaded != null && loaded.isPage) _adopt(loaded);
 
-    _syncControllers(activePage);
-    final entityRef = activePage.toEntityRef();
-    final isPinned = ref
-        .watch(pinnedItemsProvider)
-        .any((p) => p.domain == WorkspaceDomain.pages && p.id == activePage.id);
+    final title = _loaded ? _title.text.trim() : (loaded?.name ?? '');
+    final name = title.isEmpty ? 'untitledPage'.tr() : title;
+    final favorite = loaded == null
+        ? false
+        : isFavoriteEntity(ref, broadToEntityRef(loaded));
 
-    // The page on screen is a document: reading it puts its title on the bar,
-    // and it reads in the lens pane, so the tab is a root tab of the lens.
     return WorkspaceDocumentScope(
       domain: WorkspaceDomain.pages,
-      entityId: activePage.id,
-      title: activePage.title.isEmpty ? 'Untitled Page' : activePage.title,
-      // A page reads in the pages lens, so it labels the lens tab rather than
-      // opening one of its own.
-      fullScreen: false,
-      child: Scaffold(
-        body: Column(
-          children: [
-            WorkspaceCanvasHeader(
-              leading: Text(
-                activePage.icon,
-                style: const TextStyle(fontSize: 18),
-              ),
-              title: Text(
-                activePage.title.isEmpty ? 'Untitled Page' : activePage.title,
-              ),
-              subtitle: Text('${activePage.blocks.length} blocks'),
-              actions: [
+      entityId: _pageId,
+      title: name,
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+        },
+        child: Scaffold(
+          backgroundColor: scheme.surface,
+          appBar: AppBar(
+            leading: IconButton(
+              tooltip: 'back'.tr(),
+              icon: const Icon(Symbols.arrow_back),
+              onPressed: () => _popPage(context),
+            ),
+            title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            actions: [
+              if (_dirty)
                 IconButton(
-                  tooltip: isPinned ? 'Unpin' : 'Pin to Favorites',
-                  icon: Icon(
-                    Symbols.push_pin_rounded,
-                    fill: isPinned ? 1 : 0,
-                    size: 18,
-                  ),
-                  onPressed: () => ref
-                      .read(pinnedItemsProvider.notifier)
-                      .togglePin(entityRef),
+                  tooltip: 'save'.tr(),
+                  icon: _saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Symbols.save),
+                  onPressed: _saving ? null : _save,
                 ),
+              IconButton(
+                tooltip: 'preview'.tr(),
+                icon: Icon(
+                  _preview ? Symbols.edit : Symbols.visibility,
+                  size: 20,
+                ),
+                onPressed: () => setState(() => _preview = !_preview),
+              ),
+              IconButton(
+                tooltip: favorite
+                    ? 'Remove from Favorites'
+                    : 'Add to Favorites',
+                icon: Icon(
+                  favorite ? Symbols.star_rounded : Symbols.star_border_rounded,
+                  size: 20,
+                ),
+                onPressed: loaded == null
+                    ? null
+                    : () => toggleFavoriteEntity(
+                        ref,
+                        broadToEntityRef(loaded),
+                      ),
+              ),
+              if (loaded != null)
                 IconButton(
                   tooltip: 'Inspect in Peek',
-                  icon: const Icon(Symbols.dock_to_right_rounded, size: 18),
-                  onPressed: () =>
-                      ref.read(peekProvider.notifier).open(entityRef),
+                  icon: const Icon(Symbols.dock_to_right_rounded, size: 20),
+                  onPressed: () => ref
+                      .read(peekProvider.notifier)
+                      .open(broadToEntityRef(loaded)),
                 ),
-                IconButton(
-                  tooltip: 'New Page',
-                  icon: const Icon(Symbols.add_rounded, size: 18),
-                  onPressed: () =>
-                      ref.read(pagesProvider.notifier).createPage(),
-                ),
-              ],
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: SolSpace.xxl,
-                  vertical: SolSpace.xl,
-                ),
-                children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TextField(
-                            controller: _titleController,
-                            style: Theme.of(context).textTheme.headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              hintText: 'Untitled Page',
-                            ),
-                            onChanged: (value) {
-                              ref
-                                  .read(pagesProvider.notifier)
-                                  .updatePage(
-                                    activePage.copyWith(title: value),
-                                  );
-                            },
-                          ),
-                          const SizedBox(height: SolSpace.md),
-                          for (final block in activePage.blocks)
-                            _buildBlock(context, activePage, block),
-                          const SizedBox(height: SolSpace.md),
-                          Wrap(
-                            spacing: SolSpace.sm,
-                            children: [
-                              ActionChip(
-                                avatar: const Icon(
-                                  Symbols.add_rounded,
-                                  size: 16,
-                                ),
-                                label: const Text('Add text'),
-                                onPressed: () => _addBlock(
-                                  activePage,
-                                  PageBlockType.paragraph,
-                                ),
-                              ),
-                              ActionChip(
-                                avatar: const Icon(
-                                  Symbols.check_box_rounded,
-                                  size: 16,
-                                ),
-                                label: const Text('Add to-do'),
-                                onPressed: () =>
-                                    _addBlock(activePage, PageBlockType.todo),
-                              ),
-                              ActionChip(
-                                avatar: const Icon(
-                                  Symbols.title_rounded,
-                                  size: 16,
-                                ),
-                                label: const Text('Add heading'),
-                                onPressed: () => _addBlock(
-                                  activePage,
-                                  PageBlockType.heading2,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: SolSpace.xxl),
-                          RelatedItemsStrip(
-                            entity: entityRef,
-                            extraItems: activePage.mentions,
-                          ),
-                        ],
-                      ),
+              PopupMenuButton<String>(
+                tooltip: 'more'.tr(),
+                onSelected: (value) {
+                  if (value == 'delete' && loaded != null) _delete(loaded);
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(
+                      'delete'.tr(),
+                      style: TextStyle(color: scheme.error),
                     ),
                   ),
                 ],
               ),
+            ],
+          ),
+          body: page.when(
+            loading: () => const PageLoading(),
+            error: (error, _) => PageError(
+              message: wattApiErrorMessage(error),
+              onRetry: () => ref.invalidate(pageProvider(_pageId)),
             ),
-          ],
+            data: (page) {
+              if (page == null) {
+                return EmptyState(
+                  icon: Symbols.article,
+                  title: 'pageUnavailable'.tr(),
+                  message: 'pageUnavailableDetail'.tr(),
+                  action: FilledButton(
+                    onPressed: () => _popPage(context),
+                    child: Text('boards'.tr()),
+                  ),
+                );
+              }
+              return Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(
+                      SolSpace.xxl,
+                      SolSpace.xl,
+                      SolSpace.xxl,
+                      SolSpace.xxl,
+                    ),
+                    children: [
+                      TextField(
+                        controller: _title,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          hintText: 'untitledPage'.tr(),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      const SizedBox(height: SolSpace.md),
+                      if (_preview)
+                        MarkdownTextContent(
+                          content: _body.text.trim().isEmpty
+                              ? 'No content yet.'
+                              : _body.text,
+                        )
+                      else
+                        WorkspaceRichEditor(
+                          controller: _body,
+                          focusNode: _bodyFocus,
+                          mode: WorkspaceEditorMode.pageBlocks,
+                          minLines: 12,
+                          hintText:
+                              'Write Markdown. Type @ to mention or / for commands…',
+                          onSwitchLens: (entity) =>
+                              ref.read(peekProvider.notifier).open(entity),
+                        ),
+                      const SizedBox(height: SolSpace.xxl),
+                      RelatedItemsStrip(entity: broadToEntityRef(page)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
+}
 
-  void _addBlock(WorkspacePageDoc page, PageBlockType type) {
-    final block = PageBlock(
-      id: 'b-${DateTime.now().microsecondsSinceEpoch}',
-      type: type,
-      text: '',
-    );
-    ref
-        .read(pagesProvider.notifier)
-        .updatePage(page.copyWith(blocks: [...page.blocks, block]));
-  }
-
-  void _updateBlock(WorkspacePageDoc page, PageBlock updated) {
-    final nextBlocks = page.blocks
-        .map((b) => b.id == updated.id ? updated : b)
-        .toList();
-    ref
-        .read(pagesProvider.notifier)
-        .updatePage(page.copyWith(blocks: nextBlocks));
-  }
-
-  Widget _buildBlock(
-    BuildContext context,
-    WorkspacePageDoc page,
-    PageBlock block,
-  ) {
-    if (block.type == PageBlockType.entityEmbed &&
-        block.embeddedEntity != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: SolSpace.xs),
-        child: EntityCard(
-          entity: block.embeddedEntity!,
-          onToggleComplete: block.embeddedEntity!.domain == WorkspaceDomain.todo
-              ? () {
-                  final toggled = block.embeddedEntity!.copyWith(
-                    isCompleted: !block.embeddedEntity!.isCompleted,
-                  );
-                  _updateBlock(page, block.copyWith(embeddedEntity: toggled));
-                }
-              : null,
-        ),
-      );
-    }
-
-    final controller = _controllerFor(block);
-    final editor = WorkspaceRichEditor(
-      controller: controller,
-      mode: WorkspaceEditorMode.pageBlocks,
-      minLines: 1,
-      hintText: block.type == PageBlockType.todo
-          ? 'To-do item...'
-          : 'Type @ to mention or / for commands...',
-      onChanged: (value) => _updateBlock(page, block.copyWith(text: value)),
-      onMentionInserted: (mention) {
-        ref.read(pagesProvider.notifier).addMention(page.id, mention);
-        ref.read(backlinksProvider.notifier).link(page.toEntityRef(), mention);
-      },
-      onEmbedEntity: (entity) {
-        ref.read(pagesProvider.notifier).embedEntity(page.id, entity);
-        ref.read(backlinksProvider.notifier).link(page.toEntityRef(), entity);
-      },
-    );
-
-    if (block.type == PageBlockType.todo) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Checkbox(
-              value: block.checked,
-              onChanged: (v) =>
-                  _updateBlock(page, block.copyWith(checked: v ?? false)),
-            ),
-            Expanded(child: editor),
-          ],
-        ),
-      );
-    }
-
-    if (block.type == PageBlockType.heading1 ||
-        block.type == PageBlockType.heading2) {
-      final style = block.type == PageBlockType.heading1
-          ? Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)
-          : Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
-      return Padding(
-        padding: const EdgeInsets.only(top: SolSpace.md, bottom: SolSpace.xs),
-        child: DefaultTextStyle(
-          style: style ?? const TextStyle(),
-          child: editor,
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: editor,
-    );
-  }
+/// Back into the list the page was opened from. The nested stack normally
+/// holds it; a deep link falls back to the list route.
+void _popPage(BuildContext context) {
+  final router = context.router;
+  unawaited(
+    router.maybePop().then((popped) {
+      if (!popped && context.mounted) router.replace(const BoardsListRoute());
+    }),
+  );
 }

@@ -49,17 +49,16 @@ class AppRouter extends RootStackRouter {
           ],
         ),
         // The boards tab owns a nested stack: the board list is the root and
-        // a single board is pushed on top of it, so opening a board keeps the
-        // app shell (navigation rail / bottom bar) in place and returns to the
-        // list it came from.
+        // a board or a page is pushed on top of it. Boards and pages come from
+        // one Ideask tree, so they share one stack and one Back path.
         AutoRoute(
           page: BoardsRoute.page,
           children: [
             AutoRoute(page: BoardsListRoute.page, path: '', initial: true),
-            AutoRoute(page: TaskBoardRoute.page, path: ':broadId'),
+            AutoRoute(page: TaskBoardRoute.page, path: 'board/:broadId'),
+            AutoRoute(page: BroadDocRoute.page, path: 'page/:pageId'),
           ],
         ),
-        AutoRoute(page: WorkspaceNotesRoute.page),
         AutoRoute(page: FileListRoute.page),
         AutoRoute(page: FlywheelRoute.page),
         AutoRoute(page: ProfileRoute.page),

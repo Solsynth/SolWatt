@@ -14,6 +14,7 @@ import 'package:solwatt/core/utils/share_utils.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_actions_sheet.dart';
 import 'package:solwatt/core/widgets/content/file_info_sheet.dart';
+import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solwatt/core/network.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
@@ -203,6 +204,23 @@ Menu _buildIndexedColumnMenu({
   required SnCloudFile file,
   required void Function(SnCloudFile file) onInspect,
 }) {
+  // Menus are built by the context-menu overlay, outside this widget's build,
+  // so the bookmark state is read, not watched.
+  final isFavorite =
+      ref.read(driveFavoriteIdsProvider).value?.contains(file.id) ?? false;
+  MenuAction favoriteAction() => MenuAction(
+    title: isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+    image: MenuImage.icon(
+      isFavorite ? Symbols.star_rounded : Symbols.star_border_rounded,
+    ),
+    callback: () async {
+      try {
+        await toggleDriveFavorite(ref, file);
+      } catch (_) {
+        showSnackBar('favoriteFailed'.tr());
+      }
+    },
+  );
   if (file.isFolder) {
     return Menu(
       children: [
@@ -211,6 +229,7 @@ Menu _buildIndexedColumnMenu({
           image: MenuImage.icon(Symbols.info),
           callback: () => onInspect(file),
         ),
+        favoriteAction(),
         MenuSeparator(),
         MenuAction(
           title: 'rename'.tr(),
@@ -258,6 +277,7 @@ Menu _buildIndexedColumnMenu({
         image: MenuImage.icon(Symbols.info),
         callback: () => onInspect(file),
       ),
+      favoriteAction(),
       MenuSeparator(),
       MenuAction(
         title: 'rename'.tr(),
@@ -1473,6 +1493,13 @@ class FileListView extends HookConsumerWidget {
       case 'inspect':
         onInspectFile(folder);
         break;
+      case 'favorite':
+        try {
+          await toggleDriveFavorite(ref, folder);
+        } catch (_) {
+          showSnackBar('favoriteFailed'.tr());
+        }
+        break;
       case 'rename':
         await _renameFolder(context, ref, folder);
         break;
@@ -1496,6 +1523,9 @@ class FileListView extends HookConsumerWidget {
     WidgetRef ref,
     SnCloudFile folder,
   ) {
+    // Built by the context-menu overlay, not during this widget's build.
+    final isFavorite =
+        ref.read(driveFavoriteIdsProvider).value?.contains(folder.id) ?? false;
     return Menu(
       children: [
         MenuAction(
@@ -1514,6 +1544,13 @@ class FileListView extends HookConsumerWidget {
           image: MenuImage.icon(Symbols.drive_file_move),
           callback: () => _handleFolderAction(context, ref, folder, 'move'),
         ),
+        MenuAction(
+          title: isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+          image: MenuImage.icon(
+            isFavorite ? Symbols.star_rounded : Symbols.star_border_rounded,
+          ),
+          callback: () => _handleFolderAction(context, ref, folder, 'favorite'),
+        ),
         MenuSeparator(),
         MenuAction(
           title: 'delete'.tr(),
@@ -1529,6 +1566,8 @@ class FileListView extends HookConsumerWidget {
     WidgetRef ref,
     SnCloudFile folder,
   ) {
+    final isFavorite =
+        ref.read(driveFavoriteIdsProvider).value?.contains(folder.id) ?? false;
     return PopupMenuButton<String>(
       tooltip: 'more'.tr(),
       padding: EdgeInsets.zero,
@@ -1537,6 +1576,12 @@ class FileListView extends HookConsumerWidget {
       itemBuilder: (context) => [
         PopupMenuItem(value: 'inspect', child: Text('inspect'.tr())),
         PopupMenuItem(value: 'rename', child: Text('rename'.tr())),
+        PopupMenuItem(
+          value: 'favorite',
+          child: Text(
+            isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+          ),
+        ),
         PopupMenuItem(value: 'move', child: Text('moveToFolder'.tr())),
         PopupMenuItem(value: 'delete', child: Text('delete'.tr())),
       ],
@@ -1553,11 +1598,18 @@ class FileListView extends HookConsumerWidget {
     BuildContext context,
   ) {
     final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final isFavorite =
+        ref.watch(driveFavoriteIdsProvider).value?.contains(file.id) ?? false;
 
     void handleAction(String action) {
       switch (action) {
         case 'inspect':
           onInspectFile(file);
+          break;
+        case 'favorite':
+          toggleDriveFavorite(ref, file).catchError(
+            (Object error) => showSnackBar('favoriteFailed'.tr()),
+          );
           break;
         case 'download':
           ref
@@ -1669,6 +1721,12 @@ class FileListView extends HookConsumerWidget {
           onSelected: handleAction,
           itemBuilder: (context) => [
             PopupMenuItem(value: 'inspect', child: Text('inspect'.tr())),
+            PopupMenuItem(
+              value: 'favorite',
+              child: Text(
+                isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+              ),
+            ),
             PopupMenuItem(value: 'rename', child: Text('rename'.tr())),
             PopupMenuItem(
               value: 'moveToFolder',
@@ -2107,6 +2165,7 @@ class FileListView extends HookConsumerWidget {
         !file.isFolder && (file.childrenCount > 0 || children.isNotEmpty);
     final isExpanded = expandedFileIds.value.contains(file.id);
     final isLoadingChildren = loadingTreeChildren.contains(file.id);
+    final favorites = ref.read(driveFavoriteIdsProvider).value ?? const {};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2121,6 +2180,24 @@ class FileListView extends HookConsumerWidget {
                   image: MenuImage.icon(Symbols.info),
                   callback: () => onInspectFile(file),
                 ),
+                if (!isUnindexed)
+                  MenuAction(
+                    title: favorites.contains(file.id)
+                        ? 'removeFromFavorites'.tr()
+                        : 'addToFavorites'.tr(),
+                    image: MenuImage.icon(
+                      favorites.contains(file.id)
+                          ? Symbols.star_rounded
+                          : Symbols.star_border_rounded,
+                    ),
+                    callback: () async {
+                      try {
+                        await toggleDriveFavorite(ref, file);
+                      } catch (_) {
+                        showSnackBar('favoriteFailed'.tr());
+                      }
+                    },
+                  ),
                 if (!file.isFolder) ...[
                   MenuSeparator(),
                   if (!isUnindexed)
@@ -3812,12 +3889,28 @@ class FileActionSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFavorite =
+        ProviderScope.containerOf(context)
+            .read(driveFavoriteIdsProvider)
+            .value
+            ?.contains(file.id) ??
+        false;
     final primaryActions = <Widget>[
       _FileActionListTile(
         leading: Icon(Symbols.info),
         title: Text('inspect'.tr()),
         onTap: () => onAction('inspect'),
       ),
+      if (!isUnindexed)
+        _FileActionListTile(
+          leading: Icon(
+            isFavorite ? Symbols.star_rounded : Symbols.star_border_rounded,
+          ),
+          title: Text(
+            isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+          ),
+          onTap: () => onAction('favorite'),
+        ),
       if (!file.isFolder) ...[
         _FileActionListTile(
           leading: Icon(Symbols.download),

@@ -38,11 +38,13 @@ enum WorkspaceDomain {
 }
 
 /// Top-level lenses inside [AdaptiveWorkspaceShell].
+///
+/// Ideask serves boards and pages from one tree, so they share one lens: the
+/// Todo lens lists both and opens either as its own document.
 enum WorkspaceLens {
   today,
   mail,
   todo,
-  pages,
   drive,
   flywheel,
   profile,
@@ -52,7 +54,6 @@ enum WorkspaceLens {
     WorkspaceLens.today => 'Today',
     WorkspaceLens.mail => 'Mail',
     WorkspaceLens.todo => 'Todo',
-    WorkspaceLens.pages => 'Pages',
     WorkspaceLens.drive => 'Drive',
     WorkspaceLens.flywheel => 'Flywheel',
     WorkspaceLens.profile => 'Profile',
@@ -63,7 +64,6 @@ enum WorkspaceLens {
     WorkspaceLens.today => Symbols.star_rounded,
     WorkspaceLens.mail => Symbols.mail_rounded,
     WorkspaceLens.todo => Symbols.check_box_rounded,
-    WorkspaceLens.pages => Symbols.article_rounded,
     WorkspaceLens.drive => Symbols.cloud_rounded,
     WorkspaceLens.flywheel => Symbols.bolt_rounded,
     WorkspaceLens.profile => Symbols.person_rounded,
@@ -73,7 +73,6 @@ enum WorkspaceLens {
   WorkspaceDomain? get domain => switch (this) {
     WorkspaceLens.mail => WorkspaceDomain.mail,
     WorkspaceLens.todo => WorkspaceDomain.todo,
-    WorkspaceLens.pages => WorkspaceDomain.pages,
     WorkspaceLens.drive => WorkspaceDomain.drive,
     _ => null,
   };
@@ -83,7 +82,6 @@ enum WorkspaceLens {
     WorkspaceLens.today => 'TodayFocusRoute',
     WorkspaceLens.mail => 'MailRoute',
     WorkspaceLens.todo => 'BoardsRoute',
-    WorkspaceLens.pages => 'WorkspaceNotesRoute',
     WorkspaceLens.drive => 'FileListRoute',
     WorkspaceLens.flywheel => 'FlywheelRoute',
     WorkspaceLens.profile => 'ProfileRoute',

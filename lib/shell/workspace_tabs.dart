@@ -76,19 +76,25 @@ class WorkspaceTabState {
 }
 
 /// The route a tab opens into its lens' nested stack. Null for tabs whose
-/// content is a pane of the canvas (the drive's reader, a page) rather than a
-/// page in the lens' stack.
+/// content is a pane of the canvas (the drive's reader) rather than a page in
+/// the lens' stack.
+///
+/// Boards and pages share the boards tab's stack because they share the
+/// service: one stack holds the list, a board and a page, and Back walks them
+/// in the order the reader opened them.
 PageRouteInfo? routeForTab(WorkspaceTab tab) => switch (tab.domain) {
   WorkspaceDomain.mail =>
     tab.messageId == null ? null : MailDetailRoute(emailId: tab.messageId!),
   WorkspaceDomain.todo => TaskBoardRoute(broadId: tab.entityId!),
-  WorkspaceDomain.drive || WorkspaceDomain.pages => null,
+  WorkspaceDomain.pages => BroadDocRoute(pageId: tab.entityId!),
+  WorkspaceDomain.drive => null,
 };
 
+/// Ideask serves boards and pages from one tree, so both open in the Todo
+/// lens; a page is a broad of another kind, not another lens.
 WorkspaceLens lensOfDomain(WorkspaceDomain domain) => switch (domain) {
   WorkspaceDomain.mail => WorkspaceLens.mail,
-  WorkspaceDomain.todo => WorkspaceLens.todo,
-  WorkspaceDomain.pages => WorkspaceLens.pages,
+  WorkspaceDomain.todo || WorkspaceDomain.pages => WorkspaceLens.todo,
   WorkspaceDomain.drive => WorkspaceLens.drive,
 };
 

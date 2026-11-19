@@ -34,11 +34,10 @@ const _lunar = Workspace(
   type: WorkspaceType.organization,
 );
 
-/// Popup menus inside the drive tab strip. Matched by predicate because the app
-/// tree builds widgets from the `material_ui` fork, whose classes are distinct
-/// from `flutter/material`'s and therefore invisible to `CommonFinders.byType`.
-/// The drive's source switch, the browser's remaining chrome now that the
-/// documents live in the shared title bar.
+/// The pane switch lived in the browser's toolbar until it moved to the
+/// contextual sidebar; matched by predicate because the app tree builds widgets
+/// from the `material_ui` fork, whose classes are distinct from
+/// `flutter/material`'s and therefore invisible to `CommonFinders.byType`.
 final _sourceSwitch = find.byWidgetPredicate(
   (widget) => widget is mui.SegmentedButton,
 );
@@ -131,8 +130,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(tester.takeException(), isNull);
-    // The strip kept only its "add" menu: the inline workspace switcher is gone.
-    expect(_sourceSwitch, findsOneWidget);
+    // The pane switch is the sidebar's, not the browser toolbar's.
+    expect(_sourceSwitch, findsNothing);
     // The seeded tab browses the globally active workspace.
     expect(find.byType(FileListView), findsOneWidget);
     expect(quotaSlugs, contains('solar'));
@@ -147,7 +146,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byType(FileListView), findsOneWidget);
-    expect(_sourceSwitch, findsOneWidget);
+    expect(_sourceSwitch, findsNothing);
     expect(quotaSlugs, contains('lunar'));
 
     // Settle the revived listing requests so no Dio timeout stays pending.

@@ -1,14 +1,24 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:solwatt/core/config.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/page_models.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
-const _kWorkspacePagesStorageKey = 'workspace_pages_docs_v1';
+/// Pages are Ideask broads of kind 1 — the same rows, tree and workspace as
+/// task boards, only their payload is Markdown (`content`) instead of tasks.
+/// There is no separate page store: [broadsProvider] is the list for both.
+final pagesProvider = FutureProvider<List<Broad>>((ref) async {
+  final boards = await ref.watch(broadsProvider.future);
+  return boards.where((broad) => broad.isPage).toList(growable: false);
+});
 
+/// The boards on the active workspace: everything that is not a page.
+final taskBoardsProvider = FutureProvider<List<Broad>>((ref) async {
+  final boards = await ref.watch(broadsProvider.future);
+  return boards.where((broad) => broad.isBoard).toList(growable: false);
+});
+
+/// The page the boards tab last opened, so its sidebar can mark the row that
+/// is on screen. Boards clear it: a board is not a page.
 final selectedPageIdProvider =
     NotifierProvider<SelectedPageIdNotifier, String?>(
       SelectedPageIdNotifier.new,
@@ -18,118 +28,83 @@ class SelectedPageIdNotifier extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void select(String? id) => state = id;
+  void select(String? id) {
+    if (state == id) return;
+    state = id;
+  }
 }
 
-final pagesProvider = NotifierProvider<PagesNotifier, List<WorkspacePageDoc>>(
-  PagesNotifier.new,
+/// One page as the editor reads it, refreshed from the server rather than from
+/// the list: the list is a snapshot, and a page's body changes on every save.
+final pageProvider = FutureProvider.family<Broad?, String>(
+  (ref, pageId) => ref.watch(wattEngineClientProvider).getBroad(pageId),
 );
 
-class PagesNotifier extends Notifier<List<WorkspacePageDoc>> {
-  String get _workspaceKey {
-    final ws = ref.watch(selectedWorkspaceProvider).value;
-    return ws?.slug ?? 'personal';
-  }
+/// What a broad looks like in the shared workspace surfaces (entity pills,
+/// peek, favorites, search results).
+WorkspaceEntityRef broadToEntityRef(Broad broad) => WorkspaceEntityRef(
+  id: broad.id,
+  domain: broad.isPage ? WorkspaceDomain.pages : WorkspaceDomain.todo,
+  title: broad.name.isEmpty
+      ? (broad.isPage ? 'Untitled page' : 'Untitled board')
+      : broad.name,
+  subtitle: broad.isPage ? 'Page' : 'Task Board',
+  badgeText: broad.isPage ? 'Page' : 'Board',
+  metadata: {'broadId': broad.id, 'isBoard': broad.isBoard},
+);
 
-  @override
-  List<WorkspacePageDoc> build() {
-    final prefs = ref.watch(sharedPreferencesProvider);
-    final raw = prefs.getString(_kWorkspacePagesStorageKey);
-    final all = _decodeAll(raw);
-    final wsKey = _workspaceKey;
-    return all.where((p) => p.workspaceKey == wsKey).toList();
-  }
+/// Page writes. Pages and boards share one table, so both go through the same
+/// broad endpoints; only the payload differs.
+final pageActionsProvider = Provider<PageActions>(PageActions.new);
 
-  List<WorkspacePageDoc> _decodeAll(String? raw) {
-    if (raw == null || raw.isEmpty) return const [];
-    try {
-      final list = jsonDecode(raw) as List<dynamic>;
-      return list
-          .whereType<Map>()
-          .map((m) => WorkspacePageDoc.fromJson(m.cast<String, dynamic>()))
-          .toList();
-    } catch (_) {
-      return const [];
+class PageActions {
+  const PageActions(this._ref);
+
+  final Ref _ref;
+
+  /// Creates a page in the active workspace. Pages are boards without tasks,
+  /// so the create call is the board create with `kind: 1`.
+  Future<Broad> createPage({String? title, String? parentId}) async {
+    final workspace = await _ref.read(selectedWorkspaceProvider.future);
+    if (workspace == null) {
+      throw StateError('Select a workspace before creating a page.');
     }
-  }
-
-  void _persistWorkspacePages(List<WorkspacePageDoc> updatedScoped) {
-    final prefs = ref.read(sharedPreferencesProvider);
-    final existingAll = _decodeAll(prefs.getString(_kWorkspacePagesStorageKey));
-    final wsKey = _workspaceKey;
-    final others = existingAll.where((p) => p.workspaceKey != wsKey);
-    final combined = [...others, ...updatedScoped];
-    prefs.setString(
-      _kWorkspacePagesStorageKey,
-      jsonEncode(combined.map((p) => p.toJson()).toList()),
-    );
-  }
-
-  WorkspacePageDoc createPage({String? title, String? parentId}) {
-    final id = 'page-${DateTime.now().microsecondsSinceEpoch}';
-    final page = WorkspacePageDoc(
-      id: id,
-      workspaceKey: _workspaceKey,
-      parentId: parentId,
-      title: (title == null || title.trim().isEmpty)
-          ? 'Untitled Page'
-          : title.trim(),
-      updatedAt: DateTime.now(),
-      blocks: [
-        PageBlock(
-          id: 'b-${DateTime.now().microsecondsSinceEpoch}',
-          type: PageBlockType.paragraph,
-          text: '',
-        ),
-      ],
-    );
-    final next = [page, ...state];
-    state = next;
-    _persistWorkspacePages(next);
-    ref.read(selectedPageIdProvider.notifier).select(page.id);
+    final page = await _ref
+        .read(wattEngineClientProvider)
+        .createBroad(
+          name: title?.trim().isNotEmpty == true
+              ? title!.trim()
+              : 'Untitled page',
+          workspaceId: workspace.id,
+          kind: Broad.kindPage,
+        );
+    _ref.invalidate(broadsProvider);
     return page;
   }
 
-  void updatePage(WorkspacePageDoc updated) {
-    final next = state
-        .map(
-          (p) => p.id == updated.id
-              ? updated.copyWith(updatedAt: DateTime.now())
-              : p,
-        )
-        .toList();
-    state = next;
-    _persistWorkspacePages(next);
+  /// Saves a page's title and Markdown body. The list refresh keeps every
+  /// surface that names the page — the tab strip, the sidebar, favorites — in
+  /// step.
+  Future<Broad> savePage(
+    Broad page, {
+    required String name,
+    required String content,
+  }) async {
+    final saved = await _ref
+        .read(wattEngineClientProvider)
+        .updateBroad(
+          broadId: page.id,
+          name: name.trim().isEmpty ? 'Untitled page' : name.trim(),
+          content: content,
+        );
+    _ref.invalidate(broadsProvider);
+    _ref.invalidate(pageProvider(page.id));
+    return saved;
   }
 
-  void addMention(String pageId, WorkspaceEntityRef mention) {
-    final page = state.where((p) => p.id == pageId).firstOrNull;
-    if (page == null) return;
-    if (page.mentions.any((m) => m.key == mention.key)) return;
-    updatePage(page.copyWith(mentions: [...page.mentions, mention]));
-  }
-
-  void embedEntity(String pageId, WorkspaceEntityRef entity) {
-    final page = state.where((p) => p.id == pageId).firstOrNull;
-    if (page == null) return;
-    final block = PageBlock(
-      id: 'embed-${DateTime.now().microsecondsSinceEpoch}',
-      type: PageBlockType.entityEmbed,
-      text: entity.title,
-      embeddedEntity: entity,
-    );
-    updatePage(page.copyWith(blocks: [...page.blocks, block]));
-  }
-
-  void toggleResolveComments(String pageId) {
-    final page = state.where((p) => p.id == pageId).firstOrNull;
-    if (page == null) return;
-    updatePage(page.copyWith(commentsResolved: !page.commentsResolved));
-  }
-
-  void deletePage(String pageId) {
-    final next = state.where((p) => p.id != pageId).toList();
-    state = next;
-    _persistWorkspacePages(next);
+  /// Deletes a page or board and its whole subtree.
+  Future<void> deletePage(Broad page) async {
+    await _ref.read(wattEngineClientProvider).deleteBroad(page.id);
+    _ref.invalidate(broadsProvider);
   }
 }

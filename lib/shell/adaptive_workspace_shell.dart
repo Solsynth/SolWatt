@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:solwatt/boards/create_broad_sheet.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/route.dart';
@@ -25,7 +26,6 @@ const List<WorkspaceLens> kShellLenses = [
   WorkspaceLens.today,
   WorkspaceLens.mail,
   WorkspaceLens.todo,
-  WorkspaceLens.pages,
   WorkspaceLens.drive,
   WorkspaceLens.flywheel,
   WorkspaceLens.profile,
@@ -48,10 +48,7 @@ _ViewportClass _classifyViewport(double width) {
 /// Their sidebar would repeat the lens switcher one column over, so the shell
 /// leaves that column to the canvas instead.
 bool _lensOwnsSidebar(WorkspaceLens lens) => switch (lens) {
-  WorkspaceLens.mail ||
-  WorkspaceLens.todo ||
-  WorkspaceLens.pages ||
-  WorkspaceLens.drive => true,
+  WorkspaceLens.mail || WorkspaceLens.todo || WorkspaceLens.drive => true,
   WorkspaceLens.today ||
   WorkspaceLens.flywheel ||
   WorkspaceLens.profile ||
@@ -131,10 +128,12 @@ class _AdaptiveWorkspaceShellState
             .request(entity.id, fullScreen: true);
       case WorkspaceDomain.todo:
         _nestedStack(lens)?.navigate(TaskBoardRoute(broadId: entity.id));
+      case WorkspaceDomain.pages:
+        // A page is a broad of kind 1 in the same tree, so it opens in the
+        // boards stack beside the board list.
+        _nestedStack(lens)?.navigate(BroadDocRoute(pageId: entity.id));
       case WorkspaceDomain.drive:
         ref.read(drivePendingFocusProvider.notifier).request(entity.id);
-      case WorkspaceDomain.pages:
-        ref.read(selectedPageIdProvider.notifier).select(entity.id);
     }
   }
 
@@ -148,14 +147,12 @@ class _AdaptiveWorkspaceShellState
         // selecting the tab reopens exactly that message in the lens stack.
         final route = routeForTab(tab);
         if (route != null) _nestedStack(tab.lens)?.navigate(route);
-      case WorkspaceDomain.drive:
-        ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
-      case WorkspaceDomain.pages:
-        ref.read(selectedPageIdProvider.notifier).select(tab.entityId);
-        _nestedStack(WorkspaceLens.pages)?.popUntilRoot();
       case WorkspaceDomain.todo:
+      case WorkspaceDomain.pages:
         final route = routeForTab(tab);
         if (route != null) _nestedStack(tab.lens)?.navigate(route);
+      case WorkspaceDomain.drive:
+        ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
     }
   }
 
@@ -181,8 +178,10 @@ class _AdaptiveWorkspaceShellState
       case WorkspaceDomain.todo:
         _selectLens(WorkspaceLens.todo);
       case WorkspaceDomain.pages:
-        ref.read(selectedPageIdProvider.notifier).select(entity.id);
-        _selectLens(WorkspaceLens.pages);
+        _selectLens(WorkspaceLens.todo);
+        _nestedStack(WorkspaceLens.todo)?.navigate(
+          BroadDocRoute(pageId: entity.id),
+        );
       case WorkspaceDomain.drive:
         _selectLens(WorkspaceLens.drive);
     }
@@ -192,9 +191,19 @@ class _AdaptiveWorkspaceShellState
     showFederatedOmnibox(context, onSwitchLens: _switchToEntity);
   }
 
+  /// The one create action: a board or a page. Both are Ideask broads, so the
+  /// sheet asks which kind rather than making the reader know which lens owns
+  /// it.
+  Future<void> _openCreateSheet() async {
+    _selectLens(WorkspaceLens.todo);
+    _nestedStack(WorkspaceLens.todo)?.popUntilRoot();
+    await showCreateBroadSheet(context, ref);
+  }
+
   Future<void> _handleConvertMailToTask(WorkspaceEntityRef mailEntity) async {
     HapticFeedback.selectionClick();
-    final boards = ref.read(broadsProvider).value ?? const <Broad>[];
+    // Pages are broads too, but a page holds no tasks: convert into a board.
+    final boards = ref.read(taskBoardsProvider).value ?? const <Broad>[];
     final firstBoard = boards.firstOrNull;
     if (firstBoard == null) {
       if (mounted) {
@@ -264,16 +273,12 @@ class _AdaptiveWorkspaceShellState
   void _handleCompleteOrArchiveKey() {
     final target =
         ref.read(focusedEntityProvider) ?? ref.read(peekProvider).current;
-    if (target == null) return;
-    if (target.domain == WorkspaceDomain.pages) {
-      ref.read(pagesProvider.notifier).toggleResolveComments(target.id);
-    } else if (target.domain == WorkspaceDomain.todo) {
-      final updated = target.copyWith(
-        isCompleted: !target.isCompleted,
-        status: !target.isCompleted ? 'Completed' : 'Open',
-      );
-      ref.read(peekProvider.notifier).updateCurrentEntity(updated);
-    }
+    if (target == null || target.domain != WorkspaceDomain.todo) return;
+    final updated = target.copyWith(
+      isCompleted: !target.isCompleted,
+      status: !target.isCompleted ? 'Completed' : 'Open',
+    );
+    ref.read(peekProvider.notifier).updateCurrentEntity(updated);
   }
 
   void _handleConvertFocusedMailKey() {
@@ -350,6 +355,7 @@ class _AdaptiveWorkspaceShellState
                             .toggle(),
                   onOpenOmnibox: _openOmnibox,
                   onMailDroppedToTodo: _handleConvertMailToTask,
+                  onOpenCreate: _openCreateSheet,
                 ),
                 Expanded(
                   child: Column(
@@ -495,6 +501,7 @@ class _SlimLensRail extends ConsumerWidget {
   final VoidCallback onToggleSidebar;
   final VoidCallback onOpenOmnibox;
   final ValueChanged<WorkspaceEntityRef> onMailDroppedToTodo;
+  final VoidCallback onOpenCreate;
 
   const _SlimLensRail({
     required this.activeLens,
@@ -504,6 +511,7 @@ class _SlimLensRail extends ConsumerWidget {
     required this.onToggleSidebar,
     required this.onOpenOmnibox,
     required this.onMailDroppedToTodo,
+    required this.onOpenCreate,
   });
 
   @override
@@ -581,13 +589,6 @@ class _SlimLensRail extends ConsumerWidget {
             ),
             const SizedBox(height: SolSpace.xs),
             _RailIconButton(
-              icon: WorkspaceLens.pages.icon,
-              tooltip: 'Pages',
-              selected: activeLens == WorkspaceLens.pages,
-              onTap: () => onSelectLens(WorkspaceLens.pages),
-            ),
-            const SizedBox(height: SolSpace.xs),
-            _RailIconButton(
               icon: WorkspaceLens.drive.icon,
               tooltip: 'Drive',
               selected: activeLens == WorkspaceLens.drive,
@@ -596,12 +597,9 @@ class _SlimLensRail extends ConsumerWidget {
             const SizedBox(height: SolSpace.md),
             _RailIconButton(
               icon: Symbols.add_rounded,
-              tooltip: 'New Page',
+              tooltip: 'New board or page',
               selected: false,
-              onTap: () {
-                ref.read(pagesProvider.notifier).createPage();
-                onSelectLens(WorkspaceLens.pages);
-              },
+              onTap: onOpenCreate,
             ),
             const SizedBox(height: SolSpace.xs),
             _RailIconButton(

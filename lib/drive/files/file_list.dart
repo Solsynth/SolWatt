@@ -14,6 +14,7 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:solwatt/drive/widgets/usage_overview.dart';
+import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:solwatt/workspaces/workspace_management.dart';
@@ -132,6 +133,7 @@ class FileListScreen extends HookConsumerWidget {
       if (existing != null) {
         activeTabId.value = existing.id;
         viewingFile.value = null;
+        ref.read(driveBrowseModeProvider.notifier).select(wanted);
         return;
       }
 
@@ -142,6 +144,9 @@ class FileListScreen extends HookConsumerWidget {
       ];
       activeTabId.value = id;
       viewingFile.value = null;
+      // The sidebar switch mirrors the pane; a tab opened from elsewhere (an
+      // empty-state button, a workspace reseed) carries the same pane.
+      ref.read(driveBrowseModeProvider.notifier).select(wanted);
       pathStates[id] = ValueNotifier('/');
       modeStates[id] = ValueNotifier(wanted);
       poolStates[id] = ValueNotifier(null);
@@ -194,6 +199,7 @@ class FileListScreen extends HookConsumerWidget {
       viewingFile.value = null;
       pathStates[browser.id]?.value = normalizedPath;
       modeStates[browser.id]?.value = FileListMode.normal;
+      ref.read(driveBrowseModeProvider.notifier).select(FileListMode.normal);
     }
 
     void updateFileTab(SnCloudFile file) {
@@ -359,6 +365,12 @@ class FileListScreen extends HookConsumerWidget {
     // tab opens once [selectedWorkspaceProvider] resolves, and every later
     // workspace switch retargets the open folder tabs to the new root so they
     // never keep browsing the previous workspace's caches.
+    final browseMode = ref.watch(driveBrowseModeProvider);
+
+    // SolWatt: the drive follows the app-selected workspace. The first indexed
+    // tab opens once [selectedWorkspaceProvider] resolves, and every later
+    // workspace switch retargets the open folder tabs to the new root so they
+    // never keep browsing the previous workspace's caches.
     useEffect(() {
       if (!hasSelectedWorkspace) return null;
 
@@ -409,6 +421,33 @@ class FileListScreen extends HookConsumerWidget {
       });
       return null;
     }, [globalWorkspaceId, hasSelectedWorkspace]);
+
+    // The drive is a two-pane surface and the sidebar owns which pane is on
+    // screen. A switch that finds no browser of that mode opens one, so the
+    // sidebar alone moves the reader between cloud folders and attachments.
+    useEffect(() {
+      // The bootstrap seeds the first browser; until a workspace resolves there
+      // is nothing to retarget, and the empty state stays on screen.
+      if (!hasSelectedWorkspace || !seededWorkspaceTab.value) return null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        final open = tabs.value
+            .where(
+              (tab) =>
+                  tab.mode == browseMode && tab.workspaceId == globalWorkspaceId,
+            )
+            .firstOrNull;
+        if (open == null) {
+          openBrowser(mode: browseMode);
+          return;
+        }
+        // A file being read is its own document; switching panes leaves it and
+        // shows the folder browser of the chosen pane.
+        if (viewingFile.value != null) closeViewedFile();
+        if (activeTabId.value != open.id) activeTabId.value = open.id;
+      });
+      return null;
+    }, [browseMode]);
 
     // Notifiers should be read fresh each time to avoid disposal issues
 
@@ -507,11 +546,6 @@ class FileListScreen extends HookConsumerWidget {
                             selectedPoolValue?.id,
                             activeWorkspaceId,
                           ),
-                    onToggleMode: mode == null
-                        ? null
-                        : () => mode.value = modeValue == FileListMode.unindexed
-                              ? FileListMode.normal
-                              : FileListMode.unindexed,
                     isUnindexed: modeValue == FileListMode.unindexed,
                   ),
                   Expanded(
@@ -1363,22 +1397,20 @@ class FileListScreen extends HookConsumerWidget {
   }
 }
 
-/// Browser tools above the file list: refresh, new folder, upload, and the
-/// switch between cloud folders and service attachments. The documents the
+/// Browser tools above the file list: refresh, new folder, upload. The pane
+/// this browser shows is chosen in the contextual sidebar; the documents the
 /// drive holds live in the shared workspace title bar, so this row carries no
 /// tabs of its own.
 class _DriveBrowserTools extends StatelessWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onNewFolder;
   final VoidCallback? onUpload;
-  final VoidCallback? onToggleMode;
   final bool isUnindexed;
 
   const _DriveBrowserTools({
     required this.onRefresh,
     required this.onNewFolder,
     required this.onUpload,
-    required this.onToggleMode,
     required this.isUnindexed,
   });
 
@@ -1434,38 +1466,12 @@ class _DriveBrowserTools extends StatelessWidget {
                   ),
                 ),
               ),
-              SegmentedButton<FileListMode>(
-                showSelectedIcon: false,
-                style: SegmentedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: Theme.of(context).textTheme.labelSmall,
-                ),
-                segments: [
-                  ButtonSegment(
-                    value: FileListMode.normal,
-                    label: Text('driveIndexedEntryLabel'.tr()),
-                    icon: const Icon(Symbols.folder, size: 15),
-                  ),
-                  ButtonSegment(
-                    value: FileListMode.unindexed,
-                    label: Text('driveUnindexedEntryLabel'.tr()),
-                    icon: const Icon(Symbols.inventory_2, size: 15),
-                  ),
-                ],
-                selected: {
-                  isUnindexed ? FileListMode.unindexed : FileListMode.normal,
-                },
-                onSelectionChanged: onToggleMode == null
-                    ? null
-                    : (selection) {
-                        final wantsUnindexed = selection.contains(
-                          FileListMode.unindexed,
-                        );
-                        if (wantsUnindexed != isUnindexed) onToggleMode!();
-                      },
-              ),
               const SizedBox(width: SolSpace.sm),
-              VerticalDivider(width: 1, thickness: 1, color: border),
+              SizedBox(
+                width: 1,
+                height: 20,
+                child: ColoredBox(color: border),
+              ),
               toolButton(
                 tooltip: 'refresh'.tr(),
                 icon: Symbols.refresh,

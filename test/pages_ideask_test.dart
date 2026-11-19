@@ -1,0 +1,137 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:solwatt/core/config.dart';
+import 'package:solwatt/network.dart';
+import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/pages/pages_screen.dart';
+import 'package:solwatt/theme.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
+
+/// Answers the broad read and records the save, so the test sees the exact
+/// payload the page editor sends to Ideask.
+class _RecordingBroadClient extends WattEngineClient {
+  _RecordingBroadClient({required this.page})
+    : super(SolarNetworkAuthenticator(const FlutterSecureStorage()));
+
+  final Broad page;
+  final List<({String id, String name, String? content})> updates = [];
+
+  @override
+  Future<Broad?> getBroad(String broadId) async => page;
+
+  @override
+  Future<Broad> updateBroad({
+    required String broadId,
+    required String name,
+    String? description,
+    String? content,
+    String? workspaceId,
+    String? parentId,
+    bool clearParent = false,
+    String? backgroundImageId,
+    bool updateBackgroundImage = false,
+    String? iconImageId,
+    bool updateIconImage = false,
+    int? visibility,
+    String? taskPrefix,
+    bool clearTaskPrefix = false,
+  }) async {
+    updates.add((id: broadId, name: name, content: content));
+    return Broad(
+      id: broadId,
+      name: name,
+      content: content,
+      workspaceId: page.workspaceId,
+      kind: Broad.kindPage,
+    );
+  }
+}
+
+const _page = Broad(
+  id: 'page-1',
+  name: 'Runbook',
+  content: '# Deploy\n\nShip it.',
+  workspaceId: 'ws-1',
+  kind: Broad.kindPage,
+);
+
+const _board = Broad(
+  id: 'board-1',
+  name: 'Roadmap',
+  workspaceId: 'ws-1',
+);
+
+Future<ProviderContainer> _container(_RecordingBroadClient client) async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
+  return ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      broadsProvider.overrideWith((ref) async => const [_page, _board]),
+      wattEngineClientProvider.overrideWithValue(client),
+    ],
+  );
+}
+
+Widget _app(ProviderContainer container, Widget child) =>
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: createSolWattTheme(Brightness.light),
+        home: child,
+      ),
+    );
+
+void main() {
+  test('broads split into pages and boards by kind', () async {
+    final container = await _container(_RecordingBroadClient(page: _page));
+    addTearDown(container.dispose);
+
+    final pages = await container.read(pagesProvider.future);
+    final boards = await container.read(taskBoardsProvider.future);
+
+    expect(pages.map((broad) => broad.id), ['page-1']);
+    expect(boards.map((broad) => broad.id), ['board-1']);
+    // A page is still addressable as a workspace entity, under Pages.
+    expect(
+      broadToEntityRef(pages.single).domain,
+      WorkspaceDomain.pages,
+    );
+  });
+
+  testWidgets('the page editor saves its title and Markdown body', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final client = _RecordingBroadClient(page: _page);
+    final container = await _container(client);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, const BroadDocScreen(pageId: 'page-1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Runbook'), findsWidgets);
+    expect(find.text('# Deploy\n\nShip it.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(1), '# Deploy\n\nShip it twice.');
+    await tester.pump();
+    // ⌘S / Ctrl+S saves without leaving the editor.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+
+    expect(client.updates, hasLength(1));
+    expect(client.updates.single.id, 'page-1');
+    expect(client.updates.single.name, 'Runbook');
+    expect(client.updates.single.content, '# Deploy\n\nShip it twice.');
+  });
+}

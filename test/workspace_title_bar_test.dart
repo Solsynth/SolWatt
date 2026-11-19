@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/route.dart';
-import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/shared/widgets/glass_effects.dart';
 import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
@@ -562,7 +561,7 @@ void main() {
     expect(find.byType(ContextualSidebar), findsOneWidget);
 
     // Today, Flywheel, Profile and Settings only list the rail's own lenses.
-    for (final index in [0, 5, 6, 7]) {
+    for (final index in [0, 4, 5, 6]) {
       await pumpLens(index);
       expect(
         find.byType(ContextualSidebar),
@@ -571,10 +570,15 @@ void main() {
       );
     }
 
-    // Pages and Drive have their own trees and keep the sidebar.
-    for (final index in [3, 4]) {
+    // Todo lists boards and pages; Drive has its own tree. Both keep the
+    // sidebar.
+    for (final index in [1, 2, 3]) {
       await pumpLens(index);
-      expect(find.byType(ContextualSidebar), findsOneWidget);
+      expect(
+        find.byType(ContextualSidebar),
+        findsOneWidget,
+        reason: 'lens $index owns a tree and must dock a sidebar',
+      );
     }
   });
 
@@ -599,7 +603,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Pinned'), findsOneWidget);
+    expect(find.text('Favorites'), findsOneWidget);
     expect(find.text('MAIL'), findsOneWidget);
     expect(find.textContaining('('), findsNothing);
   });
@@ -612,8 +616,8 @@ void main() {
     final container = await _container();
     addTearDown(container.dispose);
     container
-        .read(pinnedItemsProvider.notifier)
-        .togglePin(
+        .read(favoritesProvider.notifier)
+        .toggleFavorite(
           const WorkspaceEntityRef(
             id: 'page-1',
             domain: WorkspaceDomain.pages,
@@ -635,7 +639,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final sidebar = tester.getRect(find.byType(ContextualSidebar));
-    final label = tester.getRect(find.text('Pinned'));
+    final label = tester.getRect(find.text('Favorites'));
     // 16px gutter: the label starts one lg inset inside the column.
     expect(label.left - sidebar.left, greaterThanOrEqualTo(SolSpace.lg - 0.5));
 
@@ -687,7 +691,6 @@ void main() {
 
     final container = await _container();
     addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'First draft');
 
     await tester.pumpWidget(
       _app(

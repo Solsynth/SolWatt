@@ -133,24 +133,29 @@ class FocusedEntityNotifier extends Notifier<WorkspaceEntityRef?> {
 }
 
 // ---------------------------------------------------------------------------
-// Mixed Pinned / Favorites (Shared across Mail, Todo, Pages, Drive)
+// Favorites (Shared across Mail, Todo, Pages, Boards; Drive lives on the server)
 // ---------------------------------------------------------------------------
 
-const _kPinnedItemsKey = 'workspace_pinned_items_v1';
+/// Local favorites. Drive files are favorited on the filesystem service (see
+/// [DriveFavoritesNotifier]); these are the workspace-domain items that have no
+/// server-side bookmark of their own.
+const _kFavoritesKey = 'workspace_favorites_v1';
+const _kLegacyPinnedKey = 'workspace_pinned_items_v1';
 
-final pinnedItemsProvider =
-    NotifierProvider<PinnedItemsNotifier, List<WorkspaceEntityRef>>(
-      PinnedItemsNotifier.new,
+final favoritesProvider =
+    NotifierProvider<FavoritesNotifier, List<WorkspaceEntityRef>>(
+      FavoritesNotifier.new,
     );
 
-class PinnedItemsNotifier extends Notifier<List<WorkspaceEntityRef>> {
+class FavoritesNotifier extends Notifier<List<WorkspaceEntityRef>> {
   @override
   List<WorkspaceEntityRef> build() {
-    final raw = ref
-        .watch(sharedPreferencesProvider)
-        .getString(_kPinnedItemsKey);
+    final prefs = ref.watch(sharedPreferencesProvider);
+    // Older builds stored the same list under the pinned key; read it once so
+    // an upgrade does not silently drop the reader's favorites.
+    final raw = prefs.getString(_kFavoritesKey) ?? prefs.getString(_kLegacyPinnedKey);
     if (raw == null || raw.isEmpty) {
-      return _defaultPinnedItems;
+      return _defaultFavorites;
     }
     try {
       final decoded = jsonDecode(raw) as List<dynamic>;
@@ -159,26 +164,26 @@ class PinnedItemsNotifier extends Notifier<List<WorkspaceEntityRef>> {
           .map((m) => WorkspaceEntityRef.fromJson(m.cast<String, dynamic>()))
           .toList();
     } catch (_) {
-      return _defaultPinnedItems;
+      return _defaultFavorites;
     }
   }
 
-  static const List<WorkspaceEntityRef> _defaultPinnedItems = [];
+  static const List<WorkspaceEntityRef> _defaultFavorites = [];
 
   void _persist(List<WorkspaceEntityRef> items) {
     ref
         .read(sharedPreferencesProvider)
         .setString(
-          _kPinnedItemsKey,
+          _kFavoritesKey,
           jsonEncode(items.map((e) => e.toJson()).toList()),
         );
   }
 
-  bool isPinned(WorkspaceDomain domain, String id) =>
+  bool isFavorite(WorkspaceDomain domain, String id) =>
       state.any((item) => item.domain == domain && item.id == id);
 
-  void togglePin(WorkspaceEntityRef entity) {
-    final exists = isPinned(entity.domain, entity.id);
+  void toggleFavorite(WorkspaceEntityRef entity) {
+    final exists = isFavorite(entity.domain, entity.id);
     final next = exists
         ? state
               .where(
@@ -187,6 +192,17 @@ class PinnedItemsNotifier extends Notifier<List<WorkspaceEntityRef>> {
               )
               .toList()
         : [entity, ...state];
+    state = next;
+    _persist(next);
+  }
+
+  /// Drops an item without re-adding it. Used when the sidebar unfavorites a
+  /// drive file that also survives locally from an older build.
+  void remove(WorkspaceDomain domain, String id) {
+    final next = state
+        .where((item) => !(item.domain == domain && item.id == id))
+        .toList();
+    if (next.length == state.length) return;
     state = next;
     _persist(next);
   }

@@ -24,11 +24,11 @@ List<WorkspaceEntityRef> searchWorkspaceEntities(
 
   // 1. Pages (user-created)
   if (domainFilter == null || domainFilter == WorkspaceDomain.pages) {
-    final pages = ref.watch(pagesProvider);
+    final pages = ref.watch(pagesProvider).value ?? const <Broad>[];
     var count = 0;
     for (final page in pages) {
       if (count >= limitPerDomain) break;
-      final entity = page.toEntityRef();
+      final entity = broadToEntityRef(page);
       if (matches(entity.title, entity.subtitle)) {
         results.add(entity);
         count++;
@@ -86,7 +86,7 @@ List<WorkspaceEntityRef> searchWorkspaceEntities(
 
   // 3. Todo / Ideask Tasks & Boards (real Ideask API)
   if (domainFilter == null || domainFilter == WorkspaceDomain.todo) {
-    final boards = ref.watch(broadsProvider).value ?? const <Broad>[];
+    final boards = ref.watch(taskBoardsProvider).value ?? const <Broad>[];
     var count = 0;
     for (final board in boards) {
       if (count >= limitPerDomain) break;

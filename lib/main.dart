@@ -288,7 +288,6 @@ class AppShellPage extends ConsumerWidget {
               TodayFocusRoute(),
               MailRoute(),
               BoardsRoute(),
-              WorkspaceNotesRoute(),
               FileListRoute(),
               FlywheelRoute(),
               ProfileRoute(),

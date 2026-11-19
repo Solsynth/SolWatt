@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -258,7 +260,8 @@ class _WorkspaceRichEditorState extends ConsumerState<WorkspaceRichEditor> {
   Future<void> _executeSlashCommand(SlashCommandType cmd) async {
     switch (cmd) {
       case SlashCommandType.task:
-        final boards = ref.read(broadsProvider).value ?? const <Broad>[];
+        // A page is a broad without tasks, so /task targets the first board.
+        final boards = ref.read(taskBoardsProvider).value ?? const <Broad>[];
         final firstBoard = boards.firstOrNull;
         if (firstBoard == null) {
           if (mounted) {
@@ -299,10 +302,20 @@ class _WorkspaceRichEditorState extends ConsumerState<WorkspaceRichEditor> {
           }
         }
       case SlashCommandType.page:
-        final page = ref
-            .read(pagesProvider.notifier)
-            .createPage(title: 'Linked Sub-Page');
-        widget.onEmbedEntity?.call(page.toEntityRef());
+        unawaited(() async {
+          try {
+            final page = await ref
+                .read(pageActionsProvider)
+                .createPage(title: 'Linked Sub-Page');
+            widget.onEmbedEntity?.call(broadToEntityRef(page));
+          } catch (error) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(wattApiErrorMessage(error))),
+              );
+            }
+          }
+        }());
       case SlashCommandType.file:
         final files = searchWorkspaceEntities(
           ref,
@@ -497,6 +510,13 @@ class _WorkspaceRichEditorState extends ConsumerState<WorkspaceRichEditor> {
 
   @override
   Widget build(BuildContext context) {
+    // Suggestions read the boards/pages provider; when it resolves after the
+    // reader already typed `@`, the open overlay has to be rebuilt.
+    ref.listen(broadsProvider, (_, _) {
+      if (_desktopOverlay != null || _mobileBarOverlay != null) {
+        _showOrUpdateSuggestions();
+      }
+    });
     final minLines = switch (widget.mode) {
       WorkspaceEditorMode.pageBlocks => widget.minLines ?? 2,
       WorkspaceEditorMode.mailComposer => widget.minLines ?? 6,

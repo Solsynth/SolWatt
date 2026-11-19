@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'package:solwatt/boards/create_broad_sheet.dart';
+import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
 import 'package:solwatt/theme.dart';
@@ -106,7 +107,13 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final pinned = ref.watch(pinnedItemsProvider);
+    final localFavorites = ref.watch(favoritesProvider);
+    final driveFavorites =
+        ref.watch(driveFavoriteEntitiesProvider).value ?? const [];
+    final favorites = [
+      ...localFavorites.where((item) => item.domain != WorkspaceDomain.drive),
+      ...driveFavorites,
+    ];
     final recent = ref.watch(recentEntitiesProvider);
     final workspace = ref.watch(selectedWorkspaceProvider).value;
 
@@ -182,25 +189,25 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           ],
           const SizedBox(height: SolSpace.md),
           Text(
-            'Pinned',
+            'Favorites',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: SolSpace.xs),
-          if (pinned.isEmpty)
+          if (favorites.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: SolSpace.sm),
               child: Text(
-                'No pinned favorites yet.',
+                'No favorites yet. Star files, pages, threads, or boards.',
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             )
           else
-            for (final item in pinned)
+            for (final item in favorites)
               WorkspaceListRow(
                 leading: Icon(
                   item.domain.icon,
@@ -226,7 +233,6 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           for (final lens in [
             WorkspaceLens.mail,
             WorkspaceLens.todo,
-            WorkspaceLens.pages,
             WorkspaceLens.drive,
           ])
             WorkspaceListRow(
@@ -348,12 +354,12 @@ class MobileFloatingActionPill extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Symbols.article_rounded),
-              title: const Text('New Page'),
+              leading: const Icon(Symbols.add_rounded),
+              title: const Text('New board or page'),
               onTap: () {
                 Navigator.of(ctx).pop();
-                ref.read(pagesProvider.notifier).createPage();
-                onSelectLens(WorkspaceLens.pages);
+                onSelectLens(WorkspaceLens.todo);
+                showCreateBroadSheet(context, ref);
               },
             ),
             ListTile(

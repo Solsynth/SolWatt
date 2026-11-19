@@ -39,11 +39,14 @@ lib/
   workspaces/workspace_detail_screen.dart      # One workspace: overview, mail, flywheel
   ui/page_scaffold.dart           # Shared page chrome for shell screens
   ui/cloud_files.dart             # Cloud upload picker + link attachment
-  boards/boards_screen.dart       # Boards tab shell, board list, board editor
+  boards/boards_screen.dart       # Boards tab shell: one list of boards and pages
+  boards/create_broad_sheet.dart  # The shared create action: a board or a page
   boards/board_detail.dart        # One board: header, lanes, cards, task detail
   boards/board_sheets.dart        # Task editor, lane picker, groups, assignees
   boards/github_integration.dart  # GitHub App link/sync UI for a board
   boards/task_comments.dart       # Task comments (local + GitHub-mirrored)
+  pages/pages_provider.dart       # Ideask pages (broads of kind 1) and their writes
+  pages/pages_screen.dart         # One page: title + Markdown body, in the boards stack
   mail/mail_screen.dart           # Mail tab: conversation list, detail pane, compose
   mail/mail_settings_page.dart    # Mail credentials + .eml/.mbox import
   mail/import/                    # EML/mbox parsing and the import service
@@ -219,6 +222,7 @@ Key providers:
 - `workspacesProvider` / `selectedWorkspaceProvider` — workspace list and active selection
 - `appAccessProvider` — combined gate state (`needsSignIn` | `needsWorkspace` | `ready`)
 - `broadsProvider` / `tasksProvider` / `taskGroupsProvider` — Ideask data scoped to the active workspace
+- `pagesProvider` / `taskBoardsProvider` / `pageProvider` — the same `broads` rows split by `kind`: a page is a broad with Markdown `content`, a board owns tasks, and both share one tree (`parent_id`) and lens
 - `gitHubIntegrationProvider` / `taskCommentsProvider` — GitHub App board link and task comments
 - `workspaceFilesProvider` / `workspaceFolderChildrenProvider` / `workspaceUnindexedFilesProvider` — workspace Drive listings (`workspace_id` query; indexed folders vs unindexed assets)
 - `workspaceDriveUsageProvider` — live storage used/total for the active workspace

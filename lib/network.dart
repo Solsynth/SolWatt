@@ -886,13 +886,16 @@ class WattEngineClient {
     return WorkspacePlanOrder.fromJson(response.data ?? const {});
   }
 
-  Future<List<Broad>> listBroads({String? workspaceId}) async {
+  /// The caller's broads, optionally narrowed to one workspace and/or kind.
+  ///
+  /// Boards (`kind == Broad.kindBoard`) own tasks; pages (`kind ==
+  /// Broad.kindPage`) carry Markdown content. Both are Ideask broads, so they
+  /// share the tree, the workspace, the icon and the cover.
+  Future<List<Broad>> listBroads({String? workspaceId, int? kind}) async {
     Logger.root.info('[WattEngine] Loading Ideask boards.');
     final response = await _get<List<dynamic>>(
       '/ideask/broads',
-      queryParameters: workspaceId == null
-          ? null
-          : {'workspace_id': workspaceId},
+      queryParameters: {'workspace_id': ?workspaceId, 'kind': ?kind},
     );
     return (response.data ?? const [])
         .whereType<Map>()
@@ -900,43 +903,59 @@ class WattEngineClient {
         .toList();
   }
 
-  Future<Broad> createBroad({
-    required String name,
-    String? description,
-    String? content,
-    required String workspaceId,
-    String? backgroundImageId,
-    String? iconImageId,
-    int visibility = 0,
-    String? taskPrefix,
-  }) async {
+  /// One broad by id, or null when it is gone or unreadable.
+  Future<Broad?> getBroad(String broadId) async {
+    try {
+      final response = await _get<Map<String, dynamic>>(
+        '/ideask/broads/$broadId',
+      );
+      return Broad.fromJson(response.data ?? const {});
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      throw OAuthException(wattApiErrorMessage(error));
+    }
+  }
+
+   Future<Broad> createBroad({
+     required String name,
+     String? description,
+     String? content,
+     required String workspaceId,
+    int kind = Broad.kindBoard,
+     String? backgroundImageId,
+     String? iconImageId,
+     int visibility = 0,
+     String? taskPrefix,
+   }) async {
     try {
       final response = await _request<Map<String, dynamic>>(
         'POST',
         '/ideask/broads',
-        data: {
-          'name': name,
-          'content': content ?? '',
-          'visibility': visibility,
-          'workspace_id': workspaceId,
-          'description': ?nonEmptyString(description),
-          'background_image_id': ?backgroundImageId,
-          'icon_image_id': ?iconImageId,
-          'task_prefix': ?nonEmptyString(taskPrefix),
-        },
+         data: {
+           'name': name,
+           'content': content ?? '',
+           'visibility': visibility,
+           'workspace_id': workspaceId,
+          'kind': kind,
+           'description': ?nonEmptyString(description),
+           'background_image_id': ?backgroundImageId,
+           'icon_image_id': ?iconImageId,
+           'task_prefix': ?nonEmptyString(taskPrefix),
+         },
       );
       final data = response.data;
       if (data == null) {
         // 201 with empty body — board still created; list will refresh.
-        return Broad(
-          id: '',
-          name: name,
-          description: description,
-          content: content,
-          workspaceId: workspaceId,
-          visibility: visibility,
-          taskPrefix: taskPrefix,
-        );
+         return Broad(
+           id: '',
+           name: name,
+           description: description,
+           content: content,
+           workspaceId: workspaceId,
+          kind: kind,
+           visibility: visibility,
+           taskPrefix: taskPrefix,
+         );
       }
       return Broad.fromJson(data);
     } on DioException catch (error) {
@@ -944,35 +963,41 @@ class WattEngineClient {
     }
   }
 
-  Future<Broad> updateBroad({
-    required String broadId,
-    required String name,
-    String? description,
-    String? content,
-    String? workspaceId,
-    String? backgroundImageId,
-    bool updateBackgroundImage = false,
-    String? iconImageId,
-    bool updateIconImage = false,
-    int? visibility,
-    String? taskPrefix,
-    bool clearTaskPrefix = false,
-  }) async {
+  /// Updates a broad. [parentId] nests it under another broad; [clearParent]
+  /// lifts it back to the root, which is what turns boards into folders.
+   Future<Broad> updateBroad({
+     required String broadId,
+     required String name,
+     String? description,
+     String? content,
+     String? workspaceId,
+    String? parentId,
+    bool clearParent = false,
+     String? backgroundImageId,
+     bool updateBackgroundImage = false,
+     String? iconImageId,
+     bool updateIconImage = false,
+     int? visibility,
+     String? taskPrefix,
+     bool clearTaskPrefix = false,
+   }) async {
     try {
       final response = await _request<Map<String, dynamic>>(
         'PATCH',
         '/ideask/broads/$broadId',
-        data: {
-          'name': name,
-          'description': description,
-          'content': content,
-          'workspace_id': ?workspaceId,
-          'visibility': ?visibility,
-          if (updateBackgroundImage) 'background_image_id': backgroundImageId,
-          if (updateIconImage) 'icon_image_id': iconImageId,
-          'task_prefix': ?taskPrefix,
-          if (clearTaskPrefix) 'clear_task_prefix': true,
-        },
+         data: {
+           'name': name,
+           'description': description,
+           'content': content,
+           'workspace_id': ?workspaceId,
+          'parent_id': ?parentId,
+          if (clearParent) 'clear_parent': true,
+           'visibility': ?visibility,
+           if (updateBackgroundImage) 'background_image_id': backgroundImageId,
+           if (updateIconImage) 'icon_image_id': iconImageId,
+           'task_prefix': ?taskPrefix,
+           if (clearTaskPrefix) 'clear_task_prefix': true,
+         },
       );
       return Broad.fromJson(response.data!);
     } on DioException catch (error) {
@@ -2086,6 +2111,30 @@ class WattEngineClient {
     }
   }
 
+  /// The folder chain to [fileId], root first, ending with the file itself.
+  /// The filesystem service answers with `[{id,name,parent_id,is_folder}]`.
+  Future<List<DriveBreadcrumbEntry>> getCloudFileBreadcrumb(
+    String fileId,
+  ) async {
+    final client = await _authenticatedSdk();
+    try {
+      final response = await client.dio.get<List<dynamic>>(
+        '/drive/files/$fileId/breadcrumb',
+      );
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                DriveBreadcrumbEntry.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw OAuthException(driveApiErrorMessage(error));
+    } finally {
+      client.close();
+    }
+  }
+
   Future<void> deleteCloudFile(String fileId) async {
     final client = await _authenticatedSdk();
     try {
@@ -2099,6 +2148,55 @@ class WattEngineClient {
     final client = await _authenticatedSdk();
     try {
       return await client.drive.updateFileName(fileId, name);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Bookmarks a drive file for the signed-in account. Idempotent.
+  Future<void> favoriteCloudFile(String fileId) async {
+    final client = await _authenticatedSdk();
+    try {
+      await client.dio.post<dynamic>('/drive/files/$fileId/favorite');
+    } on DioException catch (error) {
+      throw OAuthException(driveApiErrorMessage(error));
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Drops the account's bookmark on a drive file. Idempotent.
+  Future<void> unfavoriteCloudFile(String fileId) async {
+    final client = await _authenticatedSdk();
+    try {
+      await client.dio.delete<dynamic>('/drive/files/$fileId/favorite');
+    } on DioException catch (error) {
+      throw OAuthException(driveApiErrorMessage(error));
+    } finally {
+      client.close();
+    }
+  }
+
+  /// The account's bookmarked files, newest bookmark first, scoped to
+  /// [workspaceId] (null selects personal files).
+  Future<List<SnCloudFile>> listFavoriteCloudFiles({
+    String? workspaceId,
+  }) async {
+    final client = await _authenticatedSdk();
+    try {
+      final response = await client.dio.get<List<dynamic>>(
+        '/drive/files/favorites',
+        queryParameters: {
+          if (workspaceId != null && workspaceId.isNotEmpty)
+            'workspace_id': workspaceId,
+        },
+      );
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map((item) => SnCloudFile.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw OAuthException(driveApiErrorMessage(error));
     } finally {
       client.close();
     }
@@ -2341,6 +2439,32 @@ class DriveFileEntry {
       workspaceId: (workspaceRaw == null || workspaceRaw.isEmpty)
           ? null
           : workspaceRaw,
+    );
+  }
+}
+
+/// One link of a drive file's folder chain, as the filesystem service reports
+/// it (`GET /drive/files/{id}/breadcrumb`).
+class DriveBreadcrumbEntry {
+  const DriveBreadcrumbEntry({
+    required this.id,
+    required this.name,
+    required this.isFolder,
+    this.parentId,
+  });
+
+  final String id;
+  final String name;
+  final bool isFolder;
+  final String? parentId;
+
+  factory DriveBreadcrumbEntry.fromJson(Map<String, dynamic> json) {
+    final parent = json['parent_id']?.toString();
+    return DriveBreadcrumbEntry(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      isFolder: json['is_folder'] == true,
+      parentId: (parent == null || parent.isEmpty) ? null : parent,
     );
   }
 }
@@ -2720,6 +2844,11 @@ class WorkspaceMember {
 
 String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
+/// One Ideask broad: a task board or a Markdown page.
+///
+/// Both live in the same tree, so [parentId] nests either kind under another
+/// and a board can hold its own pages. The server derives task keys from
+/// [taskPrefix]; pages never carry one.
 class Broad {
   const Broad({
     required this.id,
@@ -2727,26 +2856,46 @@ class Broad {
     this.description,
     this.content,
     this.workspaceId,
+    this.parentId,
+    this.kind = kindBoard,
     this.visibility = 0,
     this.taskPrefix,
     this.backgroundImage,
     this.iconImage,
   });
+
+  /// A board owns tasks.
+  static const int kindBoard = 0;
+
+  /// A page carries Markdown content.
+  static const int kindPage = 1;
+
   final String id;
   final String name;
   final String? description;
   final String? content;
   final String? workspaceId;
+  final String? parentId;
+  final int kind;
   final int visibility;
   final String? taskPrefix;
   final SnCloudFileReference? backgroundImage;
   final SnCloudFileReference? iconImage;
+
+  bool get isPage => kind == kindPage;
+  bool get isBoard => kind == kindBoard;
+  String? get displayContent => nonEmptyString(content);
+
   factory Broad.fromJson(Map<String, dynamic> json) => Broad(
     id: json['id']?.toString() ?? '',
-    name: (json['name'] ?? json['title'])?.toString() ?? 'Untitled board',
+    name:
+        (json['name'] ?? json['title'])?.toString() ??
+        (json['kind'] == kindPage ? 'Untitled page' : 'Untitled board'),
     description: nonEmptyString(json['description']?.toString()),
     content: nonEmptyString(json['content']?.toString()),
     workspaceId: json['workspace_id']?.toString(),
+    parentId: nonEmptyString(json['parent_id']?.toString()),
+    kind: (json['kind'] as num?)?.toInt() ?? kindBoard,
     visibility: (json['visibility'] as num?)?.toInt() ?? 0,
     taskPrefix: nonEmptyString(json['task_prefix']?.toString()),
     backgroundImage: parseCloudFileReference(json['background_image']),

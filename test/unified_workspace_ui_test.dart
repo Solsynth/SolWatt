@@ -5,8 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
-import 'package:solwatt/pages/pages_provider.dart';
-import 'package:solwatt/pages/pages_screen.dart';
+import 'package:solwatt/network.dart';
 import 'package:solwatt/shared/widgets/glass_effects.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
 import 'package:solwatt/shell/adaptive_workspace_shell.dart';
@@ -27,7 +26,21 @@ Future<ProviderContainer> _makeContainer() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
-    overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      // Pages come from the Ideask tree now; these surfaces only need one
+      // named page to search and mention.
+      broadsProvider.overrideWith(
+        (ref) async => const [
+          Broad(
+            id: 'page-q3',
+            name: 'Q3 Roadmap',
+            workspaceId: 'ws-1',
+            kind: Broad.kindPage,
+          ),
+        ],
+      ),
+    ],
   );
 }
 
@@ -61,16 +74,15 @@ void main() {
 
     final container = await _makeContainer();
     addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'Q3 Roadmap');
 
     await tester.pumpWidget(
       _wrapApp(
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 3, // Pages
+          selectedIndex: 2, // Todo: boards and pages share the lens
           onSelected: (_) {},
-          child: const WorkspaceNotesScreen(),
+          child: const SizedBox.expand(),
         ),
       ),
     );
@@ -78,14 +90,16 @@ void main() {
 
     // Zone 2: Contextual Sidebar with the pinned section and the lens tree
     expect(find.byType(ContextualSidebar), findsOneWidget);
-    expect(find.text('Pinned'), findsOneWidget);
-    expect(find.text('PAGES'), findsOneWidget);
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('MAIL'), findsNothing);
 
     // Zone 4: Peek Pane closed initially, opens non-destructively when triggered
     expect(find.byType(DesktopPeekPane), findsOneWidget);
     expect(find.byType(PeekPanelContent), findsNothing);
 
-    container.read(peekProvider.notifier).open(
+    container
+        .read(peekProvider.notifier)
+        .open(
           const WorkspaceEntityRef(
             id: 'task-1',
             domain: WorkspaceDomain.todo,
@@ -101,46 +115,48 @@ void main() {
     expect(find.byType(RelatedItemsStrip), findsWidgets);
   });
 
-  testWidgets('Tablet (600-1024px) renders 2-zone split and Docked Right Sheet', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(800, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
+  testWidgets(
+    'Tablet (600-1024px) renders 2-zone split and Docked Right Sheet',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
 
-    final container = await _makeContainer();
-    addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'Q3 Roadmap');
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
 
-    await tester.pumpWidget(
-      _wrapApp(
-        container,
-        AdaptiveWorkspaceShell(
-          isShown: true,
-          selectedIndex: 3,
-          onSelected: (_) {},
-          child: const WorkspaceNotesScreen(),
-        ),
-        size: const Size(800, 900),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // Sidebar is not docked inline on Tablet (opens as drawer)
-    expect(find.byType(ContextualSidebar), findsNothing);
-
-    container.read(peekProvider.notifier).open(
-          const WorkspaceEntityRef(
-            id: 'mail-1',
-            domain: WorkspaceDomain.mail,
-            title: 'Contract Review',
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          AdaptiveWorkspaceShell(
+            isShown: true,
+            selectedIndex: 2,
+            onSelected: (_) {},
+            child: const SizedBox.expand(),
           ),
-        );
-    await tester.pump(const Duration(milliseconds: 100));
+          size: const Size(800, 900),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.byType(TabletPeekSheet), findsOneWidget);
-    expect(find.byType(PeekPanelContent), findsOneWidget);
-  });
+      // Sidebar is not docked inline on Tablet (opens as drawer)
+      expect(find.byType(ContextualSidebar), findsNothing);
+
+      container
+          .read(peekProvider.notifier)
+          .open(
+            const WorkspaceEntityRef(
+              id: 'mail-1',
+              domain: WorkspaceDomain.mail,
+              title: 'Contract Review',
+            ),
+          );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(TabletPeekSheet), findsOneWidget);
+      expect(find.byType(PeekPanelContent), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Mobile (<600px) uses Top Switcher + PillSurface Floating Pill (no BottomNavigationBar) and DraggableScrollableSheet Peek',
@@ -157,9 +173,9 @@ void main() {
           container,
           AdaptiveWorkspaceShell(
             isShown: true,
-            selectedIndex: 3,
+            selectedIndex: 2,
             onSelected: (_) {},
-            child: const WorkspaceNotesScreen(),
+            child: const SizedBox.expand(),
           ),
           size: const Size(390, 844),
         ),
@@ -174,13 +190,12 @@ void main() {
       expect(find.byType(MobileContextHeader), findsOneWidget);
       expect(find.byType(MobileFloatingActionPill), findsOneWidget);
       expect(find.byType(PillSurface), findsWidgets);
-      expect(
-        find.text('Search mail, tasks, pages, files...'),
-        findsOneWidget,
-      );
+      expect(find.text('Search mail, tasks, pages, files...'), findsOneWidget);
 
       // Open Peek -> MobilePeekSheet (DraggableScrollableSheet)
-      container.read(peekProvider.notifier).open(
+      container
+          .read(peekProvider.notifier)
+          .open(
             const WorkspaceEntityRef(
               id: 'drive-1',
               domain: WorkspaceDomain.drive,
@@ -233,58 +248,56 @@ void main() {
     expect(find.text('Attachment'), findsNothing);
   });
 
-  testWidgets('EntityPill opens Peek on tap and RelatedItemsStrip shows backlinks', (
-    tester,
-  ) async {
-    final container = await _makeContainer();
-    addTearDown(container.dispose);
+  testWidgets(
+    'EntityPill opens Peek on tap and RelatedItemsStrip shows backlinks',
+    (tester) async {
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
 
-    const source = WorkspaceEntityRef(
-      id: 'page-1',
-      domain: WorkspaceDomain.pages,
-      title: 'Q3 Roadmap',
-    );
-    const target = WorkspaceEntityRef(
-      id: 'task-99',
-      domain: WorkspaceDomain.todo,
-      title: 'Ship Spatial Shell',
-    );
-    container.read(backlinksProvider.notifier).link(source, target);
+      const source = WorkspaceEntityRef(
+        id: 'page-1',
+        domain: WorkspaceDomain.pages,
+        title: 'Q3 Roadmap',
+      );
+      const target = WorkspaceEntityRef(
+        id: 'task-99',
+        domain: WorkspaceDomain.todo,
+        title: 'Ship Spatial Shell',
+      );
+      container.read(backlinksProvider.notifier).link(source, target);
 
-    await tester.pumpWidget(
-      _wrapApp(
-        container,
-        const Scaffold(
-          body: Column(
-            children: [
-              EntityPill(entity: target),
-              SizedBox(height: 16),
-              RelatedItemsStrip(entity: source),
-            ],
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          const Scaffold(
+            body: Column(
+              children: [
+                EntityPill(entity: target),
+                SizedBox(height: 16),
+                RelatedItemsStrip(entity: source),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Related items · 1'), findsOneWidget);
-    await tester.tap(find.byType(EntityPill).first);
-    await tester.pumpAndSettle();
+      expect(find.text('Related items · 1'), findsOneWidget);
+      await tester.tap(find.byType(EntityPill).first);
+      await tester.pumpAndSettle();
 
-    expect(container.read(peekProvider).current?.id, 'task-99');
-  });
+      expect(container.read(peekProvider).current?.id, 'task-99');
+    },
+  );
 
   testWidgets('Shared header uses the shell geometry token', (tester) async {
     final container = await _makeContainer();
     addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'Q3 Roadmap');
 
     await tester.pumpWidget(
       _wrapApp(
         container,
-        const Scaffold(
-          body: WorkspaceCanvasHeader(title: Text('Inbox')),
-        ),
+        const Scaffold(body: WorkspaceCanvasHeader(title: Text('Inbox'))),
       ),
     );
     await tester.pumpAndSettle();
@@ -293,46 +306,45 @@ void main() {
     expect(headerBox.height, SolWorkspaceGeometry.headerHeight);
   });
 
-  testWidgets('WorkspaceRichEditor triggers @ mention and / slash suggestions', (
-    tester,
-  ) async {
-    final container = await _makeContainer();
-    addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'Q3 Roadmap');
-    final controller = TextEditingController();
-    addTearDown(controller.dispose);
+  testWidgets(
+    'WorkspaceRichEditor triggers @ mention and / slash suggestions',
+    (tester) async {
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
 
-    await tester.pumpWidget(
-      _wrapApp(
-        container,
-        Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.all(24),
-            child: WorkspaceRichEditor(
-              controller: controller,
-              mode: WorkspaceEditorMode.mailComposer,
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(24),
+              child: WorkspaceRichEditor(
+                controller: controller,
+                mode: WorkspaceEditorMode.mailComposer,
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '/ta');
-    await tester.pumpAndSettle();
-    expect(find.text('/task'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '/ta');
+      await tester.pumpAndSettle();
+      expect(find.text('/task'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), '@Q3');
-    await tester.pumpAndSettle();
-    expect(find.text('Q3 Roadmap'), findsOneWidget);
-  });
+      await tester.enterText(find.byType(TextField), '@Q3');
+      await tester.pumpAndSettle();
+      expect(find.text('Q3 Roadmap'), findsOneWidget);
+    },
+  );
 
   testWidgets('Federated Omnibox shows filter chips and Top Hits', (
     tester,
   ) async {
     final container = await _makeContainer();
     addTearDown(container.dispose);
-    container.read(pagesProvider.notifier).createPage(title: 'Q3 Roadmap');
 
     await tester.pumpWidget(
       _wrapApp(
@@ -360,47 +372,48 @@ void main() {
     expect(find.text('Q3 Roadmap'), findsWidgets);
   });
 
-  testWidgets('Desktop Keyboard Grammar: Space toggles Peek, Esc closes Peek first', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1280, 800);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
+  testWidgets(
+    'Desktop Keyboard Grammar: Space toggles Peek, Esc closes Peek first',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
 
-    final container = await _makeContainer();
-    addTearDown(container.dispose);
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
 
-    const focused = WorkspaceEntityRef(
-      id: 'page-roadmap',
-      domain: WorkspaceDomain.pages,
-      title: 'Q3 Roadmap',
-    );
-    container.read(focusedEntityProvider.notifier).set(focused);
+      const focused = WorkspaceEntityRef(
+        id: 'page-roadmap',
+        domain: WorkspaceDomain.pages,
+        title: 'Q3 Roadmap',
+      );
+      container.read(focusedEntityProvider.notifier).set(focused);
 
-    await tester.pumpWidget(
-      _wrapApp(
-        container,
-        AdaptiveWorkspaceShell(
-          isShown: true,
-          selectedIndex: 0,
-          onSelected: (_) {},
-          child: const SizedBox.expand(),
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          AdaptiveWorkspaceShell(
+            isShown: true,
+            selectedIndex: 0,
+            onSelected: (_) {},
+            child: const SizedBox.expand(),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.space);
-    await tester.pumpAndSettle();
-    expect(container.read(peekProvider).isOpen, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(container.read(peekProvider).isOpen, isTrue);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(container.read(peekProvider).isOpen, isFalse);
-    expect(container.read(focusedEntityProvider), isNotNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(container.read(peekProvider).isOpen, isFalse);
+      expect(container.read(focusedEntityProvider), isNotNull);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(container.read(focusedEntityProvider), isNull);
-  });
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(container.read(focusedEntityProvider), isNull);
+    },
+  );
 }

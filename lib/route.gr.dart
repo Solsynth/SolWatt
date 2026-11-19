@@ -107,6 +107,57 @@ class BoardsRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
+/// [BroadDocScreen]
+class BroadDocRoute extends PageRouteInfo<BroadDocRouteArgs> {
+  BroadDocRoute({
+    Key? key,
+    required String pageId,
+    List<PageRouteInfo>? children,
+  }) : super(
+         BroadDocRoute.name,
+         args: BroadDocRouteArgs(key: key, pageId: pageId),
+         rawPathParams: {'pageId': pageId},
+         initialChildren: children,
+       );
+
+  static const String name = 'BroadDocRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<BroadDocRouteArgs>(
+        orElse: () => BroadDocRouteArgs(pageId: pathParams.getString('pageId')),
+      );
+      return BroadDocScreen(key: args.key, pageId: args.pageId);
+    },
+  );
+}
+
+class BroadDocRouteArgs {
+  const BroadDocRouteArgs({this.key, required this.pageId});
+
+  final Key? key;
+
+  final String pageId;
+
+  @override
+  String toString() {
+    return 'BroadDocRouteArgs{key: $key, pageId: $pageId}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! BroadDocRouteArgs) return false;
+    return key == other.key && pageId == other.pageId;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ pageId.hashCode;
+}
+
+/// generated route for
 /// [FileDetailScreen]
 class FileDetailRoute extends PageRouteInfo<FileDetailRouteArgs> {
   FileDetailRoute({
@@ -542,22 +593,6 @@ class WorkspaceManagementRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const WorkspaceManagementPage();
-    },
-  );
-}
-
-/// generated route for
-/// [WorkspaceNotesScreen]
-class WorkspaceNotesRoute extends PageRouteInfo<void> {
-  const WorkspaceNotesRoute({List<PageRouteInfo>? children})
-    : super(WorkspaceNotesRoute.name, initialChildren: children);
-
-  static const String name = 'WorkspaceNotesRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const WorkspaceNotesScreen();
     },
   );
 }

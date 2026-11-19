@@ -44,7 +44,9 @@ class TodayFocusPage extends ConsumerWidget {
             ?.items ??
         const <MailThread>[];
     final unreadMail = threads.where((t) => t.unreadCount > 0).take(5).toList();
-    final boards = ref.watch(broadsProvider).value ?? const <Broad>[];
+    // Pages are broads too, but a page holds no tasks: only boards are read
+    // for the open-task rollup.
+    final boards = ref.watch(taskBoardsProvider).value ?? const <Broad>[];
     final openTasks = <({WorkTask task, Broad board})>[];
     for (final board in boards) {
       final tasks =
@@ -56,8 +58,10 @@ class TodayFocusPage extends ConsumerWidget {
         }
       }
     }
-    final pages = ref.watch(pagesProvider).take(5).toList();
-    final pinned = ref.watch(pinnedItemsProvider);
+    final pages = (ref.watch(pagesProvider).value ?? const <Broad>[])
+        .take(5)
+        .toList();
+    final pinned = ref.watch(favoritesProvider);
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -77,11 +81,21 @@ class TodayFocusPage extends ConsumerWidget {
               IconButton(
                 tooltip: 'New Page',
                 icon: const Icon(Symbols.note_add_rounded, size: 18),
-                onPressed: () {
-                  final page = ref
-                      .read(pagesProvider.notifier)
-                      .createPage(title: 'Daily Note');
-                  ref.read(peekProvider.notifier).open(page.toEntityRef());
+                onPressed: () async {
+                  try {
+                    final page = await ref
+                        .read(pageActionsProvider)
+                        .createPage(title: 'Daily Note');
+                    ref
+                        .read(peekProvider.notifier)
+                        .open(broadToEntityRef(page));
+                  } catch (error) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(wattApiErrorMessage(error))),
+                      );
+                    }
+                  }
                 },
               ),
             ],
@@ -94,8 +108,8 @@ class TodayFocusPage extends ConsumerWidget {
               children: [
                 if (pinned.isNotEmpty) ...[
                   const _SectionHeader(
-                    icon: Symbols.push_pin_rounded,
-                    title: 'Pinned Across Workspace',
+                    icon: Symbols.star_rounded,
+                    title: 'Favorites',
                   ),
                   const SizedBox(height: SolSpace.sm),
                   Wrap(
@@ -182,7 +196,7 @@ class TodayFocusPage extends ConsumerWidget {
                   )
                 else
                   for (final page in pages) ...[
-                    EntityCard(compact: true, entity: page.toEntityRef()),
+                    EntityCard(compact: true, entity: broadToEntityRef(page)),
                     const SizedBox(height: SolSpace.sm),
                   ],
               ],
