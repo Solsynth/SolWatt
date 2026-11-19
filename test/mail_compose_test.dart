@@ -13,6 +13,7 @@ import 'package:solwatt/main.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
+import 'package:solwatt/theme.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -385,7 +386,7 @@ void main() {
     );
     expect(
       (card.decoration! as BoxDecoration).borderRadius,
-      BorderRadius.circular(12),
+      BorderRadius.circular(SolRadius.lg),
     );
 
     // Formatting lives behind Aa and still formats the selected line. The menu

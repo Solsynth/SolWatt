@@ -13,6 +13,7 @@ import 'package:solwatt/mail/import/mail_import_service.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/tasks/app_task.dart';
 import 'package:solwatt/tasks/tasks_notifier.dart';
+import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
@@ -30,7 +31,7 @@ class MailSettingsPage extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SolRadius.md),
       clipBehavior: Clip.antiAlias,
       // The title row stands in for an app bar: the list keeps out of the
       // status bar and the surface behind it paints the strip.
@@ -90,7 +91,7 @@ class _SettingsCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SolRadius.lg),
         side: BorderSide(color: scheme.outlineVariant),
       ),
       child: Padding(
@@ -130,7 +131,9 @@ class _MailboxDropdownField extends StatelessWidget {
         isDense: true,
         labelText: 'mailbox'.tr(),
         prefixIcon: const Icon(Symbols.mail),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(SolRadius.md),
+        ),
       ),
       items: [
         for (final mailbox in mailboxes)
@@ -394,7 +397,7 @@ class _CreateCredentialSheetState
                           labelText: 'mailbox'.tr(),
                           prefixIcon: const Icon(Symbols.mail),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(SolRadius.md),
                           ),
                         ),
                         items: [
@@ -417,7 +420,7 @@ class _CreateCredentialSheetState
                       hintText: 'credentialLabelHint'.tr(),
                       prefixIcon: const Icon(Symbols.label),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -452,7 +455,7 @@ class _CreateCredentialSheetState
                     label: Text('createCredential'.tr()),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -754,7 +757,7 @@ class _QuotaTile extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(SolRadius.xs),
               child: LinearProgressIndicator(
                 value: ratio,
                 minHeight: 6,
@@ -1043,7 +1046,7 @@ class _CreateAliasSheetState extends ConsumerState<_CreateAliasSheet> {
                           labelText: 'customDomain'.tr(),
                           prefixIcon: const Icon(Symbols.language),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(SolRadius.md),
                           ),
                         ),
                         items: [
@@ -1066,7 +1069,7 @@ class _CreateAliasSheetState extends ConsumerState<_CreateAliasSheet> {
                       hintText: 'aliasLocalPartHint'.tr(),
                       prefixIcon: const Icon(Symbols.alternate_email),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1077,7 +1080,7 @@ class _CreateAliasSheetState extends ConsumerState<_CreateAliasSheet> {
                       labelText: 'name'.tr(),
                       prefixIcon: const Icon(Symbols.label),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1088,7 +1091,7 @@ class _CreateAliasSheetState extends ConsumerState<_CreateAliasSheet> {
                     label: Text('addAlias'.tr()),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1192,7 +1195,7 @@ class _CreateForwardingSheetState
                           labelText: 'alias'.tr(),
                           prefixIcon: const Icon(Symbols.alternate_email),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(SolRadius.md),
                           ),
                         ),
                         items: [
@@ -1215,7 +1218,7 @@ class _CreateForwardingSheetState
                       hintText: 'forwardToHint'.tr(),
                       prefixIcon: const Icon(Symbols.forward_to_inbox),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1226,7 +1229,7 @@ class _CreateForwardingSheetState
                     label: Text('addForwarding'.tr()),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1480,7 +1483,7 @@ class _CreateBlockRuleSheetState extends ConsumerState<_CreateBlockRuleSheet> {
                       hintText: 'blockPatternHint'.tr(),
                       prefixIcon: const Icon(Symbols.block),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -1491,7 +1494,7 @@ class _CreateBlockRuleSheetState extends ConsumerState<_CreateBlockRuleSheet> {
                     label: Text('addBlockRule'.tr()),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),

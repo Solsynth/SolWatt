@@ -177,7 +177,7 @@ class MailComposePage extends ConsumerWidget {
         if (items.isEmpty) {
           return Material(
             color: Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(SolRadius.md),
             child: EmptyState(
               icon: Symbols.mail,
               title: 'noMailboxes'.tr(),
@@ -194,7 +194,7 @@ class MailComposePage extends ConsumerWidget {
         );
         return Material(
           color: Theme.of(context).colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SolRadius.md),
           clipBehavior: Clip.antiAlias,
           child: _ComposeSheet(
             mailbox: mailbox,
@@ -213,14 +213,14 @@ class MailComposePage extends ConsumerWidget {
 
   Widget _composeLoading(BuildContext context) => Material(
     color: Theme.of(context).colorScheme.surfaceContainerLow,
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: BorderRadius.circular(SolRadius.md),
     child: const PageLoading(),
   );
 
   Widget _composeError(BuildContext context, Object error, WidgetRef ref) =>
       Material(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SolRadius.md),
         child: PageError(
           message: error.toString(),
           onRetry: () {
@@ -554,7 +554,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                       orElse: () => items.first,
                     );
           return InkWell(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(SolRadius.md),
             onTap: () => _openMailboxPickerSheet(
               items,
               mailHost: mailHost,
@@ -769,7 +769,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: _buildSearchFilterBar(
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                       ),
                     ),
                   ),
@@ -872,7 +872,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     }
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SolRadius.md),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
@@ -1306,13 +1306,13 @@ class MailDetailPage extends ConsumerWidget {
     return email.when(
       loading: () => Material(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SolRadius.md),
         clipBehavior: Clip.antiAlias,
         child: const PageLoading(),
       ),
       error: (error, _) => Material(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SolRadius.md),
         clipBehavior: Clip.antiAlias,
         child: PageError(
           message: error.toString(),
@@ -2016,7 +2016,9 @@ class _MailboxSelector extends StatelessWidget {
           onPressed: onCreate,
           icon: const Icon(Symbols.add),
         ),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(SolRadius.md),
+        ),
       ),
       items: [
         for (final mailbox in mailboxes)
@@ -2084,7 +2086,9 @@ class _EmailFilterSheetState extends State<_EmailFilterSheet> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(SolRadius.lg),
+      ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Padding(
@@ -2615,7 +2619,7 @@ class _EmailThreadTile extends StatelessWidget {
           selected: selected || checked,
           selectedTileColor: scheme.secondaryContainer.withValues(alpha: 0.6),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(SolRadius.lg),
           ),
           contentPadding: const EdgeInsets.fromLTRB(12, 2, 8, 4),
           leading: selecting
@@ -2923,7 +2927,7 @@ class _ThreadMailboxBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SolRadius.sm),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2962,7 +2966,7 @@ class _ThreadCountBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(SolRadius.sm),
         ),
         child: Text(
           '$count',
@@ -3346,7 +3350,7 @@ class _EmailDetailPanelState extends State<_EmailDetailPanel> {
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SolRadius.md),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3938,7 +3942,7 @@ class _EmailSummary extends ConsumerWidget {
               if (isExpanded)
                 InkWell(
                   onTap: onToggleExpand,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(SolRadius.sm),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 6,
@@ -3973,7 +3977,7 @@ class _EmailSummary extends ConsumerWidget {
           if (!isExpanded) ...[
             InkWell(
               onTap: onToggleExpand,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(SolRadius.md),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
                 child: Row(
@@ -4164,7 +4168,7 @@ class _EmailAiSummary extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
         color: scheme.secondaryContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SolRadius.md),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4476,7 +4480,7 @@ class _EmailActionBar extends StatelessWidget {
                   visualDensity: .compact,
                   padding: .symmetric(horizontal: 12, vertical: 8),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(SolRadius.md),
                   ),
                 ),
               ),
@@ -4502,7 +4506,7 @@ class _EmailActionBar extends StatelessWidget {
                 visualDensity: .compact,
                 padding: .symmetric(horizontal: 12, vertical: 8),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(SolRadius.md),
                 ),
               ),
             ),
@@ -4851,9 +4855,9 @@ class _FoldedQuoteState extends State<_FoldedQuote> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Material(
             color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(SolRadius.md),
             child: InkWell(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(SolRadius.md),
               onTap: () => setState(() => _open = !_open),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -5054,7 +5058,7 @@ class _InlineEmailImage extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SolRadius.lg),
         child: GestureDetector(
           onTap: open,
           child: Image.network(
@@ -6458,7 +6462,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
             decoration: InputDecoration(
               hintText: 'https://example.com',
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(SolRadius.md),
               ),
             ),
           ),
@@ -6693,7 +6697,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                         curve: Curves.easeOutCubic,
                         decoration: BoxDecoration(
                           color: scheme.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(SolRadius.lg),
                           border: Border.all(
                             color: focused
                                 ? scheme.primary
@@ -7064,13 +7068,13 @@ class _ComposeEnvelope extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SolRadius.lg),
         border: Border.all(color: scheme.outlineVariant),
       ),
       // A row tints itself while it holds the caret; clipping keeps that tint
       // inside the frame's rounded corners.
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(SolRadius.md),
         child: Column(
           children: [
             for (var index = 0; index < rows.length; index++) ...[
@@ -7293,7 +7297,7 @@ class _ComposeRecipientFieldState
                       alignment: Alignment.topLeft,
                       child: Material(
                         elevation: 6,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(SolRadius.md),
                         clipBehavior: Clip.antiAlias,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(
@@ -7524,7 +7528,7 @@ class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
                     : 'mailboxAddressHelperNoHost'.tr(),
                 prefixIcon: const Icon(Symbols.alternate_email),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(SolRadius.lg),
                 ),
               ),
               keyboardType: TextInputType.text,
@@ -7552,7 +7556,7 @@ class _CreateMailboxSheetState extends ConsumerState<_CreateMailboxSheet> {
                 hintText: 'Alice',
                 prefixIcon: const Icon(Symbols.badge),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(SolRadius.lg),
                 ),
               ),
             ),
