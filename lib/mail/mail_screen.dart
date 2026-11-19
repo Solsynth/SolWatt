@@ -85,23 +85,20 @@ class MailWorkspaceLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(SolSpace.sm),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // The three slots never move: collapsing the list must not shift
-            // the pane to another position in the row, because the pane owns
-            // the lens' nested router and Flutter would rebuild it from its
-            // initial routes — leaving the tab with nothing to show.
-            SizedBox(
-              width: fullScreen ? 0 : listWidth,
-              child: fullScreen ? const SizedBox.shrink() : list,
-            ),
-            SizedBox(width: fullScreen ? 0 : SolSpace.sm),
-            Expanded(child: pane),
-          ],
-        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The three slots never move: collapsing the list must not shift
+          // the pane to another position in the row, because the pane owns
+          // the lens' nested router and Flutter would rebuild it from its
+          // initial routes — leaving the tab with nothing to show.
+          SizedBox(
+            width: fullScreen ? 0 : listWidth,
+            child: fullScreen ? const SizedBox.shrink() : list,
+          ),
+          SizedBox(width: fullScreen ? 0 : SolSpace.sm),
+          Expanded(child: pane),
+        ],
       ),
     );
   }

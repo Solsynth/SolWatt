@@ -36,7 +36,6 @@ class ContextualSidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final pinned = ref.watch(pinnedItemsProvider);
-    final workspace = ref.watch(selectedWorkspaceProvider).value;
 
     return Container(
       width: SolWorkspaceGeometry.sidebarWidth,
@@ -44,36 +43,23 @@ class ContextualSidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          WorkspaceCanvasHeader(
-            backgroundColor: scheme.surfaceContainerLow,
-            // The header is a band across the panel, so its own inset is the
-            // gutter: it lines up with the rows below without a second frame.
-            titlePadding: const EdgeInsets.fromLTRB(
-              SolSpace.xl,
-              SolSpace.sm,
-              SolSpace.lg,
-              0,
-            ),
-            title: Text(workspace?.name ?? 'SolWatt'),
-            subtitle: Text(activeLens.label),
-          ),
           Expanded(
             child: ListView(
               // The column is a panel, not a bare list: it keeps a real gutter
               // from its own edge so rows never sit flush against the rail's
               // rounded corner.
               padding: const EdgeInsets.fromLTRB(
-                SolSpace.xl,
                 SolSpace.md,
-                SolSpace.xl,
-                SolSpace.xl,
+                SolSpace.sm,
+                SolSpace.md,
+                SolSpace.sm,
               ),
               children: [
                 _SectionLabel(label: 'Pinned'),
                 if (pinned.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: SolSpace.sm,
+                      horizontal: SolSpace.xs,
                       vertical: SolSpace.xs,
                     ),
                     child: Text(

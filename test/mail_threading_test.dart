@@ -18,7 +18,6 @@ import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
-import 'package:solwatt/theme.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -195,12 +194,11 @@ void main() {
           ),
         ),
       );
-      // No list column, no gutter: the conversation owns the canvas.
+      // No list column, no gutter: the conversation owns the whole canvas.
       expect(find.byKey(const Key('list')), findsNothing);
       expect(
         tester.getSize(find.byKey(const Key('pane'))).width,
-        tester.view.physicalSize.width / tester.view.devicePixelRatio -
-            SolSpace.sm * 2,
+        tester.view.physicalSize.width / tester.view.devicePixelRatio,
       );
     },
   );

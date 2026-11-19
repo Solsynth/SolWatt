@@ -22,7 +22,6 @@ import 'package:solwatt/core/network.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
-import 'package:solwatt/ui/page_scaffold.dart' show shellScaffoldKey;
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
@@ -804,12 +803,6 @@ class FileListScreen extends HookConsumerWidget {
 
     final mainContent = AppScaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Symbols.menu),
-          onPressed: () {
-            shellScaffoldKey.currentState?.openDrawer();
-          },
-        ),
         title: SearchBar(
           controller: searchController,
           constraints: const BoxConstraints(maxWidth: 400, minHeight: 32),
