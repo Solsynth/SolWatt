@@ -37,37 +37,70 @@ import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 @RoutePage()
-class MailPage extends StatelessWidget {
+class MailPage extends ConsumerWidget {
   const MailPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final wide = isWideScreen(context);
-    if (!wide) return const AutoRouter();
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!isWideScreen(context)) return const AutoRouter();
 
+    // A conversation with a tab of its own is a full screen: the list is the
+    // lens' root, so it steps aside and the conversation takes the canvas.
+    final fullScreen = ref.watch(
+      workspaceTabsProvider.select(
+        (tabs) => tabs.showsDocumentOf(WorkspaceDomain.mail),
+      ),
+    );
+
+    return MailWorkspaceLayout(
+      fullScreen: fullScreen,
+      list: const _MailListWidget(),
+      pane: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) => Stack(
+          fit: StackFit.expand,
+          alignment: Alignment.center,
+          children: [...previous, ?current],
+        ),
+        child: AutoRouter(key: ValueKey(context.router.topRoute.route.name)),
+      ),
+    );
+  }
+}
+
+/// Zone split of the mail lens on a wide screen: the conversation list on the
+/// left, the reading pane on the right — unless the pane is a full screen of
+/// its own, in which case the list gives up its column entirely.
+class MailWorkspaceLayout extends StatelessWidget {
+  final bool fullScreen;
+  final Widget list;
+  final Widget pane;
+
+  const MailWorkspaceLayout({
+    super.key,
+    required this.fullScreen,
+    required this.list,
+    required this.pane,
+  });
+
+  /// Width of the conversation list column.
+  static const double listWidth = 420;
+
+  @override
+  Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(SolSpace.sm),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(width: 420, child: _MailListWidget()),
-            const SizedBox(width: 8),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                layoutBuilder: (current, previous) => Stack(
-                  fit: StackFit.expand,
-                  alignment: Alignment.center,
-                  children: [...previous, ?current],
-                ),
-                child: AutoRouter(
-                  key: ValueKey(context.router.topRoute.route.name),
-                ),
-              ),
-            ),
+            if (!fullScreen) ...[
+              SizedBox(width: listWidth, child: list),
+              const SizedBox(width: SolSpace.sm),
+            ],
+            Expanded(child: pane),
           ],
         ),
       ),
@@ -318,13 +351,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       final thread = items.where((t) => t.id == request.threadId).firstOrNull;
       ref.read(mailPendingFocusProvider.notifier).clear();
       if (thread == null) return;
-      setState(() => _selectedThreadId = thread.id);
-      final route = MailDetailRoute(emailId: thread.latestMessage.id);
-      if (request.fullScreen) {
-        context.router.push(route);
-      } else {
-        context.router.navigate(route);
-      }
+      _openThread(context, thread, fullScreen: request.fullScreen);
     });
   }
 
@@ -932,27 +959,33 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     // tile in an [OpenContainer]), so nothing is pushed here.
     if (!isWideScreen(context)) return;
     setState(() => _selectedThreadId = thread.id);
-    ref
-        .read(mailPendingFocusProvider.notifier)
-        .request(thread.id, fullScreen: fullScreen);
+    final route = MailDetailRoute(emailId: thread.latestMessage.id);
+    // A conversation that already owns a tab is a full screen, whether the
+    // reader opens it in the list or from the bar: bring that tab forward
+    // rather than reading the same conversation in a pane beside it.
+    final tabs = ref.read(workspaceTabsProvider.notifier);
+    if (tabs.isDocument(WorkspaceDomain.mail, thread.id)) {
+      tabs.activate(WorkspaceTab.keyFor(WorkspaceDomain.mail, thread.id));
+      context.router.navigate(route);
+      return;
+    }
     if (fullScreen) {
-      // Claim the tab before pushing: the detail page registers itself on the
+      // Claim the tab before routing: the detail page registers itself on the
       // first frame, and reads the bar to know whether it is a document or the
       // reading pane. Without this it would fold straight back into the inbox.
       ref
           .read(workspaceTabsProvider.notifier)
-          .register(
+          .claim(
             domain: WorkspaceDomain.mail,
             entityId: thread.id,
             title: thread.subject.isEmpty ? 'noSubject'.tr() : thread.subject,
-            fullScreen: true,
+            messageId: thread.latestMessage.id,
           );
-      context.router.push(MailDetailRoute(emailId: thread.latestMessage.id));
-    } else {
-      context.router.navigate(
-        MailDetailRoute(emailId: thread.latestMessage.id),
-      );
     }
+    // Navigate, never push: the lens stack holds one conversation at a time.
+    // Pushing instead stacked a detail on top of a detail on every open, which
+    // is what buried the app behind a pile of routes.
+    context.router.navigate(route);
   }
 
   /// Reading a conversation marks all of it read, so the unread count on the
@@ -1292,6 +1325,7 @@ class MailDetailPage extends ConsumerWidget {
           domain: WorkspaceDomain.mail,
           entityId: value.threadKey,
           title: value.displaySubject,
+          messageId: value.id,
           child: _EmailDetailPanel(
             key: ValueKey(value.threadKey),
             email: value,
@@ -1312,7 +1346,17 @@ class MailDetailPage extends ConsumerWidget {
             onDownloadEml: (message) =>
                 _downloadEmailEml(context, ref, message),
             onDelete: (message) => _deleteEmail(context, ref, message),
-            onClose: () => context.router.pop(),
+            // Back from a full-screen conversation gives the lens its canvas
+            // back: the pane pops and, when the conversation owned a tab, that
+            // tab closes with it instead of lingering over an empty pane.
+            onClose: () {
+              ref
+                  .read(workspaceTabsProvider.notifier)
+                  .close(
+                    WorkspaceTab.keyFor(WorkspaceDomain.mail, value.threadKey),
+                  );
+              context.router.pop();
+            },
           ),
         );
       },

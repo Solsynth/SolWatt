@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/route.dart';
 import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/shared/widgets/glass_effects.dart';
 import 'package:solwatt/shell/adaptive_workspace_shell.dart';
@@ -112,8 +113,8 @@ void main() {
       contains(WorkspaceTab.lensTabKey(WorkspaceLens.mail)),
     );
 
-    // A document that leaves the screen takes its tab with it; the lens tab
-    // stays, so the bar never frames empty chrome.
+    // The reader moves elsewhere: the document keeps its tab, the way a
+    // browser keeps a page, and only closing it takes it away.
     await tester.pumpWidget(
       _app(
         container,
@@ -127,14 +128,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The bar itself stays with the lens tab; only the document goes away.
-    final remaining = container.read(workspaceTabsProvider).tabs;
-    expect(remaining, hasLength(1));
-    expect(remaining.single.isRoot, isTrue);
-    expect(find.byType(WorkspaceTitleBar), findsOneWidget);
-    // Only the lens tab is left, and even it can be dismissed.
+    final remaining = container.read(workspaceTabsProvider);
+    expect(remaining.tabs, hasLength(2));
+    expect(find.text('Q4 budget review'), findsOneWidget);
+    // Both are closable here: the document, and the lens tab it sits beside.
     expect(find.byTooltip('Close tab'), findsOneWidget);
-    expect(find.text('Q4 budget review'), findsNothing);
   });
 
   testWidgets('a reading pane folds into its lens tab instead of adding one', (
@@ -179,27 +177,31 @@ void main() {
     expect(closed.tabs.single.isRoot, isTrue);
   });
 
-  testWidgets('closing a lens tab leaves the bar without resurrecting it', (
+  testWidgets('the rail switches to the lens tab it already pinned', (
     tester,
   ) async {
     final container = await _container();
     addTearDown(container.dispose);
 
     final controller = container.read(workspaceTabsProvider.notifier);
-    controller.ensureLensTab(WorkspaceLens.mail);
+    controller.focusLens(WorkspaceLens.mail);
     expect(container.read(workspaceTabsProvider).tabs, hasLength(1));
 
-    // A lens tab closes like any other, and `close` does not bring it back.
+    // A lens tab is pinned: the rail has no other road back to its lens, so
+    // closing it is a no-op rather than a way to lose the destination.
     controller.close(WorkspaceTab.lensTabKey(WorkspaceLens.mail));
-    expect(container.read(workspaceTabsProvider).tabs, isEmpty);
+    expect(container.read(workspaceTabsProvider).tabs, hasLength(1));
 
-    // The anchor can only ever be one tab, and it follows the rail.
-    controller.moveLensAnchor(WorkspaceLens.todo);
-    controller.moveLensAnchor(WorkspaceLens.drive);
+    // Leaving and coming back reuses that tab: no pile, rail order at front.
+    controller.focusLens(WorkspaceLens.todo);
+    controller.focusLens(WorkspaceLens.mail);
     final state = container.read(workspaceTabsProvider);
-    expect(state.tabs, hasLength(1));
-    expect(state.tabs.single.lens, WorkspaceLens.drive);
-    expect(state.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.drive));
+    expect(state.tabs, hasLength(2));
+    expect(state.tabs.map((tab) => tab.lens), [
+      WorkspaceLens.mail,
+      WorkspaceLens.todo,
+    ]);
+    expect(state.activeKey, WorkspaceTab.lensTabKey(WorkspaceLens.mail));
   });
 
   testWidgets('a reading pane never closes the full-screen tab beside it', (
@@ -236,30 +238,73 @@ void main() {
     );
   });
 
-  testWidgets('the rail lands the bar on a lens tab, never on nothing', (
+  testWidgets('lens tabs are pinned once, in rail order', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    final controller = container.read(workspaceTabsProvider.notifier);
+    for (final lens in [
+      WorkspaceLens.drive,
+      WorkspaceLens.mail,
+      WorkspaceLens.todo,
+    ]) {
+      controller.seedLens(lens);
+    }
+    final state = container.read(workspaceTabsProvider);
+    expect(state.tabs, hasLength(3));
+    expect(state.tabs.every((tab) => tab.isRoot), isTrue);
+    expect(state.tabs.map((tab) => tab.lens).toList(), [
+      WorkspaceLens.mail,
+      WorkspaceLens.todo,
+      WorkspaceLens.drive,
+    ]);
+
+    // Seeding twice does not duplicate a lens, and a document stays behind it.
+    controller.seedLens(WorkspaceLens.mail);
+    controller.register(
+      domain: WorkspaceDomain.mail,
+      entityId: 'thread-1',
+      title: 'Q4 budget review',
+      messageId: 'msg-1',
+    );
+    final seeded = container.read(workspaceTabsProvider);
+    expect(seeded.tabs, hasLength(4));
+    expect(seeded.tabs.last.key, 'mail:thread-1');
+  });
+
+  testWidgets('a conversation tab remembers the message it opens', (
     tester,
   ) async {
     final container = await _container();
     addTearDown(container.dispose);
 
     final controller = container.read(workspaceTabsProvider.notifier);
-    for (final lens in [
-      WorkspaceLens.mail,
-      WorkspaceLens.todo,
-      WorkspaceLens.drive,
-    ]) {
-      controller.ensureLensTab(lens);
-    }
-    final state = container.read(workspaceTabsProvider);
-    expect(state.tabs, hasLength(3));
-    expect(state.tabs.every((tab) => tab.isRoot), isTrue);
+    controller.claim(
+      domain: WorkspaceDomain.mail,
+      entityId: 'thread-1',
+      title: 'Q4 budget review',
+      messageId: 'msg-7',
+    );
 
-    // Asking twice does not duplicate a lens.
-    controller.ensureLensTab(WorkspaceLens.mail);
-    expect(container.read(workspaceTabsProvider).tabs, hasLength(3));
+    // The tab is keyed by the conversation and carries the message: selecting
+    // it later reopens that message, not the newest one and not a new tab.
+    final tab = container.read(workspaceTabsProvider).activeTab!;
+    expect(tab.key, 'mail:thread-1');
+    expect(tab.messageId, 'msg-7');
+    expect(
+      (routeForTab(tab) as MailDetailRoute).args?.emailId,
+      'msg-7',
+      reason: 'the tab reopens the message it was created for',
+    );
+
+    // The rail moves between pinned lens tabs; it never spends a document's.
+    controller.focusLens(WorkspaceLens.mail);
+    expect(container.read(workspaceTabsProvider).showsDocument, isFalse);
+    controller.activate(tab.key);
+    expect(container.read(workspaceTabsProvider).showsDocument, isTrue);
   });
 
-  testWidgets('every tab is closable, lens tab included', (tester) async {
+  testWidgets('documents close, pinned lens tabs stay', (tester) async {
     const mail = WorkspaceTab(
       key: 'mail:t-1',
       lens: WorkspaceLens.mail,
@@ -326,14 +371,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Three tabs, three close buttons: nothing in the bar is permanent.
-    expect(find.byTooltip('Close tab'), findsNWidgets(3));
-    // Tabs are closed in bar order, lens anchor first.
+    // Two documents, two close buttons: a pinned lens tab is the rail's own
+    // destination and has no close affordance.
+    expect(find.byTooltip('Close tab'), findsNWidgets(2));
     await tester.tap(find.byTooltip('Close tab').first);
-    expect(closed, ['lens:mail']);
+    expect(closed, ['mail:t-1']);
 
-    await tester.tap(find.byTooltip('Close all tabs'));
-    expect(closed, ['lens:mail', 'lens:mail', 'mail:t-1', 'todo:b-1']);
+    await tester.tap(find.byTooltip('Close all document tabs'));
+    expect(closed, ['mail:t-1', 'mail:t-1', 'todo:b-1']);
   });
 
   testWidgets('selecting a document tab hands it to the shell', (tester) async {
@@ -458,7 +503,7 @@ void main() {
     // the bar: the name itself is not spent on screen width.
     final avatar = find.byType(CloudFileAvatar);
     expect(avatar, findsWidgets);
-    expect(tester.getSize(avatar.first).width, lessThanOrEqualTo(28));
+    expect(tester.getSize(avatar.first).width, lessThanOrEqualTo(32));
     // The bar itself never prints the name; the tooltip carries it.
     expect(
       find.descendant(
@@ -550,11 +595,9 @@ void main() {
     // The document lives in the bar, above the canvas rather than inside it.
     final tab = tester.getRect(find.text('Q4 budget review'));
     expect(tab.center.dy, inInclusiveRange(bar.top, bar.bottom));
-    expect(find.byType(ContextualSidebar), findsOneWidget);
-    expect(
-      tester.getRect(find.byType(ContextualSidebar)).top,
-      greaterThanOrEqualTo(bar.bottom),
-    );
+    // A document is a full screen: the lens' own sidebar steps aside so the
+    // document gets the whole canvas.
+    expect(find.byType(ContextualSidebar), findsNothing);
   });
 
   testWidgets('lenses that duplicate the rail hide the docked sidebar', (

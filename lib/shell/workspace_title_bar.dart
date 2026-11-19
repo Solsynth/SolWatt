@@ -41,7 +41,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
     final workspace = ref.watch(selectedWorkspaceProvider).value;
     final name = workspace?.name.trim();
     final label = (name == null || name.isEmpty) ? 'SolWatt' : name;
-    final barHeight = compact ? 40.0 : 42.0;
+    final barHeight = compact ? 40.0 : 50.0;
     final documents = tabs.tabs;
 
     return Material(
@@ -77,26 +77,22 @@ class WorkspaceTitleBar extends ConsumerWidget {
                       : '$label — tap to switch workspace',
                   child: InkWell(
                     onTap: () => showWorkspaceSwitcher(context, ref),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: SolSpace.md,
-                      ),
-                      child: CloudFileAvatar(
-                        file: workspace?.picture,
-                        fallbackIcon: Symbols.workspaces_rounded,
-                        size: 24,
-                        assumeImage: true,
-                        borderRadius: workspace?.isIndividual == true
-                            ? SolRadius.pillRadius
-                            : null,
+                    child: SizedBox(
+                      width: 56,
+                      height: 48,
+                      child: Center(
+                        child: CloudFileAvatar(
+                          file: workspace?.picture,
+                          fallbackIcon: Symbols.workspaces_rounded,
+                          size: 32,
+                          assumeImage: true,
+                          borderRadius: workspace?.isIndividual == true
+                              ? SolRadius.pillRadius
+                              : null,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: scheme.outlineVariant.withValues(alpha: 0.55),
                 ),
                 Expanded(
                   child: documents.isEmpty
@@ -127,18 +123,21 @@ class WorkspaceTitleBar extends ConsumerWidget {
                                     !tabs.isActive(documents[index - 1]) &&
                                     !tabs.isActive(tab),
                                 onSelect: () => onSelect(tab),
-                                onClose: () => onClose(tab),
+                                // Pinned tabs are the lens destinations the
+                                // rail switches between; only documents close.
+                                onClose: tab.isRoot ? null : () => onClose(tab),
                               ),
                             );
                           },
                         ),
                 ),
-                if (documents.isNotEmpty)
+                if (documents.any((tab) => !tab.isRoot))
                   IconButton(
-                    tooltip: 'Close all tabs',
+                    tooltip: 'Close all document tabs',
                     iconSize: 16,
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => documents.forEach(onClose),
+                    onPressed: () =>
+                        documents.where((tab) => !tab.isRoot).forEach(onClose),
                     icon: Icon(
                       Symbols.clear_all_rounded,
                       color: scheme.onSurfaceVariant,
@@ -303,7 +302,10 @@ class _TitleTab extends StatelessWidget {
   final bool selected;
   final bool showDivider;
   final VoidCallback onSelect;
-  final VoidCallback onClose;
+
+  /// Null on a pinned lens tab: the rail owns that destination, so the bar
+  /// does not offer to close it.
+  final VoidCallback? onClose;
 
   const _TitleTab({
     required this.tab,
@@ -360,22 +362,27 @@ class _TitleTab extends StatelessWidget {
                     ),
                   ),
                 ),
-                SizedBox(
-                  width: 26,
-                  height: 26,
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    iconSize: 15,
-                    tooltip: 'Close tab',
-                    onPressed: onClose,
-                    style: IconButton.styleFrom(
-                      foregroundColor: scheme.onSurfaceVariant,
-                      hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+                if (onClose case final close?)
+                  SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      iconSize: 15,
+                      tooltip: 'Close tab',
+                      onPressed: close,
+                      style: IconButton.styleFrom(
+                        foregroundColor: scheme.onSurfaceVariant,
+                        hoverColor: scheme.onSurface.withValues(alpha: 0.08),
+                      ),
+                      icon: const Icon(Symbols.close),
                     ),
-                    icon: const Icon(Symbols.close),
-                  ),
-                ),
+                  )
+                else
+                  // A pinned tab keeps the button's width so every label sits
+                  // on the same rhythm as the documents beside it.
+                  const SizedBox(width: 26),
               ],
             ),
           ),

@@ -12,6 +12,10 @@ class WorkspaceCanvasHeader extends StatelessWidget {
   final List<Widget> actions;
   final Color? backgroundColor;
 
+  /// Inset around the title block. A header that heads a panel lines its title
+  /// up with the rows below it; one that heads a canvas keeps the default.
+  final EdgeInsetsGeometry? titlePadding;
+
   const WorkspaceCanvasHeader({
     super.key,
     this.leading,
@@ -19,6 +23,7 @@ class WorkspaceCanvasHeader extends StatelessWidget {
     this.subtitle,
     this.actions = const [],
     this.backgroundColor,
+    this.titlePadding,
   });
 
   @override
@@ -38,7 +43,8 @@ class WorkspaceCanvasHeader extends StatelessWidget {
               ],
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding:
+                      titlePadding ?? const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,

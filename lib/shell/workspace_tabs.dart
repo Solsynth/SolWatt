@@ -17,13 +17,18 @@ class WorkspaceTab {
   /// Lens the document is read inside; closing it returns that lens to root.
   final WorkspaceLens lens;
 
-  /// Null on the lens tab itself.
+  /// Null on a lens tab.
   final WorkspaceDomain? domain;
   final String? entityId;
+
+  /// What a mail tab opens: the message the route reads. A conversation is one
+  /// tab keyed by its thread, so the tab carries the message it shows.
+  final String? messageId;
   final String title;
 
-  /// A tab that stands for the lens root rather than a document: it cannot be
-  /// closed, and Back from its documents lands here.
+  /// A pinned tab that stands for a lens rather than a document. The rail
+  /// switches lenses, so these tabs are the rail's own: they never close, and
+  /// landing on a lens activates the tab that is already there.
   final bool isRoot;
 
   const WorkspaceTab({
@@ -32,6 +37,7 @@ class WorkspaceTab {
     required this.title,
     this.domain,
     this.entityId,
+    this.messageId,
     this.isRoot = false,
   });
 
@@ -61,17 +67,31 @@ class WorkspaceTabState {
   const WorkspaceTabState({required this.tabs, this.activeKey});
 
   bool isActive(WorkspaceTab tab) => tab.key == activeKey;
+
+  /// The tab on screen. Null when nothing claims the active key.
+  WorkspaceTab? get activeTab => tabs.where(isActive).firstOrNull;
+
+  /// Whether a document owns the canvas. The shell strips its own chrome for
+  /// it: a document is a full screen, not a lens pane.
+  bool get showsDocument => activeTab?.isRoot == false;
+
+  /// Whether the canvas is the document of [domain] rather than that lens'
+  /// root pane — a mail conversation read in a tab of its own, not the inbox.
+  bool showsDocumentOf(WorkspaceDomain domain) {
+    final tab = activeTab;
+    return tab != null && !tab.isRoot && tab.domain == domain;
+  }
 }
 
-/// The route a document opens into its lens' nested stack.
-PageRouteInfo? routeForDocument(WorkspaceDomain domain, String entityId) =>
-    switch (domain) {
-      WorkspaceDomain.mail => MailDetailRoute(emailId: entityId),
-      WorkspaceDomain.todo => TaskBoardRoute(broadId: entityId),
-      // The drive and the pages lens open documents in their own panes rather
-      // than by routing: their readers are panes in the canvas, not pages.
-      WorkspaceDomain.drive || WorkspaceDomain.pages => null,
-    };
+/// The route a tab opens into its lens' nested stack. Null for tabs whose
+/// content is a pane of the canvas (the drive's reader, a page) rather than a
+/// page in the lens' stack.
+PageRouteInfo? routeForTab(WorkspaceTab tab) => switch (tab.domain) {
+  WorkspaceDomain.mail =>
+    tab.messageId == null ? null : MailDetailRoute(emailId: tab.messageId!),
+  WorkspaceDomain.todo => TaskBoardRoute(broadId: tab.entityId!),
+  WorkspaceDomain.drive || WorkspaceDomain.pages || null => null,
+};
 
 WorkspaceLens lensOfDomain(WorkspaceDomain domain) => switch (domain) {
   WorkspaceDomain.mail => WorkspaceLens.mail,
@@ -132,11 +152,6 @@ class MailPendingFocus extends Notifier<MailFocusRequest?> {
 }
 
 class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
-  /// How many live surfaces show each document. A route swap briefly mounts
-  /// the new surface before the old one disposes, so a tab is dropped only
-  /// when the last surface for it goes away.
-  final Map<String, int> _mounted = {};
-
   /// Whether [entity] currently owns a tab of its own.
   bool isDocument(WorkspaceDomain domain, String entityId) {
     final key = WorkspaceTab.keyFor(domain, entityId);
@@ -148,19 +163,29 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
   /// [fullScreen] false is a reading pane, not a tab: the lens' own tab stays
   /// on the strip and becomes active, so reading a mail in the right column
   /// never grows a second tab beside the inbox.
+  ///
+  /// [messageId] is what a mail tab opens. A conversation is keyed by its
+  /// thread — one tab per conversation, however many messages it holds — while
+  /// the route reads one message, so the tab remembers which.
   void register({
     required WorkspaceDomain domain,
     required String entityId,
     required String title,
+    String? messageId,
     bool fullScreen = true,
   }) {
     if (!ref.mounted) return;
     final key = WorkspaceTab.keyFor(domain, entityId);
-    _mounted[key] = (_mounted[key] ?? 0) + 1;
     final lens = lensOfDomain(domain);
 
     if (!fullScreen) {
-      _showLensRoot(lens, domain: domain, entityId: entityId, title: title);
+      _showLensRoot(
+        lens,
+        domain: domain,
+        entityId: entityId,
+        title: title,
+        messageId: messageId,
+      );
       return;
     }
 
@@ -171,6 +196,7 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
       lens: lens,
       domain: domain,
       entityId: entityId,
+      messageId: messageId,
       title: title,
     );
     if (existing == -1) {
@@ -181,14 +207,45 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
     state = WorkspaceTabState(tabs: tabs, activeKey: key);
   }
 
-  /// Makes the lens' tab the active one, creating that lens tab when the strip
-  /// does not carry it yet. Its title follows the open document so the reader
-  /// still sees what they are reading.
+  /// Puts a document's tab on the bar before its surface has mounted, so the
+  /// surface's own [register] sees a document and does not fold into the lens
+  /// root. It does not count a surface: the pane that mounts next does, and
+  /// the tab goes away when that pane does.
+  void claim({
+    required WorkspaceDomain domain,
+    required String entityId,
+    required String title,
+    String? messageId,
+  }) {
+    if (!ref.mounted) return;
+    final key = WorkspaceTab.keyFor(domain, entityId);
+    final tabs = [...state.tabs];
+    final existing = tabs.indexWhere((tab) => tab.key == key);
+    final tab = WorkspaceTab(
+      key: key,
+      lens: lensOfDomain(domain),
+      domain: domain,
+      entityId: entityId,
+      messageId: messageId,
+      title: title,
+    );
+    if (existing == -1) {
+      tabs.add(tab);
+    } else {
+      tabs[existing] = tab;
+    }
+    state = WorkspaceTabState(tabs: tabs, activeKey: key);
+  }
+
+  /// Makes the lens' pinned tab the active one, creating it the first time the
+  /// reader visits that lens. Its title follows the open document so the bar
+  /// still says what is on screen.
   void _showLensRoot(
     WorkspaceLens lens, {
     required WorkspaceDomain domain,
     required String entityId,
     required String title,
+    String? messageId,
   }) {
     final lensKey = WorkspaceTab.lensTabKey(lens);
     final tabs = [...state.tabs];
@@ -201,6 +258,7 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
       title: title,
       domain: domain,
       entityId: entityId,
+      messageId: messageId,
       isRoot: true,
     );
     if (existing == -1) {
@@ -211,9 +269,53 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
     state = WorkspaceTabState(tabs: tabs, activeKey: lensKey);
   }
 
+  /// Puts [lens] on screen. Its tab is pinned: the rail addresses a place, so
+  /// arriving opens the tab that lens already has instead of spending a new
+  /// one, and the label goes back to the lens because the root pane is what
+  /// the reader sees. Pinned tabs keep rail order at the front; documents stay
+  /// behind them in the order the reader opened them.
+  void focusLens(WorkspaceLens lens) {
+    if (!ref.mounted) return;
+    final key = WorkspaceTab.lensTabKey(lens);
+    final roots =
+        [
+          ...state.tabs.where((tab) => tab.isRoot && tab.lens != lens),
+          WorkspaceTab(key: key, lens: lens, title: lens.label, isRoot: true),
+        ]..sort(
+          (a, b) => kShellLenses
+              .indexOf(a.lens)
+              .compareTo(kShellLenses.indexOf(b.lens)),
+        );
+    state = WorkspaceTabState(
+      tabs: [...roots, ...state.tabs.where((tab) => !tab.isRoot)],
+      activeKey: key,
+    );
+  }
+
+  /// Gives [lens] its pinned tab if the bar does not carry it yet. Never
+  /// changes what is on screen or what a tab is called: seeding runs on every
+  /// shell rebuild and must not fight the document on the canvas.
+  void seedLens(WorkspaceLens lens) {
+    if (!ref.mounted) return;
+    final key = WorkspaceTab.lensTabKey(lens);
+    if (state.tabs.any((tab) => tab.key == key)) return;
+    final roots =
+        [
+          ...state.tabs.where((tab) => tab.isRoot),
+          WorkspaceTab(key: key, lens: lens, title: lens.label, isRoot: true),
+        ]..sort(
+          (a, b) => kShellLenses
+              .indexOf(a.lens)
+              .compareTo(kShellLenses.indexOf(b.lens)),
+        );
+    final tabs = [...roots, ...state.tabs.where((tab) => !tab.isRoot)];
+    state = WorkspaceTabState(tabs: tabs, activeKey: state.activeKey ?? key);
+  }
+
   /// Declares that [lens] is sitting on its root pane (the drive's folder
-  /// browser, the inbox's list). The lens tab joins the bar without stealing
-  /// the active tab from a document that is still open beside it.
+  /// browser, the inbox's list). Only the label changes: the pinned tab either
+  /// exists already or joins the strip without stealing the active tab from a
+  /// document open beside it.
   void showingLensRoot(WorkspaceLens lens, {required String title}) {
     if (!ref.mounted) return;
     final lensKey = WorkspaceTab.lensTabKey(lens);
@@ -226,63 +328,22 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
       isRoot: true,
     );
     if (existing == -1) {
-      tabs.insert(0, lensTab);
-    } else {
-      tabs[existing] = lensTab;
-    }
-    final active = state.activeKey;
-    final activeIsDocument = state.tabs
-        .where((tab) => tab.key == active)
-        .any((tab) => !tab.isRoot);
-    state = WorkspaceTabState(
-      tabs: tabs,
-      activeKey: activeIsDocument ? active : lensKey,
-    );
-  }
-
-  /// Makes sure [lens] has a tab on the bar. Switching lenses never leaves the
-  /// bar empty: the lens the reader is on is always one of its tabs.
-  void ensureLensTab(WorkspaceLens lens) {
-    if (!ref.mounted) return;
-    final key = WorkspaceTab.lensTabKey(lens);
-    if (state.tabs.any((tab) => tab.key == key)) return;
-    final tabs = [
-      ...state.tabs,
-      WorkspaceTab(key: key, lens: lens, title: lens.label, isRoot: true),
-    ];
-    state = WorkspaceTabState(tabs: tabs, activeKey: state.activeKey ?? key);
-  }
-
-  /// Moves the lens anchor to [lens]. There is only ever one: it is the place
-  /// the reader stands, not a per-lens bookmark, so lens tabs never pile up.
-  void moveLensAnchor(WorkspaceLens lens) {
-    if (!ref.mounted) return;
-    final key = WorkspaceTab.lensTabKey(lens);
-    final tabs = [
-      ...state.tabs.where((tab) => !tab.isRoot),
-      WorkspaceTab(key: key, lens: lens, title: lens.label, isRoot: true),
-    ];
-    state = WorkspaceTabState(tabs: tabs, activeKey: key);
-  }
-
-  /// Drops one surface for [key]; a document tab goes away with its last
-  /// surface, a lens tab never does.
-  void release(String key) {
-    if (!ref.mounted) return;
-    final count = (_mounted[key] ?? 1) - 1;
-    if (count > 0) {
-      _mounted[key] = count;
+      // A new root joins the pinned block, not the front of the bar: the
+      // pinned tabs stay in rail order however late one arrives.
+      final roots = [...tabs.where((tab) => tab.isRoot), lensTab]
+        ..sort(
+          (a, b) => kShellLenses
+              .indexOf(a.lens)
+              .compareTo(kShellLenses.indexOf(b.lens)),
+        );
+      state = WorkspaceTabState(
+        tabs: [...roots, ...tabs.where((tab) => !tab.isRoot)],
+        activeKey: state.activeKey,
+      );
       return;
     }
-    _mounted.remove(key);
-    final closing = state.tabs.where((tab) => tab.key == key).firstOrNull;
-    // A lens tab is the lens' home: it outlives the pane that showed it.
-    if (closing == null || closing.isRoot) return;
-    final tabs = state.tabs.where((tab) => tab.key != key).toList();
-    state = WorkspaceTabState(
-      tabs: tabs,
-      activeKey: state.activeKey == key ? null : state.activeKey,
-    );
+    tabs[existing] = lensTab;
+    state = WorkspaceTabState(tabs: tabs, activeKey: state.activeKey);
   }
 
   /// Marks [key] as the tab on screen without touching the tab list.
@@ -297,12 +358,12 @@ class WorkspaceTabsController extends Notifier<WorkspaceTabState> {
     state = WorkspaceTabState(tabs: state.tabs);
   }
 
-  /// Removes a tab. Documents go away with their last surface; the lens tab is
-  /// closed like any other, because nothing in the bar is permanent.
+  /// Removes a document tab. A lens tab is pinned: the rail has no other road
+  /// back to its lens, so it is not closable.
   void close(String key) {
     if (!ref.mounted) return;
-    if (!state.tabs.any((tab) => tab.key == key)) return;
-    _mounted.remove(key);
+    final tab = state.tabs.where((t) => t.key == key).firstOrNull;
+    if (tab == null || tab.isRoot) return;
     state = WorkspaceTabState(
       tabs: state.tabs.where((t) => t.key != key).toList(),
       activeKey: state.activeKey == key ? null : state.activeKey,
@@ -323,11 +384,17 @@ final workspaceTabsProvider =
 /// omnibox, peek, deep link.
 ///
 /// Registration is deferred one frame: a page may not mutate providers while
-/// the tree that watches them is building.
+/// the tree that watches them is building. A tab outlives the surface that
+/// opened it — it closes when the reader closes it, like a browser tab — so a
+/// route swap behind it never silently drops the document.
 class WorkspaceDocumentScope extends ConsumerStatefulWidget {
   final WorkspaceDomain domain;
   final String entityId;
   final String title;
+
+  /// What a mail tab opens: the message the route reads. A conversation is one
+  /// tab keyed by its thread, so the tab has to carry the message itself.
+  final String? messageId;
 
   /// Whether the document owns the canvas (its own tab) or only the reading
   /// pane beside the lens' list. Null means "ask the bar": a surface that the
@@ -342,6 +409,7 @@ class WorkspaceDocumentScope extends ConsumerStatefulWidget {
     required this.domain,
     required this.entityId,
     required this.title,
+    this.messageId,
     this.fullScreen,
     required this.child,
   });
@@ -353,13 +421,6 @@ class WorkspaceDocumentScope extends ConsumerStatefulWidget {
 
 class _WorkspaceDocumentScopeState
     extends ConsumerState<WorkspaceDocumentScope> {
-  /// The controller this scope registered with. Kept as a field because a
-  /// widget's `ref` is unsafe to touch once it is unmounting, while the
-  /// controller outlives the widget.
-  WorkspaceTabsController? _tabs;
-
-  String get _key => WorkspaceTab.keyFor(widget.domain, widget.entityId);
-
   @override
   void initState() {
     super.initState();
@@ -371,6 +432,7 @@ class _WorkspaceDocumentScopeState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entityId != widget.entityId ||
         oldWidget.title != widget.title ||
+        oldWidget.messageId != widget.messageId ||
         oldWidget.fullScreen != widget.fullScreen) {
       _register();
     }
@@ -380,26 +442,16 @@ class _WorkspaceDocumentScopeState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final tabs = ref.read(workspaceTabsProvider.notifier);
-      _tabs = tabs;
       tabs.register(
         domain: widget.domain,
         entityId: widget.entityId,
         title: widget.title,
+        messageId: widget.messageId,
         fullScreen:
             widget.fullScreen ??
             tabs.isDocument(widget.domain, widget.entityId),
       );
     });
-  }
-
-  @override
-  void dispose() {
-    final key = _key;
-    final tabs = _tabs;
-    if (tabs != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => tabs.release(key));
-    }
-    super.dispose();
   }
 
   @override

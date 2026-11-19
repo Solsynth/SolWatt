@@ -3417,7 +3417,7 @@ class MailEmail {
   }
 
   String get displaySubject =>
-      subject.trim().isNotEmpty ? subject : '(no subject)';
+      subject.trim().isNotEmpty ? subject : 'No subject';
 
   String get previewText {
     final stripped = isHtml

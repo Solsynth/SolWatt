@@ -82,26 +82,22 @@ class AdaptiveWorkspaceShell extends ConsumerStatefulWidget {
 
 class _AdaptiveWorkspaceShellState
     extends ConsumerState<AdaptiveWorkspaceShell> {
-  /// Lens tabs the reader closed by hand. Seeding the bar must not bring one
-  /// back on the next rebuild; switching lenses clears the veto.
-  final Set<WorkspaceLens> _dismissedAnchors = {};
-
-  @override
-  void didUpdateWidget(AdaptiveWorkspaceShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedIndex != widget.selectedIndex) {
-      _dismissedAnchors.remove(_activeLens);
-    }
-  }
-
   WorkspaceLens get _activeLens =>
       kShellLenses[widget.selectedIndex.clamp(0, kShellLenses.length - 1)];
 
+  /// Sends the reader to [lens]. The rail addresses a lens destination, so its
+  /// tab is pinned: arriving there activates the tab it already has instead of
+  /// spending a new one on every visit.
   void _selectLens(WorkspaceLens lens) {
+    ref.read(workspaceTabsProvider.notifier).focusLens(lens);
+    _gotoLens(lens);
+  }
+
+  /// Switches the lens the canvas shows without touching the bar. Selecting a
+  /// tab already decided what is on screen; this only follows it there.
+  void _gotoLens(WorkspaceLens lens) {
     final idx = kShellLenses.indexOf(lens);
-    if (idx >= 0) {
-      widget.onSelected(idx);
-    }
+    if (idx >= 0) widget.onSelected(idx);
   }
 
   /// Opens [entity] in its domain's lens, so the title bar and the lens agree
@@ -110,19 +106,28 @@ class _AdaptiveWorkspaceShellState
   void _openEntityTab(WorkspaceEntityRef entity) {
     final lens = lensOfDomain(entity.domain);
     _selectLens(lens);
-    final route = routeForDocument(entity.domain, entity.id);
-    if (route != null) _nestedStack(lens)?.navigate(route);
-    if (entity.domain == WorkspaceDomain.drive) {
-      ref.read(drivePendingFocusProvider.notifier).request(entity.id);
+    switch (entity.domain) {
+      case WorkspaceDomain.mail:
+        // The mail lens owns the conversation routes, so it is asked to bring
+        // the conversation forward rather than routed from outside: only it
+        // knows which message is the newest one to open.
+        ref
+            .read(mailPendingFocusProvider.notifier)
+            .request(entity.id, fullScreen: true);
+      case WorkspaceDomain.todo:
+        _nestedStack(lens)?.navigate(TaskBoardRoute(broadId: entity.id));
+      case WorkspaceDomain.drive:
+        ref.read(drivePendingFocusProvider.notifier).request(entity.id);
+      case WorkspaceDomain.pages:
+        ref.read(selectedPageIdProvider.notifier).select(entity.id);
     }
   }
 
-  /// Brings a tab forward. A document tab activates itself; the lens tab only
-  /// brings its lens forward, leaving the pane it already shows in place.
+  /// Brings a tab forward. Selecting a lens tab lands on that lens' root;
+  /// selecting a document puts the document back on screen.
   void _selectTab(WorkspaceTab tab) {
-    final tabs = ref.read(workspaceTabsProvider.notifier);
-    tabs.activate(tab.key);
-    _selectLens(tab.lens);
+    ref.read(workspaceTabsProvider.notifier).activate(tab.key);
+    _gotoLens(tab.lens);
     if (tab.isRoot) {
       _nestedStack(tab.lens)?.popUntilRoot();
       // The drive shows whatever file its pane was reading; returning to its
@@ -139,48 +144,38 @@ class _AdaptiveWorkspaceShellState
       return;
     }
     switch (tab.domain) {
+      case WorkspaceDomain.mail:
+        // The bar knows which message this conversation was showing, so
+        // selecting the tab reopens exactly that message in the lens stack.
+        final route = routeForTab(tab);
+        if (route != null) _nestedStack(tab.lens)?.navigate(route);
       case WorkspaceDomain.drive:
         ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
       case WorkspaceDomain.pages:
         ref.read(selectedPageIdProvider.notifier).select(tab.entityId);
         _nestedStack(WorkspaceLens.pages)?.popUntilRoot();
-      case final domain?:
-        final route = routeForDocument(domain, tab.entityId!);
+      case WorkspaceDomain.todo:
+        final route = routeForTab(tab);
         if (route != null) _nestedStack(tab.lens)?.navigate(route);
       case null:
         break;
     }
   }
 
-  /// Closes a tab. A document's pane closes itself and its lens pops back to
-  /// the root page; a lens tab is simply dismissed, and seeding leaves it
-  /// dismissed until the reader returns to that lens.
+  /// Closes a document tab: its pane closes itself and its lens pops back to
+  /// the root page. Lens tabs are pinned, so they are not closable at all.
   void _closeTab(WorkspaceTab tab) {
+    if (tab.isRoot) return;
     final tabs = ref.read(workspaceTabsProvider.notifier);
-    if (tab.isRoot) {
-      _dismissedAnchors.add(tab.lens);
-      tabs.close(tab.key);
-      return;
-    }
     if (tab.domain == WorkspaceDomain.drive) {
       ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
     } else {
       _nestedStack(tab.lens)?.popUntilRoot();
     }
     tabs.close(tab.key);
-    // The lens tab steps back in, so the bar always says where the reader is.
-    _activateLensRoot(tab.lens);
-  }
-
-  /// Activates the lens' own tab, if the bar carries one.
-  void _activateLensRoot(WorkspaceLens lens) {
-    final key = WorkspaceTab.lensTabKey(lens);
-    final root = ref
-        .read(workspaceTabsProvider)
-        .tabs
-        .where((tab) => tab.key == key)
-        .firstOrNull;
-    if (root != null) ref.read(workspaceTabsProvider.notifier).activate(key);
+    // The lens' pinned tab steps back in, so the bar always says where the
+    // reader is.
+    tabs.activate(WorkspaceTab.lensTabKey(tab.lens));
   }
 
   StackRouter? _nestedStack(WorkspaceLens lens) =>
@@ -304,12 +299,17 @@ class _AdaptiveWorkspaceShellState
     final isMac = defaultTargetPlatform == TargetPlatform.macOS;
     final sidebarCollapsed = ref.watch(sidebarCollapsedProvider);
     final tabs = ref.watch(workspaceTabsProvider);
-    final showSidebar = !sidebarCollapsed && _lensOwnsSidebar(_activeLens);
-    // Every lens the reader lands on gets its tab, so the bar can always say
-    // where they are even before they open a document.
+    // A document on screen is a full screen: the lens' list and its sidebar
+    // step aside so the document gets the whole canvas.
+    final showSidebar =
+        !sidebarCollapsed &&
+        _lensOwnsSidebar(_activeLens) &&
+        !tabs.showsDocument;
+    // Every lens the reader lands on gets its pinned tab, so the bar can
+    // always say where they are even before they open a document.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _dismissedAnchors.contains(_activeLens)) return;
-      ref.read(workspaceTabsProvider.notifier).ensureLensTab(_activeLens);
+      if (!mounted) return;
+      ref.read(workspaceTabsProvider.notifier).seedLens(_activeLens);
     });
 
     return CallbackShortcuts(

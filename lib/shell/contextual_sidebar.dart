@@ -46,16 +46,27 @@ class ContextualSidebar extends ConsumerWidget {
         children: [
           WorkspaceCanvasHeader(
             backgroundColor: scheme.surfaceContainerLow,
+            // The header is a band across the panel, so its own inset is the
+            // gutter: it lines up with the rows below without a second frame.
+            titlePadding: const EdgeInsets.fromLTRB(
+              SolSpace.xl,
+              SolSpace.sm,
+              SolSpace.lg,
+              0,
+            ),
             title: Text(workspace?.name ?? 'SolWatt'),
             subtitle: Text(activeLens.label),
           ),
           Expanded(
             child: ListView(
+              // The column is a panel, not a bare list: it keeps a real gutter
+              // from its own edge so rows never sit flush against the rail's
+              // rounded corner.
               padding: const EdgeInsets.fromLTRB(
-                SolSpace.lg,
+                SolSpace.xl,
                 SolSpace.md,
-                SolSpace.lg,
-                SolSpace.lg,
+                SolSpace.xl,
+                SolSpace.xl,
               ),
               children: [
                 _SectionLabel(label: 'Pinned'),

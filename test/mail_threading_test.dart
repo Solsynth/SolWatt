@@ -13,6 +13,8 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
+import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/theme.dart';
 
 const _mailboxWork = MailMailbox(
   id: 'mb-1',
@@ -159,6 +161,43 @@ void main() {
         'Carol confirms the release ships Friday.',
       );
       expect(thread.latestAt?.toUtc(), DateTime.utc(2026, 9, 25, 10));
+    },
+  );
+
+  testWidgets(
+    'a conversation tab takes the whole canvas: the list column steps aside',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: MailWorkspaceLayout(
+            fullScreen: false,
+            list: SizedBox(key: Key('list')),
+            pane: SizedBox(key: Key('pane')),
+          ),
+        ),
+      );
+      expect(find.byKey(const Key('list')), findsOneWidget);
+      expect(
+        tester.getSize(find.byKey(const Key('list'))).width,
+        MailWorkspaceLayout.listWidth,
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: MailWorkspaceLayout(
+            fullScreen: true,
+            list: SizedBox(key: Key('list')),
+            pane: SizedBox(key: Key('pane')),
+          ),
+        ),
+      );
+      // No list column, no gutter: the conversation owns the canvas.
+      expect(find.byKey(const Key('list')), findsNothing);
+      expect(
+        tester.getSize(find.byKey(const Key('pane'))).width,
+        tester.view.physicalSize.width / tester.view.devicePixelRatio -
+            SolSpace.sm * 2,
+      );
     },
   );
 
