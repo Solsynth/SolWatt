@@ -24,6 +24,7 @@ import 'package:solwatt/notifications/notifications.dart';
 import 'package:solwatt/push/push_service.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/route.dart';
+import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/tasks/task_overlay.dart';
 import 'package:solwatt/shared/widgets/window_frame.dart';
 import 'package:solwatt/theme.dart';
@@ -155,7 +156,7 @@ class SolWattApp extends ConsumerWidget {
 /// modals — as `OverlayEntry` siblings of the app entry, so a theme provided
 /// inside an entry can never reach them and they paint with the fork's default
 /// scheme (light-paper surface, baseline purple tint) instead of the app's.
-class AppOverlayHost extends StatelessWidget {
+class AppOverlayHost extends ConsumerWidget {
   const AppOverlayHost({
     super.key,
     required this.overlayKey,
@@ -168,36 +169,40 @@ class AppOverlayHost extends StatelessWidget {
   final Widget? child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final glassEffects = ref.watch(appGlassEffectsProvider);
     // Read the Flutter theme here rather than capturing it: `Overlay` reads
     // `initialEntries` once, so the entry builders below keep the first frame's
     // closure. This widget re-runs on every app theme change, and the fork
     // theme it provides reaches the entries' own rebuilds through inheritance.
     return mui.Theme(
       data: createSolWattForkTheme(Theme.of(context), accentSeed),
-      child: Overlay(
-        key: overlayKey,
-        initialEntries: [
-          OverlayEntry(
-            builder: (context) => AppWindowFrame(
-              isDesktopPlatform: AppWindowFrame.isPlatformDesktop,
-              title: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'appName'.tr(),
-                  // The titlebar sits outside any Scaffold, so the default
-                  // text style would fall back to a light-mode color; pin it
-                  // to the active scheme explicitly.
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
+      child: GlassEffects(
+        enabled: glassEffects,
+        child: Overlay(
+          key: overlayKey,
+          initialEntries: [
+            OverlayEntry(
+              builder: (context) => AppWindowFrame(
+                isDesktopPlatform: AppWindowFrame.isPlatformDesktop,
+                title: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'appName'.tr(),
+                    // The titlebar sits outside any Scaffold, so the default
+                    // text style would fall back to a light-mode color; pin it
+                    // to the active scheme explicitly.
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ),
+                child: child ?? const SizedBox.shrink(),
               ),
-              child: child ?? const SizedBox.shrink(),
             ),
-          ),
-          OverlayEntry(builder: (_) => const _WebSocketIndicator()),
-        ],
+            OverlayEntry(builder: (_) => const _WebSocketIndicator()),
+          ],
+        ),
       ),
     );
   }
@@ -278,10 +283,12 @@ class AppShellPage extends ConsumerWidget {
         }
         return _StartupUpdateCheck(
           child: AutoTabsRouter(
-            // Order is the tab indices in [_appTabs]: append here, add there.
+            // Order matches [kShellLenses] in adaptive_workspace_shell.dart.
             routes: const [
+              TodayFocusRoute(),
               MailRoute(),
               BoardsRoute(),
+              WorkspaceNotesRoute(),
               FileListRoute(),
               FlywheelRoute(),
               ProfileRoute(),
@@ -291,7 +298,7 @@ class AppShellPage extends ConsumerWidget {
               final tabs = AutoTabsRouter.of(context);
               return _TabMemory(
                 tabs: tabs,
-                child: _NavigationShell(
+                child: AdaptiveWorkspaceShell(
                   isShown: onStack(),
                   selectedIndex: tabs.activeIndex,
                   onSelected: tabs.setActiveIndex,
@@ -316,7 +323,8 @@ class _StartupUpdateCheck extends ConsumerStatefulWidget {
   final Widget child;
 
   @override
-  ConsumerState<_StartupUpdateCheck> createState() => _StartupUpdateCheckState();
+  ConsumerState<_StartupUpdateCheck> createState() =>
+      _StartupUpdateCheckState();
 }
 
 class _StartupUpdateCheckState extends ConsumerState<_StartupUpdateCheck> {
@@ -364,7 +372,7 @@ class _TabMemoryState extends ConsumerState<_TabMemory> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final saved = ref.read(lastTabIndexProvider);
-      final clamped = saved.clamp(0, _appTabs.length - 1);
+      final clamped = saved.clamp(0, kShellLenses.length - 1);
       if (clamped != widget.tabs.activeIndex) {
         widget.tabs.setActiveIndex(clamped);
       }

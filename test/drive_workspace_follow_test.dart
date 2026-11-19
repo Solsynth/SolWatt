@@ -37,8 +37,10 @@ const _lunar = Workspace(
 /// Popup menus inside the drive tab strip. Matched by predicate because the app
 /// tree builds widgets from the `material_ui` fork, whose classes are distinct
 /// from `flutter/material`'s and therefore invisible to `CommonFinders.byType`.
-final _tabStripMenus = find.byWidgetPredicate(
-  (widget) => widget is mui.PopupMenuButton<String>,
+/// The drive's source switch, the browser's remaining chrome now that the
+/// documents live in the shared title bar.
+final _sourceSwitch = find.byWidgetPredicate(
+  (widget) => widget is mui.SegmentedButton,
 );
 
 /// Answers every drive request with an empty page so the browser renders
@@ -130,7 +132,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     // The strip kept only its "add" menu: the inline workspace switcher is gone.
-    expect(_tabStripMenus, findsOneWidget);
+    expect(_sourceSwitch, findsOneWidget);
     // The seeded tab browses the globally active workspace.
     expect(find.byType(FileListView), findsOneWidget);
     expect(quotaSlugs, contains('solar'));
@@ -144,9 +146,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('driveNoOpenTabs'.tr()), findsNothing);
     expect(find.byType(FileListView), findsOneWidget);
-    expect(_tabStripMenus, findsOneWidget);
+    expect(_sourceSwitch, findsOneWidget);
     expect(quotaSlugs, contains('lunar'));
 
     // Settle the revived listing requests so no Dio timeout stays pending.

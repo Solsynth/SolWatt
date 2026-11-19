@@ -189,213 +189,219 @@ class _TaskBoardPageState extends ConsumerState<TaskBoardPage> {
     void newTask({String? groupId}) =>
         _taskForm(context, ref, _broadId, initialGroupId: groupId);
 
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        // The board list is the previous route of the tab's nested stack, so
-        // Back always has somewhere to go.
-        leading: const _BoardBackButton(),
-        titleSpacing: 0,
-        toolbarHeight: wide ? 68 : null,
-        title: _BoardHeading(board: broad, showDescription: wide),
-        actions: [
-          if (wide) ...[
-            IconButton(
-              icon: const Icon(Symbols.hub),
-              tooltip: 'githubIntegration'.tr(),
-              onPressed: openGitHub,
-            ),
-            IconButton(
-              icon: const Icon(Symbols.view_column),
-              tooltip: 'manageGroups'.tr(),
-              onPressed: openGroups,
-            ),
-            IconButton(
-              icon: Badge(
-                isLabelVisible: !_filters.isEmpty,
-                child: const Icon(Symbols.filter_list),
+    return WorkspaceDocumentScope(
+      domain: WorkspaceDomain.todo,
+      entityId: _broadId,
+      title: broad.name,
+      child: Scaffold(
+        backgroundColor: scheme.surface,
+        appBar: AppBar(
+          // The board list is the previous route of the tab's nested stack, so
+          // Back always has somewhere to go.
+          leading: const _BoardBackButton(),
+          titleSpacing: 0,
+          toolbarHeight: wide ? 68 : null,
+          title: _BoardHeading(board: broad, showDescription: wide),
+          actions: [
+            if (wide) ...[
+              IconButton(
+                icon: const Icon(Symbols.hub),
+                tooltip: 'githubIntegration'.tr(),
+                onPressed: openGitHub,
               ),
-              tooltip: 'taskFilters'.tr(),
-              onPressed: openFilters,
-            ),
-            IconButton.filledTonal(
-              icon: const Icon(Symbols.add_task),
-              tooltip: 'newTask'.tr(),
-              onPressed: newTask,
-            ),
-            const SizedBox(width: 8),
-          ] else ...[
-            IconButton.filledTonal(
-              icon: const Icon(Symbols.add_task),
-              tooltip: 'newTask'.tr(),
-              onPressed: newTask,
-            ),
-            _BoardOverflowMenu(
-              onGitHub: openGitHub,
-              onGroups: openGroups,
-              onFilters: openFilters,
-              hasFilters: !_filters.isEmpty,
-            ),
-            const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Symbols.view_column),
+                tooltip: 'manageGroups'.tr(),
+                onPressed: openGroups,
+              ),
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: !_filters.isEmpty,
+                  child: const Icon(Symbols.filter_list),
+                ),
+                tooltip: 'taskFilters'.tr(),
+                onPressed: openFilters,
+              ),
+              IconButton.filledTonal(
+                icon: const Icon(Symbols.add_task),
+                tooltip: 'newTask'.tr(),
+                onPressed: newTask,
+              ),
+              const SizedBox(width: 8),
+            ] else ...[
+              IconButton.filledTonal(
+                icon: const Icon(Symbols.add_task),
+                tooltip: 'newTask'.tr(),
+                onPressed: newTask,
+              ),
+              _BoardOverflowMenu(
+                onGitHub: openGitHub,
+                onGroups: openGroups,
+                onFilters: openFilters,
+                hasFilters: !_filters.isEmpty,
+              ),
+              const SizedBox(width: 4),
+            ],
           ],
-        ],
-      ),
-      body: Builder(
-        builder: (context) {
-          final boardContent = Column(
-            children: [
-              _BoardToolbar(
-                controller: _search,
-                onSearchChanged: _onSearchChanged,
-                onSearchCleared: () {
-                  _search.clear();
-                  _onSearchChanged('');
-                },
-                filters: _filters,
-                groups: groupItems,
-                taskCount: taskCount,
-                onFiltersChanged: _setFilters,
-                onOpenFilters: openFilters,
-              ),
-              Expanded(
-                child: tasks.when(
-                  loading: () => const PageLoading(),
-                  error: (error, _) => PageError(
-                    message: wattApiErrorMessage(error),
-                    onRetry: () {
-                      ref.invalidate(tasksProvider(_taskRequest));
-                      ref.invalidate(taskGroupsProvider(_broadId));
-                    },
-                  ),
-                  data: (taskItems) => groups.when(
+        ),
+        body: Builder(
+          builder: (context) {
+            final boardContent = Column(
+              children: [
+                _BoardToolbar(
+                  controller: _search,
+                  onSearchChanged: _onSearchChanged,
+                  onSearchCleared: () {
+                    _search.clear();
+                    _onSearchChanged('');
+                  },
+                  filters: _filters,
+                  groups: groupItems,
+                  taskCount: taskCount,
+                  onFiltersChanged: _setFilters,
+                  onOpenFilters: openFilters,
+                ),
+                Expanded(
+                  child: tasks.when(
                     loading: () => const PageLoading(),
                     error: (error, _) => PageError(
                       message: wattApiErrorMessage(error),
-                      onRetry: () =>
-                          ref.invalidate(taskGroupsProvider(_broadId)),
+                      onRetry: () {
+                        ref.invalidate(tasksProvider(_taskRequest));
+                        ref.invalidate(taskGroupsProvider(_broadId));
+                      },
                     ),
-                    data: (groupItems) {
-                      final columns = _buildColumns(
-                        groupItems,
-                        _effectiveTasks(taskItems),
-                      );
-                      if (columns.every((column) => column.tasks.isEmpty) &&
-                          _filters.isEmpty) {
-                        return EmptyState(
-                          icon: Symbols.task_alt,
-                          title: 'noTasksYet'.tr(),
-                          message: 'addTaskOrCreateGroups'.tr(),
-                          action: FilledButton.icon(
-                            onPressed: newTask,
-                            icon: const Icon(Symbols.add_task),
-                            label: Text('newTask'.tr()),
-                          ),
+                    data: (taskItems) => groups.when(
+                      loading: () => const PageLoading(),
+                      error: (error, _) => PageError(
+                        message: wattApiErrorMessage(error),
+                        onRetry: () =>
+                            ref.invalidate(taskGroupsProvider(_broadId)),
+                      ),
+                      data: (groupItems) {
+                        final columns = _buildColumns(
+                          groupItems,
+                          _effectiveTasks(taskItems),
                         );
-                      }
-                      // An empty board lands here only when a filter is what
-                      // emptied it: an unfiltered board always shows its lanes
-                      // so a task can be created straight into one.
-                      if (columns.every((column) => column.tasks.isEmpty)) {
-                        return EmptyState(
-                          icon: Symbols.filter_alt_off,
-                          title: 'noMatchingTasks'.tr(),
-                          message: 'noMatchingTasksDetail'.tr(),
-                          action: FilledButton.icon(
-                            onPressed: () =>
-                                _setFilters(const TaskListFilters()),
-                            icon: const Icon(Symbols.filter_alt_off),
-                            label: Text('clearFilters'.tr()),
-                          ),
-                        );
-                      }
-
-                      // A board with no groups has nothing to lane: no card, no
-                      // column chrome, just the tasks — one full-width column
-                      // on a phone, a waterfall where the width affords it.
-                      if (groupItems.isEmpty) {
-                        final tasks = columns.single.tasks;
-                        Widget tile(WorkTask task) => _TaskDetailLauncher(
-                          task: task,
-                          broadId: _broadId,
-                          openWide: () => _openTask(task),
-                          cardBuilder: (onOpen) => _TaskCard(
-                            task: task,
-                            onOpen: onOpen,
-                            onToggleComplete: () => _toggleTaskComplete(
-                              context,
-                              ref,
-                              _broadId,
-                              task,
+                        if (columns.every((column) => column.tasks.isEmpty) &&
+                            _filters.isEmpty) {
+                          return EmptyState(
+                            icon: Symbols.task_alt,
+                            title: 'noTasksYet'.tr(),
+                            message: 'addTaskOrCreateGroups'.tr(),
+                            action: FilledButton.icon(
+                              onPressed: newTask,
+                              icon: const Icon(Symbols.add_task),
+                              label: Text('newTask'.tr()),
                             ),
-                            onDelete: () =>
-                                _deleteTask(context, ref, _broadId, task),
-                            onMove: null,
-                          ),
-                        );
-                        if (!wide) {
-                          return ListView.separated(
+                          );
+                        }
+                        // An empty board lands here only when a filter is what
+                        // emptied it: an unfiltered board always shows its lanes
+                        // so a task can be created straight into one.
+                        if (columns.every((column) => column.tasks.isEmpty)) {
+                          return EmptyState(
+                            icon: Symbols.filter_alt_off,
+                            title: 'noMatchingTasks'.tr(),
+                            message: 'noMatchingTasksDetail'.tr(),
+                            action: FilledButton.icon(
+                              onPressed: () =>
+                                  _setFilters(const TaskListFilters()),
+                              icon: const Icon(Symbols.filter_alt_off),
+                              label: Text('clearFilters'.tr()),
+                            ),
+                          );
+                        }
+
+                        // A board with no groups has nothing to lane: no card, no
+                        // column chrome, just the tasks — one full-width column
+                        // on a phone, a waterfall where the width affords it.
+                        if (groupItems.isEmpty) {
+                          final tasks = columns.single.tasks;
+                          Widget tile(WorkTask task) => _TaskDetailLauncher(
+                            task: task,
+                            broadId: _broadId,
+                            openWide: () => _openTask(task),
+                            cardBuilder: (onOpen) => _TaskCard(
+                              task: task,
+                              onOpen: onOpen,
+                              onToggleComplete: () => _toggleTaskComplete(
+                                context,
+                                ref,
+                                _broadId,
+                                task,
+                              ),
+                              onDelete: () =>
+                                  _deleteTask(context, ref, _broadId, task),
+                              onMove: null,
+                            ),
+                          );
+                          if (!wide) {
+                            return ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                              itemCount: tasks.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, index) =>
+                                  tile(tasks[index]),
+                            );
+                          }
+                          return MasonryGridView.extent(
                             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                            maxCrossAxisExtent: 320,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
                             itemCount: tasks.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 8),
                             itemBuilder: (context, index) => tile(tasks[index]),
                           );
                         }
-                        return MasonryGridView.extent(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                          maxCrossAxisExtent: 320,
-                          mainAxisSpacing: 8,
-                          crossAxisSpacing: 8,
-                          itemCount: tasks.length,
-                          itemBuilder: (context, index) => tile(tasks[index]),
-                        );
-                      }
 
-                      return ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        itemCount: columns.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 12),
-                        itemBuilder: (context, index) {
-                          final column = columns[index];
-                          return _TaskLane(
-                            broadId: _broadId,
-                            column: column,
-                            color: _laneColor(index),
-                            onOpenTask: _openTask,
-                            onToggleComplete: (task) => _toggleTaskComplete(
-                              context,
-                              ref,
-                              _broadId,
-                              task,
-                            ),
-                            onDeleteTask: (task) =>
-                                _deleteTask(context, ref, _broadId, task),
-                            onMoveTask: (task, groupId) =>
-                                _onMoveTask(task, groupId),
-                            onAddTask: () => newTask(groupId: column.groupId),
-                            laneOptions: columns,
-                          );
-                        },
-                      );
-                    },
+                        return ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          itemCount: columns.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final column = columns[index];
+                            return _TaskLane(
+                              broadId: _broadId,
+                              column: column,
+                              color: _laneColor(index),
+                              onOpenTask: _openTask,
+                              onToggleComplete: (task) => _toggleTaskComplete(
+                                context,
+                                ref,
+                                _broadId,
+                                task,
+                              ),
+                              onDeleteTask: (task) =>
+                                  _deleteTask(context, ref, _broadId, task),
+                              onMoveTask: (task, groupId) =>
+                                  _onMoveTask(task, groupId),
+                              onAddTask: () => newTask(groupId: column.groupId),
+                              laneOptions: columns,
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
+              ],
+            );
+            if (!wide) return boardContent;
+            return ResponsiveSidebar(
+              showSidebar: _showTaskDetail,
+              sidebarWidth: 460,
+              minWideSidebarWidth: 360,
+              minMainContentWidth: 320,
+              sidebarContent: _taskDetail(
+                onClose: () => _showTaskDetail.value = false,
               ),
-            ],
-          );
-          if (!wide) return boardContent;
-          return ResponsiveSidebar(
-            showSidebar: _showTaskDetail,
-            sidebarWidth: 460,
-            minWideSidebarWidth: 360,
-            minMainContentWidth: 320,
-            sidebarContent: _taskDetail(
-              onClose: () => _showTaskDetail.value = false,
-            ),
-            mainContent: boardContent,
-          );
-        },
+              mainContent: boardContent,
+            );
+          },
+        ),
       ),
     );
   }

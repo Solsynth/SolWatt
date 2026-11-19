@@ -107,14 +107,20 @@ void main() {
       ),
     );
 
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    // The bootstrap seeds the browser from a post-frame callback, so give it
+    // the frames it needs before asserting on what it opened.
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
 
     expect(tester.takeException(), isNull);
-    // The bootstrap replaced the empty state with a drive tab.
-    expect(find.text('driveNoOpenTabs'.tr()), findsNothing);
-    // The seeded tab's content replaced the workspace placeholder.
-    expect(find.text('driveIndexedEntryLabel'.tr()), findsNothing);
+    // The bootstrap opens the browser from a post-frame callback and its pane
+    // transition takes a few frames; once settled the placeholder is gone and
+    // the browser's chrome (its search field) is what is on screen.
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('driveWorkspaceEmptyTitle'.tr()), findsNothing);
   });
 
   testWidgets('switching the selected workspace re-binds the drive tab', (

@@ -19,7 +19,6 @@ import 'package:super_context_menu/super_context_menu.dart';
 import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
 import 'package:solwatt/core/utils/file_types.dart';
-import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:solwatt/mail/email_contrast.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
@@ -27,7 +26,12 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:solwatt/workspace/components/entity_card.dart';
+import 'package:solwatt/workspace/components/related_items_strip.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
+import 'package:solwatt/workspace/workspace_state.dart';
 import 'package:solwatt/route.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -48,7 +52,21 @@ class MailPage extends StatelessWidget {
           children: [
             const SizedBox(width: 420, child: _MailListWidget()),
             const SizedBox(width: 8),
-            const Expanded(child: AutoRouter()),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.expand,
+                  alignment: Alignment.center,
+                  children: [...previous, ?current],
+                ),
+                child: AutoRouter(
+                  key: ValueKey(context.router.topRoute.route.name),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -288,6 +306,27 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   void _enterSelectionMode() => setState(() => _selectionMode = true);
 
+  /// The title bar asked for a conversation: read it in the pane, or push it
+  /// into a tab of its own when the tab stands for a full screen.
+  void _listenForTabRequests() {
+    ref.listen(mailPendingFocusProvider, (_, request) {
+      if (request == null || !mounted) return;
+      final items =
+          ref.read(threadsProvider(_visibleQuery)).value?.items ??
+          const <MailThread>[];
+      final thread = items.where((t) => t.id == request.threadId).firstOrNull;
+      ref.read(mailPendingFocusProvider.notifier).clear();
+      if (thread == null) return;
+      setState(() => _selectedThreadId = thread.id);
+      final route = MailDetailRoute(emailId: thread.latestMessage.id);
+      if (request.fullScreen) {
+        context.router.push(route);
+      } else {
+        context.router.navigate(route);
+      }
+    });
+  }
+
   /// The query the list is currently showing, rebuilt from the same providers
   /// the list build reads, so "select all" can see the loaded conversations.
   MailThreadsQuery get _visibleQuery => (
@@ -439,6 +478,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
       _resetList();
       ref.invalidate(threadsProvider);
     });
+    _listenForTabRequests();
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider);
     final selectedMailboxId = ref.watch(selectedMailboxIdProvider);
@@ -754,6 +794,8 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
               onToggleSelected: _toggleSelected,
               onEnterSelection: _selectThread,
               onOpen: (thread) => _openThread(context, thread),
+              onOpenFullScreen: (thread) =>
+                  _openThread(context, thread, fullScreen: true),
               onToggleStar: _toggleThreadStar,
               onToggleRead: _toggleThreadRead,
               onDelete: (context, thread) => _deleteThread(context, thread),
@@ -871,20 +913,33 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     setState(() => _take = next > kMaxThreadTake ? kMaxThreadTake : next);
   }
 
-  void _openThread(BuildContext context, MailThread thread) {
+  /// A click reads the conversation in the pane beside the list; the mail
+  /// tab stays the one the title bar shows. A double click promotes it into a
+  /// full-screen tab of its own.
+  void _openThread(
+    BuildContext context,
+    MailThread thread, {
+    bool fullScreen = false,
+  }) {
     // Reading a conversation opens it: the mark-read round trip does not touch
     // this list's own providers, so it cannot rebuild the app bar under the
     // open conversation.
     if (thread.unreadCount > 0) {
       unawaited(_markThreadRead(thread));
     }
-    // The wide layout keeps the list beside the detail and swaps that pane by
-    // pushing into the mail stack; a phone animates the row itself into the
-    // conversation (the row wraps its tile in an [OpenContainer]), so nothing
-    // is pushed here.
+    // A phone animates the row itself into the conversation (the row wraps its
+    // tile in an [OpenContainer]), so nothing is pushed here.
     if (!isWideScreen(context)) return;
     setState(() => _selectedThreadId = thread.id);
-    context.router.navigate(MailDetailRoute(emailId: thread.latestMessage.id));
+    ref
+        .read(mailPendingFocusProvider.notifier)
+        .request(thread.id, fullScreen: fullScreen);
+    final route = MailDetailRoute(emailId: thread.latestMessage.id);
+    if (fullScreen) {
+      context.router.push(route);
+    } else {
+      context.router.navigate(route);
+    }
   }
 
   /// Reading a conversation marks all of it read, so the unread count on the
@@ -1216,26 +1271,35 @@ class MailDetailPage extends ConsumerWidget {
         // The conversation is fetched separately: the route carries one
         // message, and a thread's older messages live behind `GET /threads/:id`.
         final conversation = ref.watch(threadProvider(value.threadKey));
-        return _EmailDetailPanel(
-          key: ValueKey(value.threadKey),
-          email: value,
-          conversation: conversation.value,
-          mailHost: mailHost,
-          workspaceId:
-              value.mailbox?.workspaceId ??
-              ref.watch(selectedWorkspaceProvider).value?.id,
-          onReply: (message) => _composeEmail(context, message),
-          onReplyAll: (message) =>
-              _composeEmail(context, message, replyAll: true),
-          onForward: (message) => _forwardEmail(context, message),
-          onResend: (message) => _resendEmail(ref, message),
-          onToggleRead: (message) => _toggleEmailRead(ref, message),
-          onToggleStar: (message) => _toggleEmailStar(ref, message),
-          onMove: (message, folder) =>
-              _moveEmail(context, ref, message, folder),
-          onDownloadEml: (message) => _downloadEmailEml(context, ref, message),
-          onDelete: (message) => _deleteEmail(context, ref, message),
-          onClose: () => context.router.pop(),
+        return WorkspaceDocumentScope(
+          domain: WorkspaceDomain.mail,
+          entityId: value.threadKey,
+          title: value.displaySubject,
+          // The pane beside the list is not a tab: the inbox tab stays the
+          // one the title bar shows while a conversation is read here.
+          fullScreen: false,
+          child: _EmailDetailPanel(
+            key: ValueKey(value.threadKey),
+            email: value,
+            conversation: conversation.value,
+            mailHost: mailHost,
+            workspaceId:
+                value.mailbox?.workspaceId ??
+                ref.watch(selectedWorkspaceProvider).value?.id,
+            onReply: (message) => _composeEmail(context, message),
+            onReplyAll: (message) =>
+                _composeEmail(context, message, replyAll: true),
+            onForward: (message) => _forwardEmail(context, message),
+            onResend: (message) => _resendEmail(ref, message),
+            onToggleRead: (message) => _toggleEmailRead(ref, message),
+            onToggleStar: (message) => _toggleEmailStar(ref, message),
+            onMove: (message, folder) =>
+                _moveEmail(context, ref, message, folder),
+            onDownloadEml: (message) =>
+                _downloadEmailEml(context, ref, message),
+            onDelete: (message) => _deleteEmail(context, ref, message),
+            onClose: () => context.router.pop(),
+          ),
         );
       },
     );
@@ -2118,6 +2182,7 @@ class _EmailThreadList extends ConsumerStatefulWidget {
     required this.mailHost,
     required this.selectedThreadId,
     required this.onOpen,
+    required this.onOpenFullScreen,
     required this.onToggleStar,
     required this.onToggleRead,
     required this.onDelete,
@@ -2134,6 +2199,9 @@ class _EmailThreadList extends ConsumerStatefulWidget {
   final String? mailHost;
   final String? selectedThreadId;
   final ValueChanged<MailThread> onOpen;
+
+  /// Double-click on a row: the conversation gets a full-screen tab.
+  final ValueChanged<MailThread> onOpenFullScreen;
   final ValueChanged<MailThread> onToggleStar;
   final ValueChanged<MailThread> onToggleRead;
   final Future<void> Function(BuildContext, MailThread) onDelete;
@@ -2272,6 +2340,14 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
               // container transform the board gives a task; the wide layout keeps
               // the list beside the detail pane and pushes into it instead.
               if (widget.selecting || isWideScreen(context)) {
+                // A double click opens the conversation in a tab of its own; a
+                // single click keeps it in the reading pane.
+                if (!widget.selecting && isWideScreen(context)) {
+                  return GestureDetector(
+                    onDoubleTap: () => widget.onOpenFullScreen(thread),
+                    child: tile(() => widget.onOpen(thread)),
+                  );
+                }
                 return tile(() => widget.onOpen(thread));
               }
               final scheme = Theme.of(context).colorScheme;
@@ -2606,14 +2682,90 @@ class _EmailThreadTile extends StatelessWidget {
       ),
     );
 
-    // Apple Mail-style swipes on touch layouts: right toggles read, left
-    // deletes. The row never leaves the list itself; the action refreshes it.
+    final mailEntity = WorkspaceEntityRef(
+      id: thread.id,
+      domain: WorkspaceDomain.mail,
+      title: thread.subject.isEmpty ? 'noSubject'.tr() : thread.subject,
+      subtitle:
+          thread.latestMessage.from?.name ??
+          thread.latestMessage.from?.address ??
+          thread.participants.firstOrNull,
+      status: unread ? '${thread.unreadCount} unread' : null,
+      metadata: {'threadId': thread.id},
+    );
+
+    if (isWideScreen(context) && !selecting) {
+      return Draggable<WorkspaceEntityRef>(
+        data: mailEntity,
+        feedback: Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(SolRadius.sm),
+          child: Container(
+            width: 260,
+            padding: const EdgeInsets.all(SolSpace.md),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(SolRadius.sm),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Symbols.mail_rounded, size: 16, color: scheme.primary),
+                const SizedBox(width: SolSpace.sm),
+                Expanded(
+                  child: Text(
+                    mailEntity.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        child: row,
+      );
+    }
+
+    // Swipe right -> Create Task (with haptic tick), Swipe left -> Archive/Delete.
     if (selecting || isWideScreen(context)) return row;
     return Dismissible(
       key: ValueKey('swipe-${thread.id}'),
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
-          onToggleRead();
+          HapticFeedback.selectionClick();
+          final container = ProviderScope.containerOf(context, listen: false);
+          final boards =
+              container.read(broadsProvider).value ?? const <Broad>[];
+          final firstBoard = boards.firstOrNull;
+          if (firstBoard != null) {
+            try {
+              final created = await container
+                  .read(wattEngineClientProvider)
+                  .createTask(
+                    firstBoard.id,
+                    WorkTaskDraft(
+                      name: 'Follow up: ${mailEntity.title}',
+                      description: mailEntity.subtitle,
+                    ),
+                  );
+              container.invalidate(
+                tasksProvider(TaskListRequest(broadId: firstBoard.id)),
+              );
+              final taskEntity = WorkspaceEntityRef(
+                id: created.id,
+                domain: WorkspaceDomain.todo,
+                title: created.name,
+                subtitle: firstBoard.name,
+                status: 'Open',
+                metadata: {'broadId': firstBoard.id, 'taskId': created.id},
+              );
+              container
+                  .read(backlinksProvider.notifier)
+                  .link(mailEntity, taskEntity);
+              container.read(peekProvider.notifier).open(taskEntity);
+            } catch (_) {}
+          }
         } else {
           onDelete();
         }
@@ -2622,7 +2774,7 @@ class _EmailThreadTile extends StatelessWidget {
       background: _SwipeBackground(
         color: scheme.primary,
         foreground: scheme.onPrimary,
-        icon: unread ? Symbols.drafts : Symbols.mark_email_unread,
+        icon: Symbols.add_task_rounded,
         alignment: Alignment.centerLeft,
       ),
       secondaryBackground: _SwipeBackground(
@@ -4092,21 +4244,15 @@ String mailSenderSafetyTooltip(MailEmail email) {
   final messages = <String>{
     if (phishing && authentication.phishingReason != null)
       _senderWarningText(authentication.phishingReason!),
-    for (final warning in authentication.warnings)
-      _senderWarningText(warning),
+    for (final warning in authentication.warnings) _senderWarningText(warning),
   }.toList();
 
-  final title = (phishing
-          ? 'senderSafetyPhishingTitle'
-          : 'senderSafetySuspiciousTitle')
-      .tr();
+  final title =
+      (phishing ? 'senderSafetyPhishingTitle' : 'senderSafetySuspiciousTitle')
+          .tr();
   final hint = phishing ? 'senderSafetyPhishingHint'.tr() : null;
 
-  final lines = [
-    title,
-    ?hint,
-    ...messages,
-  ];
+  final lines = [title, ?hint, ...messages];
   return lines.join('\n');
 }
 
@@ -4140,10 +4286,7 @@ class MailSenderSafetyIcon extends StatelessWidget {
       preferBelow: true,
       child: Container(
         padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
         child: Icon(
           phishing ? Symbols.phishing : Symbols.warning,
           size: 16,
@@ -4340,13 +4483,57 @@ class _EmailFooter extends StatelessWidget {
           if (email.attachments.isNotEmpty) ...[
             Text('attachments'.tr(), style: text.titleSmall),
             const SizedBox(height: 8),
-            // Media shows itself here; documents stay chips. Both kinds open
-            // the way their type reads (see [CloudFileAttachmentList]).
-            CloudFileAttachmentList(
-              files: email.attachments,
-              workspaceId: workspaceId,
-            ),
+            // Unified EntityCard rendering for Mail attachments (identical to
+            // Drive files) with Attachment badge + 1-tap Save to Drive.
+            for (final file in email.attachments) ...[
+              Builder(
+                builder: (context) {
+                  final fileEntity = WorkspaceEntityRef(
+                    id: file.id,
+                    domain: WorkspaceDomain.drive,
+                    title: file.name,
+                    subtitle: file.mimeType,
+                    mimeType: file.mimeType,
+                    byteSize: file.size,
+                    isAttachment: true,
+                    isSavedToDrive: false,
+                  );
+                  return Draggable<WorkspaceEntityRef>(
+                    data: fileEntity,
+                    feedback: Material(
+                      elevation: 6,
+                      borderRadius: BorderRadius.circular(SolRadius.sm),
+                      child: SizedBox(
+                        width: 280,
+                        child: EntityCard(entity: fileEntity, compact: true),
+                      ),
+                    ),
+                    child: EntityCard(
+                      entity: fileEntity,
+                      compact: true,
+                      onSaveToDrive: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Saved "${file.name}" to Drive'),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
           ],
+          const SizedBox(height: 16),
+          RelatedItemsStrip(
+            entity: WorkspaceEntityRef(
+              id: email.threadId ?? email.id,
+              domain: WorkspaceDomain.mail,
+              title: email.subject.isEmpty ? 'noSubject'.tr() : email.subject,
+              subtitle: email.from?.address,
+            ),
+          ),
           if (email.hasDeliveryStatus && !email.isDraft) ...[
             if (email.attachments.isNotEmpty) const SizedBox(height: 24),
             Row(
@@ -4735,7 +4922,9 @@ class _EmailPlainTextBodyState extends State<EmailPlainTextBody> {
   @override
   Widget build(BuildContext context) {
     final body = widget.body;
-    if (body.isEmpty) return SelectableText('(no body)', style: widget.style);
+    if (body.isEmpty) {
+      return SelectableText('noBody'.tr(), style: widget.style);
+    }
 
     final children = <Widget>[];
     var cursor = 0;
@@ -4885,18 +5074,12 @@ class _RemoteImagesPrivacyBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            Symbols.shield,
-            size: 16,
-            color: scheme.primary,
-          ),
+          Icon(Symbols.shield, size: 16, color: scheme.primary),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'remoteImagesBlocked'.tr(),
-              style: text.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -6777,9 +6960,9 @@ class _CompactLabeledField extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 label,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),

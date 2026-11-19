@@ -1,0 +1,389 @@
+import 'package:auto_route/auto_route.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import 'package:solwatt/network.dart';
+import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/route.dart';
+import 'package:solwatt/shared/widgets/pill_surface.dart';
+import 'package:solwatt/theme.dart';
+import 'package:solwatt/workspace/components/workspace_header.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
+import 'package:solwatt/workspace/workspace_state.dart';
+
+/// Mobile (< 600px) Top Context Header (52px) with Top-Left Lens & Favorites
+/// Switcher dropdown pill.
+class MobileContextHeader extends ConsumerWidget {
+  final WorkspaceLens activeLens;
+  final String? contextLabel;
+  final ValueChanged<WorkspaceLens> onSelectLens;
+
+  const MobileContextHeader({
+    super.key,
+    required this.activeLens,
+    this.contextLabel,
+    required this.onSelectLens,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = contextLabel ?? activeLens.label;
+
+    // The workspace title bar above owns the status-bar strip, so this header
+    // starts below it at full height instead of claiming the inset twice.
+    return SafeArea(
+      top: false,
+      bottom: false,
+      child: WorkspaceCanvasHeader(
+        leading: InkWell(
+          borderRadius: SolRadius.pillRadius,
+          onTap: () => _showWorkspaceSwitcherSheet(context, ref),
+          child: PillSurface(
+            t: 0.85,
+            radius: SolRadius.pillRadius,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: SolSpace.md,
+              vertical: 6,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(activeLens.icon, size: 16, color: scheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Symbols.arrow_drop_down_rounded, size: 18),
+              ],
+            ),
+          ),
+        ),
+        title: const SizedBox.shrink(),
+        actions: [
+          IconButton(
+            tooltip: 'Workspaces',
+            icon: const Icon(Symbols.workspaces_rounded, size: 20),
+            onPressed: () =>
+                context.router.push(const WorkspaceManagementRoute()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showWorkspaceSwitcherSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => _WorkspaceSwitcherSheet(
+        activeLens: activeLens,
+        onSelectLens: (lens) {
+          Navigator.of(ctx).pop();
+          onSelectLens(lens);
+        },
+      ),
+    );
+  }
+}
+
+class _WorkspaceSwitcherSheet extends ConsumerWidget {
+  final WorkspaceLens activeLens;
+  final ValueChanged<WorkspaceLens> onSelectLens;
+
+  const _WorkspaceSwitcherSheet({
+    required this.activeLens,
+    required this.onSelectLens,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final pinned = ref.watch(pinnedItemsProvider);
+    final recent = ref.watch(recentEntitiesProvider);
+    final workspace = ref.watch(selectedWorkspaceProvider).value;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      minChildSize: 0.45,
+      builder: (context, scrollController) => ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(
+          SolSpace.lg,
+          0,
+          SolSpace.lg,
+          SolSpace.xxl,
+        ),
+        children: [
+          Row(
+            children: [
+              Text(
+                workspace?.name ?? 'Workspace',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  context.router.push(const WorkspaceManagementRoute());
+                },
+                icon: const Icon(Symbols.swap_horiz_rounded, size: 16),
+                label: const Text('Switch'),
+              ),
+            ],
+          ),
+          const SizedBox(height: SolSpace.md),
+          Text(
+            'UNIFIED VIEWS',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: SolSpace.xs),
+          WorkspaceListRow(
+            selected: activeLens == WorkspaceLens.today,
+            leading: Icon(Symbols.star_rounded, color: scheme.primary),
+            title: const Text('Today / Focus'),
+            subtitle: const Text('Priority mail, tasks & recent pages'),
+            onTap: () => onSelectLens(WorkspaceLens.today),
+          ),
+          if (recent.isNotEmpty) ...[
+            const SizedBox(height: SolSpace.md),
+            Text(
+              'RECENT',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: SolSpace.xs),
+            for (final item in recent.take(4))
+              WorkspaceListRow(
+                leading: Icon(item.domain.icon, size: 18),
+                title: Text(item.title),
+                subtitle: Text(item.domain.label),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  ref.read(peekProvider.notifier).open(item);
+                },
+              ),
+          ],
+          const SizedBox(height: SolSpace.md),
+          Text(
+            'Pinned',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: SolSpace.xs),
+          if (pinned.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: SolSpace.sm),
+              child: Text(
+                'No pinned favorites yet.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            )
+          else
+            for (final item in pinned)
+              WorkspaceListRow(
+                leading: Icon(
+                  item.domain.icon,
+                  size: 18,
+                  color: scheme.primary,
+                ),
+                title: Text(item.title),
+                subtitle: Text(item.domain.label),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  ref.read(peekProvider.notifier).open(item);
+                },
+              ),
+          const SizedBox(height: SolSpace.md),
+          Text(
+            'LENSES',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: SolSpace.xs),
+          for (final lens in [
+            WorkspaceLens.mail,
+            WorkspaceLens.todo,
+            WorkspaceLens.pages,
+            WorkspaceLens.drive,
+          ])
+            WorkspaceListRow(
+              selected: activeLens == lens,
+              leading: Icon(lens.icon, size: 20),
+              title: Text(lens.label),
+              onTap: () => onSelectLens(lens),
+            ),
+          const SizedBox(height: SolSpace.lg),
+          for (final lens in [
+            WorkspaceLens.flywheel,
+            WorkspaceLens.profile,
+            WorkspaceLens.settings,
+          ])
+            WorkspaceListRow(
+              selected: activeLens == lens,
+              leading: Icon(lens.icon, size: 20),
+              title: Text(lens.label),
+              onTap: () => onSelectLens(lens),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Mobile (< 600px) Floating Bottom Action Pill (Omnibox 75% + Create 25%)
+/// positioned 16px above the bottom safe area using Solian's [PillSurface].
+class MobileFloatingActionPill extends ConsumerWidget {
+  final VoidCallback onOpenOmnibox;
+  final ValueChanged<WorkspaceLens> onSelectLens;
+
+  const MobileFloatingActionPill({
+    super.key,
+    required this.onOpenOmnibox,
+    required this.onSelectLens,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final bottomSafe = MediaQuery.viewPaddingOf(context).bottom;
+
+    return Positioned(
+      left: SolSpace.lg,
+      right: SolSpace.lg,
+      bottom: bottomSafe + 16,
+      child: PillSurface(
+        t: 1.0,
+        radius: SolRadius.pillRadius,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: SolSpace.sm,
+          vertical: 6,
+        ),
+        child: SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              // Left (75%): Search mail, tasks, pages, files...
+              Expanded(
+                flex: 3,
+                child: InkWell(
+                  borderRadius: SolRadius.pillRadius,
+                  onTap: onOpenOmnibox,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: SolSpace.md,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Symbols.search_rounded,
+                          size: 18,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: SolSpace.sm),
+                        Expanded(
+                          child: Text(
+                            'Search mail, tasks, pages, files...',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: SolSpace.xs),
+              // Right (25%): Primary + button
+              Expanded(
+                flex: 1,
+                child: FilledButton.icon(
+                  onPressed: () => _showQuickCreateSheet(context, ref),
+                  icon: const Icon(Symbols.add_rounded, size: 18),
+                  label: const Text('New'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 40),
+                    shape: const StadiumBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showQuickCreateSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Symbols.article_rounded),
+              title: const Text('New Page'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                ref.read(pagesProvider.notifier).createPage();
+                onSelectLens(WorkspaceLens.pages);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Symbols.mail_rounded),
+              title: const Text('Compose Email'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onSelectLens(WorkspaceLens.mail);
+                context.router.push(MailComposeRoute());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Symbols.check_box_rounded),
+              title: const Text('Open Todo Boards'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onSelectLens(WorkspaceLens.todo);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Symbols.cloud_upload_rounded),
+              title: const Text('Open Drive'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onSelectLens(WorkspaceLens.drive);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

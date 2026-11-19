@@ -77,8 +77,7 @@ class CloudFileLightbox extends HookConsumerWidget {
       const [],
     );
     final scaleControllers = useMemoized(
-      () =>
-          List.generate(items.length, (_) => PhotoViewScaleStateController()),
+      () => List.generate(items.length, (_) => PhotoViewScaleStateController()),
       [items.length],
     );
     useEffect(() {
@@ -114,9 +113,9 @@ class CloudFileLightbox extends HookConsumerWidget {
 
     return DismissiblePage(
       isFullScreen: true,
-      backgroundColor: Colors.black,
+      background: const DismissiblePageBackground.solid(Colors.black),
       direction: DismissiblePageDismissDirection.down,
-      disabled: zoomed.value,
+      enabled: !zoomed.value,
       onDismissed: () => Navigator.of(context).pop(),
       child: Focus(
         autofocus: true,
@@ -221,18 +220,18 @@ class _LightboxChrome extends StatelessWidget {
                     item.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Colors.white,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleSmall?.copyWith(color: Colors.white),
                   ),
                 ),
                 if (count > 1) ...[
                   const SizedBox(width: 12),
                   Text(
                     '${index + 1} / $count',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Colors.white70,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelMedium?.copyWith(color: Colors.white70),
                   ),
                 ],
                 IconButton(

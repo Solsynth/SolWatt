@@ -158,7 +158,9 @@ class UpdateChecksEnabledNotifier extends Notifier<bool> {
       true;
 
   void setEnabled(bool value) {
-    ref.read(sharedPreferencesProvider).setBool(_kUpdateChecksEnabledKey, value);
+    ref
+        .read(sharedPreferencesProvider)
+        .setBool(_kUpdateChecksEnabledKey, value);
     state = value;
   }
 }
@@ -180,5 +182,27 @@ class UpdateChannelNotifier extends Notifier<String> {
     if (channel.isEmpty) return;
     ref.read(sharedPreferencesProvider).setString(_kUpdateChannelKey, channel);
     state = channel;
+  }
+}
+
+// --- Glass material preference ----------------------------------------------
+
+const _kAppGlassEffectsKey = 'app_glass_effects';
+
+/// Whether floating capsules and glass chrome use the liquid-glass shader
+/// material (`GlassEffects`) or fall back to tonal Material surfaces.
+final appGlassEffectsProvider = NotifierProvider<AppGlassEffectsNotifier, bool>(
+  AppGlassEffectsNotifier.new,
+);
+
+class AppGlassEffectsNotifier extends Notifier<bool> {
+  @override
+  bool build() =>
+      ref.watch(sharedPreferencesProvider).getBool(_kAppGlassEffectsKey) ??
+      true;
+
+  void setEnabled(bool value) {
+    ref.read(sharedPreferencesProvider).setBool(_kAppGlassEffectsKey, value);
+    state = value;
   }
 }

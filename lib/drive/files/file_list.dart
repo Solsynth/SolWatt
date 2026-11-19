@@ -8,25 +8,24 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:solwatt/core/utils/share_utils.dart';
 import 'package:solwatt/drive/widgets/usage_overview.dart';
 import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:solwatt/workspaces/workspace_management.dart';
 import 'package:solwatt/core/config.dart';
-import 'package:solwatt/core/services/responsive.dart';
 import 'package:solwatt/core/network.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
+import 'package:solwatt/theme.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
 import 'package:solwatt/ui/page_scaffold.dart' show shellScaffoldKey;
+import 'package:solwatt/shell/workspace_tabs.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
-import 'package:solwatt/core/widgets/content/cloud_file_actions_sheet.dart';
 import 'package:solwatt/core/widgets/content/file_viewer_contents.dart';
 import 'package:solwatt/shared/widgets/responsive_sidebar.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart';
@@ -34,7 +33,6 @@ import 'package:solwatt/core/widgets/content/file_info_sheet.dart';
 import 'package:solwatt/drive/file_permissions.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:styled_widget/styled_widget.dart';
-import 'package:super_context_menu/super_context_menu.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 final workspaceQuotaProvider = FutureProvider.autoDispose
@@ -45,18 +43,14 @@ final workspaceQuotaProvider = FutureProvider.autoDispose
       return quota?.toUsageMap();
     });
 
+/// One folder browser. Files are not tabs of it: reading a file swaps the
+/// canvas to the viewer and the shared title bar carries it.
 class _DriveFileTab {
   final String id;
   final FileListMode mode;
-  final SnCloudFile? file;
   final String? workspaceId;
 
-  const _DriveFileTab({
-    required this.id,
-    required this.mode,
-    this.file,
-    this.workspaceId,
-  });
+  const _DriveFileTab({required this.id, required this.mode, this.workspaceId});
 }
 
 @RoutePage()
@@ -71,6 +65,11 @@ class FileListScreen extends HookConsumerWidget {
 
     final tabs = useState<List<_DriveFileTab>>([]);
     final activeTabId = useState<String?>(null);
+    // The file the drive is reading. A viewed file is a workspace document, so
+    // it shows as a tab in the shared title bar rather than the drive growing a
+    // tab strip of its own.
+    final viewingFile = useState<SnCloudFile?>(null);
+    final viewingFileId = useState<String?>(null);
     // Latches after the first tab is seeded so closing every tab leaves the
     // empty state instead of re-opening the workspace root.
     final seededWorkspaceTab = useState(false);
@@ -121,19 +120,34 @@ class FileListScreen extends HookConsumerWidget {
         ? null
         : selectedWorkspace.id;
 
-    void createTab(FileListMode mode) {
+    /// One browser per workspace. Opening the drive seeds it, and switching
+    /// between cloud folders and service attachments reuses the same pane
+    /// instead of growing a second tab.
+    void openBrowser({FileListMode? mode}) {
+      final wanted = mode ?? FileListMode.normal;
+      final existing = tabs.value
+          .where(
+            (tab) => tab.mode == wanted && tab.workspaceId == globalWorkspaceId,
+          )
+          .firstOrNull;
+      if (existing != null) {
+        activeTabId.value = existing.id;
+        viewingFile.value = null;
+        return;
+      }
+
       final id = DateTime.now().microsecondsSinceEpoch.toString();
-      final workspaceId = globalWorkspaceId;
       tabs.value = [
         ...tabs.value,
-        _DriveFileTab(id: id, mode: mode, workspaceId: workspaceId),
+        _DriveFileTab(id: id, mode: wanted, workspaceId: globalWorkspaceId),
       ];
       activeTabId.value = id;
+      viewingFile.value = null;
       pathStates[id] = ValueNotifier('/');
-      modeStates[id] = ValueNotifier(mode);
+      modeStates[id] = ValueNotifier(wanted);
       poolStates[id] = ValueNotifier(null);
       viewModeStates[id] = ValueNotifier(
-        mode == FileListMode.normal
+        wanted == FileListMode.normal
             ? FileListViewMode.columns
             : FileListViewMode.list,
       );
@@ -144,99 +158,54 @@ class FileListScreen extends HookConsumerWidget {
       queryStates[id] = ValueNotifier(null);
     }
 
+    /// Reads [file] in the canvas. A file is a workspace document, so it joins
+    /// the shared title bar as a tab instead of spawning a drive tab.
     void openFileTab(SnCloudFile file) {
-      final workspaceId = globalWorkspaceId;
-      final existing = tabs.value
-          .where(
-            (tab) => tab.file?.id == file.id && tab.workspaceId == workspaceId,
-          )
-          .firstOrNull;
-      if (existing != null) {
-        activeTabId.value = existing.id;
-        return;
-      }
-
-      final id = DateTime.now().microsecondsSinceEpoch.toString();
-      tabs.value = [
-        ...tabs.value,
-        _DriveFileTab(
-          id: id,
-          mode: FileListMode.normal,
-          file: file,
-          workspaceId: workspaceId,
-        ),
-      ];
-      activeTabId.value = id;
+      viewingFile.value = file;
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .register(
+            domain: WorkspaceDomain.drive,
+            entityId: file.id,
+            title: file.name,
+          );
     }
 
+    /// Leaves the viewer and returns to the folder browser it was opened from.
+    void closeViewedFile() {
+      final file = viewingFile.value;
+      if (file == null) return;
+      viewingFile.value = null;
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .close(WorkspaceTab.keyFor(WorkspaceDomain.drive, file.id));
+    }
+
+    /// Browses a folder path in the browser, without leaving the pane.
     void openFolderTab(String path) {
       final normalizedPath = path.trim().isEmpty ? '/' : path;
-      final existing = tabs.value
-          .where(
-            (tab) =>
-                tab.file == null &&
-                tab.mode == FileListMode.normal &&
-                tab.workspaceId == globalWorkspaceId,
-          )
-          .where((tab) => pathStates[tab.id]?.value == normalizedPath)
+      final browser = tabs.value
+          .where((tab) => tab.workspaceId == globalWorkspaceId)
           .firstOrNull;
-      if (existing != null) {
-        activeTabId.value = existing.id;
+      if (browser == null) {
+        openBrowser();
         return;
       }
-
-      final id = DateTime.now().microsecondsSinceEpoch.toString();
-      tabs.value = [
-        ...tabs.value,
-        _DriveFileTab(
-          id: id,
-          mode: FileListMode.normal,
-          workspaceId: globalWorkspaceId,
-        ),
-      ];
-      activeTabId.value = id;
-      pathStates[id] = ValueNotifier(normalizedPath);
-      modeStates[id] = ValueNotifier(FileListMode.normal);
-      poolStates[id] = ValueNotifier(null);
-      viewModeStates[id] = ValueNotifier(FileListViewMode.columns);
-      selectionModeStates[id] = ValueNotifier(false);
-      selectedFileIdsStates[id] = ValueNotifier(<String>{});
-      visibleFileIdsStates[id] = ValueNotifier(<String>{});
-      recycledStates[id] = ValueNotifier(false);
-      queryStates[id] = ValueNotifier(null);
-    }
-
-    Future<void> revealParentFolder(SnCloudFile file) async {
-      String? currentParentId = file.parentId;
-      if (currentParentId == null || currentParentId.isEmpty) {
-        openFolderTab('/');
-        return;
-      }
-
-      final segments = <String>[];
-      while (currentParentId != null && currentParentId.isNotEmpty) {
-        final parent = await ref.read(
-          driveFileInfoProvider(currentParentId).future,
-        );
-        segments.add(parent.name);
-        currentParentId = parent.parentId;
-      }
-      final path = segments.reversed.join('/');
-      openFolderTab(path.isEmpty ? '/' : '/$path');
+      activeTabId.value = browser.id;
+      viewingFile.value = null;
+      pathStates[browser.id]?.value = normalizedPath;
+      modeStates[browser.id]?.value = FileListMode.normal;
     }
 
     void updateFileTab(SnCloudFile file) {
-      final index = tabs.value.indexWhere((tab) => tab.file?.id == file.id);
-      if (index == -1) return;
-
-      final nextTabs = [...tabs.value];
-      nextTabs[index] = _DriveFileTab(
-        id: nextTabs[index].id,
-        mode: nextTabs[index].mode,
-        file: file,
-        workspaceId: nextTabs[index].workspaceId,
-      );
-      tabs.value = nextTabs;
+      if (viewingFile.value?.id == file.id) viewingFile.value = file;
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .register(
+            domain: WorkspaceDomain.drive,
+            entityId: file.id,
+            title: file.name,
+          );
     }
 
     /// Applies refreshed metadata after an in-place edit: the open tab and, when
@@ -249,46 +218,42 @@ class FileListScreen extends HookConsumerWidget {
       }
     }
 
-    void closeTab(String tabId) {
-      final currentTabs = tabs.value;
-      final closingIndex = currentTabs.indexWhere((tab) => tab.id == tabId);
-      if (closingIndex == -1) return;
-
-      tabs.value = currentTabs.where((tab) => tab.id != tabId).toList();
-      pathStates.remove(tabId)?.dispose();
-      modeStates.remove(tabId)?.dispose();
-      poolStates.remove(tabId)?.dispose();
-      viewModeStates.remove(tabId)?.dispose();
-      selectionModeStates.remove(tabId)?.dispose();
-      selectedFileIdsStates.remove(tabId)?.dispose();
-      visibleFileIdsStates.remove(tabId)?.dispose();
-      recycledStates.remove(tabId)?.dispose();
-      queryStates.remove(tabId)?.dispose();
-      invalidateIndexedDriveViews(ref, tabId);
-      ref.invalidate(unindexedFileListFamilyProvider(tabId));
-
-      if (activeTabId.value != tabId) return;
-      final remainingTabs = tabs.value;
-      if (remainingTabs.isEmpty) {
-        activeTabId.value = null;
-        ref.read(driveInspectorFileProvider.notifier).setFile(null);
-        return;
+    // The workspace strip speaks to the drive through one-shot signals: bring
+    // a file forward, or close the viewer. Both land back in the browser tab.
+    ref.listen(drivePendingFocusProvider, (_, fileId) {
+      if (fileId == null) return;
+      final current = viewingFile.value;
+      if (current?.id != fileId) {
+        viewingFile.value = null;
+        viewingFileId.value = fileId;
       }
+      ref.read(drivePendingFocusProvider.notifier).clear();
+    });
 
-      final nextIndex = closingIndex >= remainingTabs.length
-          ? remainingTabs.length - 1
-          : closingIndex;
-      activeTabId.value = remainingTabs[nextIndex].id;
-    }
-
-    /// Uses [ReorderableListView.onReorderItem], which already adjusts
-    /// [newIndex] for the removed item (no manual `newIndex -= 1`).
-    void reorderTab(int oldIndex, int newIndex) {
-      final currentTabs = [...tabs.value];
-      final tab = currentTabs.removeAt(oldIndex);
-      currentTabs.insert(newIndex, tab);
-      tabs.value = currentTabs;
-    }
+    // A viewer opened from outside the drive has no file object yet: fetch it
+    // and keep the tab label honest once the name arrives.
+    final pendingFileAsync = viewingFileId.value == null
+        ? null
+        : ref.watch(driveFileInfoProvider(viewingFileId.value!));
+    final pendingFile = pendingFileAsync?.asData?.value;
+    useEffect(() {
+      if (pendingFile == null) return null;
+      viewingFile.value = pendingFile;
+      viewingFileId.value = null;
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .register(
+            domain: WorkspaceDomain.drive,
+            entityId: pendingFile.id,
+            title: pendingFile.name,
+          );
+      return null;
+    }, [pendingFile]);
+    ref.listen(drivePendingCloseProvider, (_, fileId) {
+      if (fileId == null) return;
+      if (viewingFile.value?.id == fileId) closeViewedFile();
+      ref.read(drivePendingCloseProvider.notifier).clear();
+    });
 
     useEffect(() {
       return () {
@@ -329,9 +294,7 @@ class FileListScreen extends HookConsumerWidget {
     final mode = activeTab == null ? null : modeStates[activeTab.id];
     // Folder tabs browse the globally active workspace; file preview tabs stay
     // pinned to the workspace their file was opened from.
-    final activeWorkspaceId = activeTab != null && activeTab.file != null
-        ? activeTab.workspaceId
-        : globalWorkspaceId;
+    final activeWorkspaceId = globalWorkspaceId;
     final activeWorkspaceSlug = activeWorkspaceId == null
         ? null
         : workspaceListAsync.asData?.value
@@ -408,15 +371,13 @@ class FileListScreen extends HookConsumerWidget {
           if (!context.mounted) return;
           if (seededWorkspaceTab.value || tabs.value.isNotEmpty) return;
           seededWorkspaceTab.value = true;
-          createTab(FileListMode.normal);
+          openBrowser();
         });
         return null;
       }
 
       final staleTabs = tabs.value
-          .where(
-            (tab) => tab.file == null && tab.workspaceId != globalWorkspaceId,
-          )
+          .where((tab) => tab.workspaceId != globalWorkspaceId)
           .map((tab) => tab.id)
           .toList();
       if (staleTabs.isEmpty) return null;
@@ -449,6 +410,26 @@ class FileListScreen extends HookConsumerWidget {
       });
       return null;
     }, [globalWorkspaceId, hasSelectedWorkspace]);
+
+    // The drive always sits on its own folder browser while no file is being
+    // read, so the title bar carries the drive's tab from the first frame.
+    // Only while the browser is what the drive shows: a file being read owns
+    // the bar with its own tab.
+    useEffect(() {
+      if (!hasSelectedWorkspace || viewingFile.value != null) return null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted || viewingFile.value != null) return;
+        ref
+            .read(workspaceTabsProvider.notifier)
+            .showingLensRoot(
+              WorkspaceLens.drive,
+              title: modeValue == FileListMode.unindexed
+                  ? 'driveUnindexedTabTitle'.tr()
+                  : 'driveIndexedTabTitle'.tr(),
+            );
+      });
+      return null;
+    }, [hasSelectedWorkspace, modeValue, viewingFile.value?.id]);
 
     // Notifiers should be read fresh each time to avoid disposal issues
 
@@ -494,33 +475,11 @@ class FileListScreen extends HookConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _DriveTabStrip(
-                    tabs: tabs.value,
-                    activeTabId: activeTabId.value,
-                    getTabTitle: (tab) {
-                      if (tab.file != null) {
-                        return tab.file!.name;
-                      }
-                      if (tab.mode == FileListMode.unindexed) {
-                        return 'driveUnindexedTabTitle'.tr();
-                      }
-                      final path = pathStates[tab.id]?.value ?? '/';
-                      if (path == '/') return 'driveIndexedTabTitle'.tr();
-                      return path
-                          .split('/')
-                          .where((part) => part.isNotEmpty)
-                          .last;
-                    },
-                    onRenameFile: updateFileTab,
-                    onRevealParentFolder: revealParentFolder,
-                    onSelectTab: (tabId) {
-                      activeTabId.value = tabId;
-                    },
-                    onCloseTab: closeTab,
-                    onReorderTab: reorderTab,
-                    onAddIndexedTab: () => createTab(FileListMode.normal),
-                    onAddUnindexedTab: () => createTab(FileListMode.unindexed),
-                    onRefresh: activeTab == null || activeTab.file != null
+                  // No tab strip of its own: the shared workspace title bar
+                  // carries the open documents. This row only keeps the
+                  // browser's own tools.
+                  _DriveBrowserTools(
+                    onRefresh: activeTab == null
                         ? null
                         : () async {
                             if (modeValue == FileListMode.unindexed) {
@@ -544,7 +503,6 @@ class FileListScreen extends HookConsumerWidget {
                           },
                     onNewFolder:
                         activeTab == null ||
-                            activeTab.file != null ||
                             modeValue != FileListMode.normal ||
                             currentPath == null ||
                             selectedPool == null
@@ -559,7 +517,6 @@ class FileListScreen extends HookConsumerWidget {
                           ),
                     onUpload:
                         activeTab == null ||
-                            activeTab.file != null ||
                             modeValue != FileListMode.normal ||
                             currentPath == null ||
                             selectedPool == null
@@ -571,7 +528,12 @@ class FileListScreen extends HookConsumerWidget {
                             selectedPoolValue?.id,
                             activeWorkspaceId,
                           ),
-                    uploadIsAsset: modeValue == FileListMode.unindexed,
+                    onToggleMode: mode == null
+                        ? null
+                        : () => mode.value = modeValue == FileListMode.unindexed
+                              ? FileListMode.normal
+                              : FileListMode.unindexed,
+                    isUnindexed: modeValue == FileListMode.unindexed,
                   ),
                   Expanded(
                     child: PageTransitionSwitcher(
@@ -590,26 +552,33 @@ class FileListScreen extends HookConsumerWidget {
                               child: child,
                             );
                           },
-                      child: activeTab == null
+                      // Reading a file is a pane of its own: it replaces the
+                      // browser while its tab is active, and closing that tab
+                      // brings the folder back.
+                      child: viewingFile.value != null
+                          ? WorkspaceDocumentScope(
+                              key: ValueKey(viewingFile.value!.id),
+                              domain: WorkspaceDomain.drive,
+                              entityId: viewingFile.value!.id,
+                              title: viewingFile.value!.name,
+                              child: _DriveFileContentTab(
+                                file: viewingFile.value!,
+                                workspaceId: activeWorkspaceId,
+                                onFileSaved: handleFileSaved,
+                                onInspectFile: (file) {
+                                  ref
+                                      .read(driveInspectorFileProvider.notifier)
+                                      .setFile(file);
+                                  showSidebar.value = true;
+                                },
+                              ),
+                            )
+                          : activeTab == null
                           ? _DriveWorkspaceEmptyState(
                               key: const ValueKey('empty'),
-                              onOpenIndexed: () =>
-                                  createTab(FileListMode.normal),
+                              onOpenIndexed: () => openBrowser(),
                               onOpenUnindexed: () =>
-                                  createTab(FileListMode.unindexed),
-                            )
-                          : activeTab.file != null
-                          ? _DriveFileContentTab(
-                              key: ValueKey(activeTab.id),
-                              file: activeTab.file!,
-                              workspaceId: activeWorkspaceId,
-                              onFileSaved: handleFileSaved,
-                              onInspectFile: (file) {
-                                ref
-                                    .read(driveInspectorFileProvider.notifier)
-                                    .setFile(file);
-                                showSidebar.value = true;
-                              },
+                                  openBrowser(mode: FileListMode.unindexed),
                             )
                           : currentPath == null ||
                                 selectedPool == null ||
@@ -619,10 +588,9 @@ class FileListScreen extends HookConsumerWidget {
                                 query == null
                           ? _DriveWorkspaceEmptyState(
                               key: const ValueKey('empty'),
-                              onOpenIndexed: () =>
-                                  createTab(FileListMode.normal),
+                              onOpenIndexed: () => openBrowser(),
                               onOpenUnindexed: () =>
-                                  createTab(FileListMode.unindexed),
+                                  openBrowser(mode: FileListMode.unindexed),
                             )
                           : FileListView(
                               key: ValueKey(activeTab.id),
@@ -775,8 +743,8 @@ class FileListScreen extends HookConsumerWidget {
 
     // Accept desktop file/folder drops on folder browser tabs (not file preview).
     final canAcceptDrops =
+        viewingFile.value == null &&
         activeTab != null &&
-        activeTab.file == null &&
         modeValue == FileListMode.normal;
 
     final droppableBody = canAcceptDrops
@@ -887,7 +855,7 @@ class FileListScreen extends HookConsumerWidget {
             icon: Icon(
               showFilters.value ? Symbols.filter_list_off : Symbols.filter_list,
             ),
-            onPressed: activeTab == null || activeTab.file != null
+            onPressed: activeTab == null || viewingFile.value != null
                 ? null
                 : () => showFilters.value = !showFilters.value,
             tooltip: showFilters.value
@@ -1419,51 +1387,28 @@ class FileListScreen extends HookConsumerWidget {
   }
 }
 
-// ── Browser-style tab strip (SolWatt-inspired flat chrome) ──────────────────
-
-class _DriveTabStrip extends StatelessWidget {
-  final List<_DriveFileTab> tabs;
-  final String? activeTabId;
-  final String Function(_DriveFileTab tab) getTabTitle;
-  final ValueChanged<SnCloudFile> onRenameFile;
-  final Future<void> Function(SnCloudFile file) onRevealParentFolder;
-  final ValueChanged<String> onSelectTab;
-  final ValueChanged<String> onCloseTab;
-  final void Function(int oldIndex, int newIndex) onReorderTab;
-  final VoidCallback onAddIndexedTab;
-  final VoidCallback onAddUnindexedTab;
+/// Browser tools above the file list: refresh, new folder, upload, and the
+/// switch between cloud folders and service attachments. The documents the
+/// drive holds live in the shared workspace title bar, so this row carries no
+/// tabs of its own.
+class _DriveBrowserTools extends StatelessWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onNewFolder;
   final VoidCallback? onUpload;
-  final bool uploadIsAsset;
+  final VoidCallback? onToggleMode;
+  final bool isUnindexed;
 
-  const _DriveTabStrip({
-    required this.tabs,
-    required this.activeTabId,
-    required this.getTabTitle,
-    required this.onRenameFile,
-    required this.onRevealParentFolder,
-    required this.onSelectTab,
-    required this.onCloseTab,
-    required this.onReorderTab,
-    required this.onAddIndexedTab,
-    required this.onAddUnindexedTab,
-    this.onRefresh,
-    this.onNewFolder,
-    this.onUpload,
-    this.uploadIsAsset = false,
+  const _DriveBrowserTools({
+    required this.onRefresh,
+    required this.onNewFolder,
+    required this.onUpload,
+    required this.onToggleMode,
+    required this.isUnindexed,
   });
-
-  IconData _tabIcon(_DriveFileTab tab) {
-    if (tab.file != null) return Symbols.draft;
-    if (tab.mode == FileListMode.unindexed) return Symbols.inventory_2;
-    return Symbols.folder;
-  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isCompact = context.isCompactScreen;
     final border = scheme.outlineVariant.withValues(alpha: 0.55);
 
     Widget toolButton({
@@ -1493,121 +1438,57 @@ class _DriveTabStrip extends StatelessWidget {
       color: scheme.surfaceContainerLow,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: border),
-            top: BorderSide(color: border),
-          ),
+          border: Border(bottom: BorderSide(color: border)),
         ),
         child: SizedBox(
           height: 40,
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const SizedBox(width: SolSpace.md),
               Expanded(
-                child: tabs.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'driveNoOpenTabs'.tr(),
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                          ),
-                        ),
-                      )
-                    : ReorderableListView.builder(
-                        buildDefaultDragHandles: false,
-                        scrollDirection: Axis.horizontal,
-                        itemCount: tabs.length,
-                        onReorderItem: onReorderTab,
-                        proxyDecorator: (child, index, animation) {
-                          return AnimatedBuilder(
-                            animation: animation,
-                            builder: (context, child) {
-                              return Material(
-                                elevation: 3,
-                                color: scheme.surface,
-                                shadowColor: scheme.shadow.withValues(
-                                  alpha: 0.25,
-                                ),
-                                child: child,
-                              );
-                            },
-                            child: child,
-                          );
-                        },
-                        itemBuilder: (context, index) {
-                          final tab = tabs[index];
-                          final selected = tab.id == activeTabId;
-                          final dragStartListener = isCompact
-                              ? ReorderableDelayedDragStartListener.new
-                              : ReorderableDragStartListener.new;
-                          return dragStartListener(
-                            key: ValueKey(tab.id),
-                            index: index,
-                            child: _DriveTabItem(
-                              title: getTabTitle(tab),
-                              icon: _tabIcon(tab),
-                              file: tab.file,
-                              isSelected: selected,
-                              showDivider:
-                                  index > 0 &&
-                                  tabs[index - 1].id != activeTabId &&
-                                  !selected,
-                              onRenameFile: onRenameFile,
-                              onRevealParentFolder: onRevealParentFolder,
-                              onTap: () => onSelectTab(tab.id),
-                              onClose: () => onCloseTab(tab.id),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              VerticalDivider(width: 1, thickness: 1, color: border),
-              PopupMenuButton<String>(
-                tooltip: 'add'.tr(),
-                padding: EdgeInsets.zero,
-                onSelected: (value) {
-                  switch (value) {
-                    case 'indexed':
-                      onAddIndexedTab();
-                    case 'unindexed':
-                      onAddUnindexedTab();
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'indexed',
-                    child: ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Symbols.folder, size: 20),
-                      title: Text('driveIndexedEntryLabel'.tr()),
-                      subtitle: Text('driveIndexedEntryDescription'.tr()),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'unindexed',
-                    child: ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Symbols.inventory_2, size: 20),
-                      title: Text('driveUnindexedEntryLabel'.tr()),
-                      subtitle: Text('driveUnindexedEntryDescription'.tr()),
-                    ),
-                  ),
-                ],
-                child: SizedBox(
-                  width: 36,
-                  height: 40,
-                  child: Icon(
-                    Symbols.add,
-                    size: 20,
-                    color: scheme.onSurfaceVariant,
+                child: Text(
+                  isUnindexed
+                      ? 'driveUnindexedTabTitle'.tr()
+                      : 'driveIndexedTabTitle'.tr(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
                   ),
                 ),
               ),
+              SegmentedButton<FileListMode>(
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  textStyle: Theme.of(context).textTheme.labelSmall,
+                ),
+                segments: [
+                  ButtonSegment(
+                    value: FileListMode.normal,
+                    label: Text('driveIndexedEntryLabel'.tr()),
+                    icon: const Icon(Symbols.folder, size: 15),
+                  ),
+                  ButtonSegment(
+                    value: FileListMode.unindexed,
+                    label: Text('driveUnindexedEntryLabel'.tr()),
+                    icon: const Icon(Symbols.inventory_2, size: 15),
+                  ),
+                ],
+                selected: {
+                  isUnindexed ? FileListMode.unindexed : FileListMode.normal,
+                },
+                onSelectionChanged: onToggleMode == null
+                    ? null
+                    : (selection) {
+                        final wantsUnindexed = selection.contains(
+                          FileListMode.unindexed,
+                        );
+                        if (wantsUnindexed != isUnindexed) onToggleMode!();
+                      },
+              ),
+              const SizedBox(width: SolSpace.sm),
               VerticalDivider(width: 1, thickness: 1, color: border),
               toolButton(
                 tooltip: 'refresh'.tr(),
@@ -1620,193 +1501,14 @@ class _DriveTabStrip extends StatelessWidget {
                 onPressed: onNewFolder,
               ),
               toolButton(
-                tooltip: uploadIsAsset
+                tooltip: isUnindexed
                     ? 'driveUploadAsset'.tr()
                     : 'uploadFile'.tr(),
                 icon: Symbols.upload,
                 onPressed: onUpload,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: SolSpace.xs),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Single document tab — flat browser chrome, not a floating chip.
-class _DriveTabItem extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final SnCloudFile? file;
-  final bool isSelected;
-  final bool showDivider;
-  final ValueChanged<SnCloudFile> onRenameFile;
-  final Future<void> Function(SnCloudFile file) onRevealParentFolder;
-  final VoidCallback onTap;
-  final VoidCallback onClose;
-
-  const _DriveTabItem({
-    required this.title,
-    required this.icon,
-    required this.file,
-    required this.isSelected,
-    required this.showDivider,
-    required this.onRenameFile,
-    required this.onRevealParentFolder,
-    required this.onTap,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final border = scheme.outlineVariant.withValues(alpha: 0.55);
-
-    return ContextMenuWidget(
-      previewBuilder: contextMenuPreviewBuilder,
-      menuProvider: (_) {
-        return Menu(
-          children: [
-            if (file != null) ...[
-              MenuAction(
-                title: 'Inspect',
-                image: MenuImage.icon(Symbols.info),
-                callback: () {
-                  CloudFileActionsSheet.show(
-                    context: context,
-                    item: file!,
-                    onRenamed: onRenameFile,
-                    onRevealParentFolder: () => onRevealParentFolder(file!),
-                  );
-                },
-              ),
-              MenuSeparator(),
-              MenuAction(
-                title: 'download'.tr(),
-                image: MenuImage.icon(Symbols.download),
-                callback: () {},
-              ),
-            ],
-            MenuAction(
-              title: 'close'.tr(),
-              image: MenuImage.icon(Symbols.close),
-              callback: onClose,
-            ),
-          ],
-        );
-      },
-      child: Listener(
-        onPointerDown: (event) {
-          if (event.kind == PointerDeviceKind.mouse &&
-              event.buttons == kMiddleMouseButton) {
-            onClose();
-          }
-        },
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 132, maxWidth: 228),
-          child: Material(
-            color: isSelected ? scheme.surface : Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              hoverColor: scheme.onSurface.withValues(alpha: 0.04),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: showDivider
-                        ? BorderSide(color: border)
-                        : BorderSide.none,
-                    // Selected tab sits on the content surface: hide bar bottom
-                    // edge and draw a thin primary accent.
-                    top: isSelected
-                        ? BorderSide(color: scheme.primary, width: 2)
-                        : BorderSide.none,
-                    right: isSelected
-                        ? BorderSide(color: border)
-                        : BorderSide.none,
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 4, 0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        icon,
-                        size: 16,
-                        color: isSelected
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: isSelected
-                                    ? scheme.onSurface
-                                    : scheme.onSurfaceVariant,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.w500,
-                                fontSize: 13,
-                              ),
-                        ),
-                      ),
-                      if (file != null)
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: Consumer(
-                            builder: (context, ref, _) => IconButton(
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                              iconSize: 15,
-                              tooltip: 'download'.tr(),
-                              onPressed: () => ref
-                                  .read(driveFileDownloaderProvider)
-                                  .downloadFile(
-                                    file!,
-                                    useDownloadsFolder: HardwareKeyboard
-                                        .instance
-                                        .isShiftPressed,
-                                  ),
-                              style: IconButton.styleFrom(
-                                foregroundColor: scheme.onSurfaceVariant,
-                                hoverColor: scheme.onSurface.withValues(
-                                  alpha: 0.08,
-                                ),
-                              ),
-                              icon: const Icon(Symbols.download),
-                            ),
-                          ),
-                        ),
-                      SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                          iconSize: 15,
-                          tooltip: 'close'.tr(),
-                          onPressed: onClose,
-                          style: IconButton.styleFrom(
-                            foregroundColor: scheme.onSurfaceVariant,
-                            hoverColor: scheme.onSurface.withValues(
-                              alpha: 0.08,
-                            ),
-                          ),
-                          icon: const Icon(Symbols.close),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ),
         ),
       ),
@@ -2165,7 +1867,6 @@ class _DriveFileContentTab extends ConsumerWidget {
   final void Function(SnCloudFile file) onFileSaved;
 
   const _DriveFileContentTab({
-    super.key,
     required this.file,
     this.workspaceId,
     required this.onInspectFile,

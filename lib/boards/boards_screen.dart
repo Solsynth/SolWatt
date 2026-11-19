@@ -29,12 +29,14 @@ import 'package:solwatt/core/widgets/content/cloud_file_attachment_list.dart';
 import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
 
 part 'board_detail.dart';
 part 'board_sheets.dart';

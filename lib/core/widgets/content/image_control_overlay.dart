@@ -111,8 +111,8 @@ class ImageControlOverlay extends HookWidget {
       tooltip: isQualityLoading
           ? 'Loading…'
           : (showOriginal
-                ? 'Original quality (HD)'
-                : 'Compressed quality (SD)'),
+                ? 'Original quality — HD'
+                : 'Compressed quality — SD'),
       selected: showOriginal,
       onPressed: isQualityLoading ? null : onToggleQuality,
       iconWidget: isQualityLoading
@@ -146,7 +146,10 @@ class ImageControlOverlay extends HookWidget {
           if (left.isNotEmpty) ...left,
           MediaChromeSurface(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Row(mainAxisSize: MainAxisSize.min, children: controlButtons),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: controlButtons,
+            ),
           ),
           const Spacer(),
           if (right.isNotEmpty)

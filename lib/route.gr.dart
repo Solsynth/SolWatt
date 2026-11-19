@@ -463,6 +463,22 @@ class TaskBoardRouteArgs {
 }
 
 /// generated route for
+/// [TodayFocusPage]
+class TodayFocusRoute extends PageRouteInfo<void> {
+  const TodayFocusRoute({List<PageRouteInfo>? children})
+    : super(TodayFocusRoute.name, initialChildren: children);
+
+  static const String name = 'TodayFocusRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const TodayFocusPage();
+    },
+  );
+}
+
+/// generated route for
 /// [WorkspaceDetailPage]
 class WorkspaceDetailRoute extends PageRouteInfo<WorkspaceDetailRouteArgs> {
   WorkspaceDetailRoute({
@@ -526,6 +542,22 @@ class WorkspaceManagementRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const WorkspaceManagementPage();
+    },
+  );
+}
+
+/// generated route for
+/// [WorkspaceNotesScreen]
+class WorkspaceNotesRoute extends PageRouteInfo<void> {
+  const WorkspaceNotesRoute({List<PageRouteInfo>? children})
+    : super(WorkspaceNotesRoute.name, initialChildren: children);
+
+  static const String name = 'WorkspaceNotesRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const WorkspaceNotesScreen();
     },
   );
 }

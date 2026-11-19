@@ -40,7 +40,7 @@ class AppSettingsHomePage extends ConsumerWidget {
     // Show each language in its own name so the choice reads identically in
     // both locales.
     return switch ('${locale.languageCode}-${locale.countryCode}') {
-      'en-US' => 'English (US)',
+      'en-US' => 'English — United States',
       'zh-CN' => '简体中文',
       _ => locale.toString(),
     };
@@ -154,6 +154,18 @@ class AppSettingsHomePage extends ConsumerWidget {
                   ],
                 ),
               ),
+              SwitchListTile(
+                contentPadding: _kSettingsTilePadding,
+                secondary: const Icon(Symbols.blur_on_rounded),
+                title: const Text('Liquid Glass Effects'),
+                subtitle: const Text(
+                  'Use translucent glass material on floating pills and chrome',
+                ),
+                value: ref.watch(appGlassEffectsProvider),
+                onChanged: (value) => ref
+                    .read(appGlassEffectsProvider.notifier)
+                    .setEnabled(value),
+              ),
             ],
           ),
           if (AppIconService.instance.isSupported) ...[
@@ -213,10 +225,7 @@ class _SettingsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Card.outlined(
           margin: EdgeInsets.zero,
@@ -360,10 +369,8 @@ class _UpdatesSection extends HookConsumerWidget {
           trailing: const Icon(Symbols.chevron_right),
           onTap: latestRelease.data == null
               ? null
-              : () => updateService.showUpdateSheet(
-                  context,
-                  latestRelease.data!,
-                ),
+              : () =>
+                    updateService.showUpdateSheet(context, latestRelease.data!),
         ),
         const Divider(height: 1),
         ListTile(

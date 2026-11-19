@@ -43,6 +43,27 @@ abstract final class SolSpace {
   static const double control = 48;
 }
 
+/// Shared spatial geometry & density tokens for the unified workspace shell.
+///
+/// Enforces identical header heights, list row density, and breakpoint widths
+/// across Mail, Todo, Pages, Drive, and Today/Focus so switching lenses
+/// produces zero visual jarring.
+abstract final class SolWorkspaceGeometry {
+  static const double headerHeight = 60;
+  static const double desktopRowCompact = 40;
+  static const double desktopRowTwoLine = 52;
+  static const double mobileMinTouchTarget = 48;
+
+  static const double railWidth = 56;
+  static const double sidebarWidth = 240;
+  static const double peekMinWidth = 380;
+  static const double peekDefaultWidth = 420;
+  static const double peekMaxWidth = 480;
+
+  static const double desktopBreakpoint = 1024;
+  static const double tabletBreakpoint = 600;
+}
+
 /// Corner-radius scale, in logical pixels.
 abstract final class SolRadius {
   static const double xs = 8;

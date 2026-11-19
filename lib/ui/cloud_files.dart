@@ -539,7 +539,7 @@ class _CloudFilePickerSheetState extends ConsumerState<_CloudFilePickerSheet> {
                   ),
                   subtitle: Text(
                     hasWorkspaceScope
-                        ? 'Upload from this device (workspace storage)'
+                        ? 'Upload from this device — workspace storage'
                         : 'Requires an active workspace',
                   ),
                   enabled: !_busy && hasWorkspaceScope,
