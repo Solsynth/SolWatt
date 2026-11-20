@@ -363,8 +363,6 @@ Menu _buildIndexedColumnMenu({
 class FileListView extends HookConsumerWidget {
   final String tabId;
   final String? workspaceId;
-  final Map<String, dynamic>? usage;
-  final Map<String, dynamic>? quota;
   final ValueNotifier<String> currentPath;
   final ValueNotifier<SnFilePool?> selectedPool;
   final bool showFilters;
@@ -383,8 +381,6 @@ class FileListView extends HookConsumerWidget {
   const FileListView({
     required this.tabId,
     required this.workspaceId,
-    required this.usage,
-    required this.quota,
     required this.currentPath,
     required this.selectedPool,
     this.showFilters = false,
@@ -435,8 +431,6 @@ class FileListView extends HookConsumerWidget {
       });
       return null;
     }, [modeValue, workspaceId]);
-
-    if (usage == null) return const SizedBox.shrink();
 
     final recycled = useState<bool>(false);
     final localSelectedFileIds = useState<Set<String>>({});
@@ -1545,7 +1539,9 @@ class FileListView extends HookConsumerWidget {
           callback: () => _handleFolderAction(context, ref, folder, 'move'),
         ),
         MenuAction(
-          title: isFavorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
+          title: isFavorite
+              ? 'removeFromFavorites'.tr()
+              : 'addToFavorites'.tr(),
           image: MenuImage.icon(
             isFavorite ? Symbols.star_rounded : Symbols.star_border_rounded,
           ),
@@ -1607,9 +1603,10 @@ class FileListView extends HookConsumerWidget {
           onInspectFile(file);
           break;
         case 'favorite':
-          toggleDriveFavorite(ref, file).catchError(
-            (Object error) => showSnackBar('favoriteFailed'.tr()),
-          );
+          toggleDriveFavorite(
+            ref,
+            file,
+          ).catchError((Object error) => showSnackBar('favoriteFailed'.tr()));
           break;
         case 'download':
           ref
@@ -3890,10 +3887,9 @@ class FileActionSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFavorite =
-        ProviderScope.containerOf(context)
-            .read(driveFavoriteIdsProvider)
-            .value
-            ?.contains(file.id) ??
+        ProviderScope.containerOf(
+          context,
+        ).read(driveFavoriteIdsProvider).value?.contains(file.id) ??
         false;
     final primaryActions = <Widget>[
       _FileActionListTile(

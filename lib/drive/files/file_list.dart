@@ -13,11 +13,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:solwatt/drive/widgets/usage_overview.dart';
 import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
-import 'package:solwatt/workspaces/workspace_management.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/network.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
@@ -25,23 +23,13 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
-import 'package:solwatt/shared/widgets/layouts/sheet_scaffold.dart';
 import 'package:solwatt/core/widgets/content/file_viewer_contents.dart';
 import 'package:solwatt/shared/widgets/responsive_sidebar.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart';
 import 'package:solwatt/core/widgets/content/file_info_sheet.dart';
 import 'package:solwatt/drive/file_permissions.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:styled_widget/styled_widget.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
-
-final workspaceQuotaProvider = FutureProvider.autoDispose
-    .family<Map<String, dynamic>?, String?>((ref, workspaceSlug) async {
-      final quota = await ref.watch(
-        workspaceStorageQuotaProvider(workspaceSlug).future,
-      );
-      return quota?.toUsageMap();
-    });
 
 /// One folder browser. Files are not tabs of it: reading a file swaps the
 /// canvas to the viewer and the shared title bar carries it.
@@ -59,10 +47,6 @@ class FileListScreen extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final usageAsync = ref.watch(billingUsageProvider);
-    final quotaAsync = ref.watch(billingQuotaProvider);
-    final workspaceListAsync = ref.watch(workspaceListProvider);
-
     final tabs = useState<List<_DriveFileTab>>([]);
     final activeTabId = useState<String?>(null);
     // The file the drive is reading. A viewed file is a workspace document, so
@@ -300,13 +284,6 @@ class FileListScreen extends HookConsumerWidget {
     // Folder tabs browse the globally active workspace; file preview tabs stay
     // pinned to the workspace their file was opened from.
     final activeWorkspaceId = globalWorkspaceId;
-    final activeWorkspaceSlug = activeWorkspaceId == null
-        ? null
-        : workspaceListAsync.asData?.value
-              .where((workspace) => workspace.id == activeWorkspaceId)
-              .firstOrNull
-              ?.slug;
-
     final selectedPool = activeTab == null ? null : poolStates[activeTab.id];
     final viewMode = activeTab == null ? null : viewModeStates[activeTab.id];
     final isSelectionMode = activeTab == null
@@ -322,15 +299,6 @@ class FileListScreen extends HookConsumerWidget {
     final query = activeTab == null ? null : queryStates[activeTab.id];
     final currentPathValue = useValueListenable(currentPath ?? fallbackPath);
     final modeValue = useValueListenable(mode ?? fallbackMode);
-    final workspaceQuotaAsync = ref.watch(
-      workspaceQuotaProvider(activeWorkspaceSlug),
-    );
-    final activeUsageAsync = activeWorkspaceId == null
-        ? usageAsync
-        : workspaceQuotaAsync;
-    final activeQuotaAsync = activeWorkspaceId == null
-        ? quotaAsync
-        : const AsyncValue.data(null);
     final selectedPoolValue = useValueListenable(selectedPool ?? fallbackPool);
     final isSelectionModeValue = useValueListenable(
       isSelectionMode ?? fallbackSelectionMode,
@@ -434,7 +402,8 @@ class FileListScreen extends HookConsumerWidget {
         final open = tabs.value
             .where(
               (tab) =>
-                  tab.mode == browseMode && tab.workspaceId == globalWorkspaceId,
+                  tab.mode == browseMode &&
+                  tab.workspaceId == globalWorkspaceId,
             )
             .firstOrNull;
         if (open == null) {
@@ -484,48 +453,143 @@ class FileListScreen extends HookConsumerWidget {
       );
     }
 
-    final bodyContent = activeUsageAsync.when(
-      data: (usage) => activeQuotaAsync.when(
-        data: (quota) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // No tab strip of its own: the shared workspace title bar
-                  // carries the open documents. This row only keeps the
-                  // browser's own tools.
-                  _DriveBrowserTools(
-                    onRefresh: activeTab == null
-                        ? null
-                        : () async {
-                            if (modeValue == FileListMode.unindexed) {
-                              await ref
-                                  .read(
-                                    unindexedFileListFamilyProvider(
-                                      activeTab.id,
-                                    ).notifier,
-                                  )
-                                  .refresh();
-                            } else {
-                              await ref
-                                  .read(
-                                    indexedCloudFileListFamilyProvider(
-                                      activeTab.id,
-                                    ).notifier,
-                                  )
-                                  .refresh();
-                              bumpDriveBrowserEpoch(ref, activeTab.id);
-                            }
-                          },
-                    onNewFolder:
-                        activeTab == null ||
-                            modeValue != FileListMode.normal ||
-                            currentPath == null ||
-                            selectedPool == null
-                        ? null
-                        : () => _showCreateFolderDialog(
+    final bodyContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // No tab strip of its own: the shared workspace title bar
+              // carries the open documents. This row only keeps the
+              // browser's own tools.
+              _DriveBrowserTools(
+                onRefresh: activeTab == null
+                    ? null
+                    : () async {
+                        if (modeValue == FileListMode.unindexed) {
+                          await ref
+                              .read(
+                                unindexedFileListFamilyProvider(
+                                  activeTab.id,
+                                ).notifier,
+                              )
+                              .refresh();
+                        } else {
+                          await ref
+                              .read(
+                                indexedCloudFileListFamilyProvider(
+                                  activeTab.id,
+                                ).notifier,
+                              )
+                              .refresh();
+                          bumpDriveBrowserEpoch(ref, activeTab.id);
+                        }
+                      },
+                onNewFolder:
+                    activeTab == null ||
+                        modeValue != FileListMode.normal ||
+                        currentPath == null ||
+                        selectedPool == null
+                    ? null
+                    : () => _showCreateFolderDialog(
+                        context,
+                        ref,
+                        activeTab.id,
+                        currentPathValue,
+                        selectedPoolValue?.id,
+                        activeWorkspaceId,
+                      ),
+                onUpload:
+                    activeTab == null ||
+                        modeValue != FileListMode.normal ||
+                        currentPath == null ||
+                        selectedPool == null
+                    ? null
+                    : () => _pickAndUploadFile(
+                        ref,
+                        activeTab.id,
+                        currentPathValue,
+                        selectedPoolValue?.id,
+                        activeWorkspaceId,
+                      ),
+                isUnindexed: modeValue == FileListMode.unindexed,
+              ),
+              Expanded(
+                child: PageTransitionSwitcher(
+                  reverse: false,
+                  transitionBuilder:
+                      (
+                        Widget child,
+                        Animation<double> primaryAnimation,
+                        Animation<double> secondaryAnimation,
+                      ) {
+                        return SharedAxisTransition(
+                          animation: primaryAnimation,
+                          secondaryAnimation: secondaryAnimation,
+                          transitionType: SharedAxisTransitionType.horizontal,
+                          child: child,
+                        );
+                      },
+                  // Reading a file is a pane of its own: it replaces the
+                  // browser while its tab is active, and closing that tab
+                  // brings the folder back.
+                  child: viewingFile.value != null
+                      ? WorkspaceDocumentScope(
+                          key: ValueKey(viewingFile.value!.id),
+                          domain: WorkspaceDomain.drive,
+                          entityId: viewingFile.value!.id,
+                          title: viewingFile.value!.name,
+                          // Reading a file is its own tab, not a pane of
+                          // the browser's.
+                          fullScreen: true,
+                          child: _DriveFileContentTab(
+                            file: viewingFile.value!,
+                            workspaceId: activeWorkspaceId,
+                            onFileSaved: handleFileSaved,
+                            onInspectFile: (file) {
+                              ref
+                                  .read(driveInspectorFileProvider.notifier)
+                                  .setFile(file);
+                              showSidebar.value = true;
+                            },
+                          ),
+                        )
+                      : activeTab == null
+                      ? _DriveWorkspaceEmptyState(
+                          key: const ValueKey('empty'),
+                          onOpenIndexed: () => openBrowser(),
+                          onOpenUnindexed: () =>
+                              openBrowser(mode: FileListMode.unindexed),
+                        )
+                      : currentPath == null ||
+                            selectedPool == null ||
+                            mode == null ||
+                            viewMode == null ||
+                            isSelectionMode == null ||
+                            query == null
+                      ? _DriveWorkspaceEmptyState(
+                          key: const ValueKey('empty'),
+                          onOpenIndexed: () => openBrowser(),
+                          onOpenUnindexed: () =>
+                              openBrowser(mode: FileListMode.unindexed),
+                        )
+                      : FileListView(
+                          key: ValueKey(activeTab.id),
+                          tabId: activeTab.id,
+                          workspaceId: activeWorkspaceId,
+                          currentPath: currentPath,
+                          selectedPool: selectedPool,
+                          onOpenFolderInNewTab: openFolderTab,
+                          showFilters: showFilters.value,
+                          onPickAndUpload: () => _pickAndUploadFile(
+                            ref,
+                            activeTab.id,
+                            currentPathValue,
+                            selectedPoolValue?.id,
+                            activeWorkspaceId,
+                          ),
+                          onShowCreateFolder: () => _showCreateFolderDialog(
                             context,
                             ref,
                             activeTab.id,
@@ -533,228 +597,110 @@ class FileListScreen extends HookConsumerWidget {
                             selectedPoolValue?.id,
                             activeWorkspaceId,
                           ),
-                    onUpload:
-                        activeTab == null ||
-                            modeValue != FileListMode.normal ||
-                            currentPath == null ||
-                            selectedPool == null
-                        ? null
-                        : () => _pickAndUploadFile(
-                            ref,
-                            activeTab.id,
-                            currentPathValue,
-                            selectedPoolValue?.id,
-                            activeWorkspaceId,
-                          ),
-                    isUnindexed: modeValue == FileListMode.unindexed,
-                  ),
-                  Expanded(
-                    child: PageTransitionSwitcher(
-                      reverse: false,
-                      transitionBuilder:
-                          (
-                            Widget child,
-                            Animation<double> primaryAnimation,
-                            Animation<double> secondaryAnimation,
-                          ) {
-                            return SharedAxisTransition(
-                              animation: primaryAnimation,
-                              secondaryAnimation: secondaryAnimation,
-                              transitionType:
-                                  SharedAxisTransitionType.horizontal,
-                              child: child,
-                            );
+                          onInspectFile: (file) {
+                            ref
+                                .read(driveInspectorFileProvider.notifier)
+                                .setFile(file);
+                            showSidebar.value = true;
                           },
-                      // Reading a file is a pane of its own: it replaces the
-                      // browser while its tab is active, and closing that tab
-                      // brings the folder back.
-                      child: viewingFile.value != null
-                          ? WorkspaceDocumentScope(
-                              key: ValueKey(viewingFile.value!.id),
-                              domain: WorkspaceDomain.drive,
-                              entityId: viewingFile.value!.id,
-                              title: viewingFile.value!.name,
-                              // Reading a file is its own tab, not a pane of
-                              // the browser's.
-                              fullScreen: true,
-                              child: _DriveFileContentTab(
-                                file: viewingFile.value!,
-                                workspaceId: activeWorkspaceId,
-                                onFileSaved: handleFileSaved,
-                                onInspectFile: (file) {
-                                  ref
-                                      .read(driveInspectorFileProvider.notifier)
-                                      .setFile(file);
-                                  showSidebar.value = true;
-                                },
-                              ),
-                            )
-                          : activeTab == null
-                          ? _DriveWorkspaceEmptyState(
-                              key: const ValueKey('empty'),
-                              onOpenIndexed: () => openBrowser(),
-                              onOpenUnindexed: () =>
-                                  openBrowser(mode: FileListMode.unindexed),
-                            )
-                          : currentPath == null ||
-                                selectedPool == null ||
-                                mode == null ||
-                                viewMode == null ||
-                                isSelectionMode == null ||
-                                query == null
-                          ? _DriveWorkspaceEmptyState(
-                              key: const ValueKey('empty'),
-                              onOpenIndexed: () => openBrowser(),
-                              onOpenUnindexed: () =>
-                                  openBrowser(mode: FileListMode.unindexed),
-                            )
-                          : FileListView(
-                              key: ValueKey(activeTab.id),
-                              tabId: activeTab.id,
-                              workspaceId: activeWorkspaceId,
-                              usage: usage,
-                              quota: quota,
-                              currentPath: currentPath,
-                              selectedPool: selectedPool,
-                              onOpenFolderInNewTab: openFolderTab,
-                              showFilters: showFilters.value,
-                              onPickAndUpload: () => _pickAndUploadFile(
-                                ref,
-                                activeTab.id,
-                                currentPathValue,
-                                selectedPoolValue?.id,
-                                activeWorkspaceId,
-                              ),
-                              onShowCreateFolder: () => _showCreateFolderDialog(
-                                context,
-                                ref,
-                                activeTab.id,
-                                currentPathValue,
-                                selectedPoolValue?.id,
-                                activeWorkspaceId,
-                              ),
-                              onInspectFile: (file) {
-                                ref
-                                    .read(driveInspectorFileProvider.notifier)
-                                    .setFile(file);
-                                showSidebar.value = true;
-                              },
-                              onOpenFile: openFileTab,
-                              selectedFileIds: selectedFileIds,
-                              currentVisibleFileIds: visibleFileIds,
-                              mode: mode,
-                              viewMode: viewMode,
-                              isSelectionMode: isSelectionMode,
-                              query: query,
-                            ),
-                    ),
-                  ),
-                ],
+                          onOpenFile: openFileTab,
+                          selectedFileIds: selectedFileIds,
+                          currentVisibleFileIds: visibleFileIds,
+                          mode: mode,
+                          viewMode: viewMode,
+                          isSelectionMode: isSelectionMode,
+                          query: query,
+                        ),
+                ),
               ),
-            ),
-            isSelectionModeValue
-                ? _DriveSelectionStatusBar(
-                    selectionCount: selectedFileIdsValue.length,
-                    allVisibleSelected:
-                        visibleFileIdsValue.isNotEmpty &&
-                        visibleFileIdsValue
-                            .difference(selectedFileIdsValue)
-                            .isEmpty,
-                    onCancel: () {
-                      selectedFileIds?.value = <String>{};
-                      isSelectionMode?.value = false;
-                    },
-                    onToggleSelectAll: () {
-                      if (visibleFileIds == null || selectedFileIds == null) {
-                        return;
-                      }
-                      if (visibleFileIdsValue.isEmpty) return;
-                      final allSelected = visibleFileIdsValue
-                          .difference(selectedFileIdsValue)
-                          .isEmpty;
-                      if (allSelected) {
-                        selectedFileIds.value = selectedFileIdsValue.difference(
-                          visibleFileIdsValue,
-                        );
-                      } else {
-                        selectedFileIds.value = {
-                          ...selectedFileIdsValue,
-                          ...visibleFileIdsValue,
-                        };
-                      }
-                    },
-                    onDownload: selectedFileIdsValue.isEmpty
-                        ? null
-                        : () async {
-                            final files = await _resolveSelectedFiles(
-                              ref,
-                              selectedFileIdsValue,
-                            );
-                            if (files.isEmpty) return;
-                            await ref
-                                .read(driveFileDownloaderProvider)
-                                .downloadFiles(
-                                  files,
-                                  useDownloadsFolder:
-                                      HardwareKeyboard.instance.isShiftPressed,
-                                );
-                          },
-                    onDelete: selectedFileIdsValue.isEmpty
-                        ? null
-                        : () async {
-                            final confirmed = await showConfirmAlert(
-                              'confirmDeleteSelectedFiles'.tr(),
-                              'deleteSelectedFiles'.tr(),
-                              isDanger: true,
-                            );
-                            if (!confirmed) return;
-                            if (context.mounted) {
-                              showLoadingModal(context);
-                            }
-                            try {
-                              final uploader = ref.read(
-                                driveFileUploaderProvider,
-                              );
-                              final count = await uploader.batchDeleteFiles(
-                                selectedFileIdsValue.toList(),
-                              );
-                              selectedFileIds?.value = <String>{};
-                              visibleFileIds?.value = <String>{};
-                              isSelectionMode?.value = false;
-                              if (modeValue == FileListMode.normal) {
-                                invalidateIndexedDriveViews(ref, activeTab!.id);
-                              } else {
-                                ref.invalidate(
-                                  unindexedFileListFamilyProvider(
-                                    activeTab!.id,
-                                  ),
-                                );
-                              }
-                              showSnackBar(
-                                'deletedFilesCount'.tr(
-                                  args: [count.toString()],
-                                ),
-                              );
-                            } catch (e) {
-                              showSnackBar('failedToDeleteSelectedFiles'.tr());
-                            } finally {
-                              if (context.mounted) {
-                                hideLoadingModal(context);
-                              }
-                            }
-                          },
-                  )
-                : _DriveStorageStatusBar(
-                    usage: usage,
-                    onTapDetails: () => _showUsageSheet(context, usage, quota),
-                  ),
-          ],
+            ],
+          ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('errorLoadingQuota'.tr())),
-      ),
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('errorLoadingUsage'.tr())),
+        if (isSelectionModeValue)
+          _DriveSelectionStatusBar(
+            selectionCount: selectedFileIdsValue.length,
+            allVisibleSelected:
+                visibleFileIdsValue.isNotEmpty &&
+                visibleFileIdsValue.difference(selectedFileIdsValue).isEmpty,
+            onCancel: () {
+              selectedFileIds?.value = <String>{};
+              isSelectionMode?.value = false;
+            },
+            onToggleSelectAll: () {
+              if (visibleFileIds == null || selectedFileIds == null) {
+                return;
+              }
+              if (visibleFileIdsValue.isEmpty) return;
+              final allSelected = visibleFileIdsValue
+                  .difference(selectedFileIdsValue)
+                  .isEmpty;
+              if (allSelected) {
+                selectedFileIds.value = selectedFileIdsValue.difference(
+                  visibleFileIdsValue,
+                );
+              } else {
+                selectedFileIds.value = {
+                  ...selectedFileIdsValue,
+                  ...visibleFileIdsValue,
+                };
+              }
+            },
+            onDownload: selectedFileIdsValue.isEmpty
+                ? null
+                : () async {
+                    final files = await _resolveSelectedFiles(
+                      ref,
+                      selectedFileIdsValue,
+                    );
+                    if (files.isEmpty) return;
+                    await ref
+                        .read(driveFileDownloaderProvider)
+                        .downloadFiles(
+                          files,
+                          useDownloadsFolder:
+                              HardwareKeyboard.instance.isShiftPressed,
+                        );
+                  },
+            onDelete: selectedFileIdsValue.isEmpty
+                ? null
+                : () async {
+                    final confirmed = await showConfirmAlert(
+                      'confirmDeleteSelectedFiles'.tr(),
+                      'deleteSelectedFiles'.tr(),
+                      isDanger: true,
+                    );
+                    if (!confirmed) return;
+                    if (context.mounted) {
+                      showLoadingModal(context);
+                    }
+                    try {
+                      final uploader = ref.read(driveFileUploaderProvider);
+                      final count = await uploader.batchDeleteFiles(
+                        selectedFileIdsValue.toList(),
+                      );
+                      selectedFileIds?.value = <String>{};
+                      visibleFileIds?.value = <String>{};
+                      isSelectionMode?.value = false;
+                      if (modeValue == FileListMode.normal) {
+                        invalidateIndexedDriveViews(ref, activeTab!.id);
+                      } else {
+                        ref.invalidate(
+                          unindexedFileListFamilyProvider(activeTab!.id),
+                        );
+                      }
+                      showSnackBar(
+                        'deletedFilesCount'.tr(args: [count.toString()]),
+                      );
+                    } catch (e) {
+                      showSnackBar('failedToDeleteSelectedFiles'.tr());
+                    } finally {
+                      if (context.mounted) {
+                        hideLoadingModal(context);
+                      }
+                    }
+                  },
+          ),
+      ],
     );
 
     // Accept desktop file/folder drops on folder browser tabs (not file preview).
@@ -922,7 +868,7 @@ class FileListScreen extends HookConsumerWidget {
               ),
               tooltip: 'addFilesOrCreateDirectory'.tr(),
               child: const Icon(Symbols.add),
-            ).padding(bottom: 56 + MediaQuery.paddingOf(context).bottom)
+            )
           : null,
       body: droppableBody,
     );
@@ -1376,25 +1322,6 @@ class FileListScreen extends HookConsumerWidget {
       ),
     );
   }
-
-  void _showUsageSheet(
-    BuildContext context,
-    Map<String, dynamic>? usage,
-    Map<String, dynamic>? quota,
-  ) {
-    showModalBottomSheet(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      builder: (context) => SheetScaffold(
-        titleText: 'usageOverview'.tr(),
-        child: UsageOverviewWidget(
-          usage: usage,
-          quota: quota,
-        ).padding(horizontal: 8, vertical: 16),
-      ),
-    );
-  }
 }
 
 /// Browser tools above the file list: refresh, new folder, upload. The pane
@@ -1467,11 +1394,7 @@ class _DriveBrowserTools extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: SolSpace.sm),
-              SizedBox(
-                width: 1,
-                height: 20,
-                child: ColoredBox(color: border),
-              ),
+              SizedBox(width: 1, height: 20, child: ColoredBox(color: border)),
               toolButton(
                 tooltip: 'refresh'.tr(),
                 icon: Symbols.refresh,
@@ -1753,89 +1676,6 @@ class _DriveSelectionStatusBar extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DriveStorageStatusBar extends StatelessWidget {
-  final Map<String, dynamic>? usage;
-  final VoidCallback onTapDetails;
-
-  const _DriveStorageStatusBar({
-    required this.usage,
-    required this.onTapDetails,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (usage == null) return const SizedBox.shrink();
-
-    final nonNullUsage = usage!;
-    final totalQuotaMb = nonNullUsage['total_quota'] as int? ?? 0;
-    final usedQuotaMb = nonNullUsage['used_quota'] as num? ?? 0;
-    final usedBytes =
-        (nonNullUsage['used_bytes'] as num?)?.toInt() ??
-        (usedQuotaMb * 1024 * 1024).round();
-    final totalBytes =
-        (nonNullUsage['limit_bytes'] as num?)?.toInt() ??
-        (nonNullUsage['total_bytes'] as num?)?.toInt() ??
-        totalQuotaMb * 1024 * 1024;
-    final ratio = totalBytes > 0
-        ? (usedBytes / totalBytes).clamp(0.0, 1.0)
-        : 0.0;
-
-    final scheme = Theme.of(context).colorScheme;
-
-    return Material(
-      elevation: 2,
-      color: scheme.surfaceContainerHigh,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          8,
-          8,
-          8 + MediaQuery.paddingOf(context).bottom,
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isCompact = constraints.maxWidth < 520;
-            return Row(
-              mainAxisSize: MainAxisSize.max,
-              spacing: 12,
-              children: [
-                Icon(Symbols.storage, size: 18, color: scheme.primary),
-                if (!isCompact)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: SizedBox(
-                      width: 120,
-                      child: LinearProgressIndicator(
-                        value: ratio,
-                        minHeight: 8,
-                      ),
-                    ),
-                  ),
-                const Spacer(),
-                Text(
-                  '${formatFileSize(usedBytes)} / ${formatFileSize(totalBytes)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (!isCompact)
-                  Text(
-                    '${(ratio * 100).toStringAsFixed(1)}%',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                IconButton(
-                  onPressed: onTapDetails,
-                  tooltip: 'viewDetails'.tr(),
-                  icon: const Icon(Symbols.bar_chart),
-                ),
-              ],
-            );
-          },
         ),
       ),
     );

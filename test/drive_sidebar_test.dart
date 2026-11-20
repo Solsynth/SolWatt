@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/drive/favorites.dart';
+import 'package:solwatt/drive/usage.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart' show FileListMode;
 import 'package:solwatt/network.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
@@ -14,14 +15,18 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 /// The drive sidebar is the drive's own control surface: the pane switch, the
 /// storage meter, and favorites that come from the filesystem service.
-Future<ProviderContainer> _container({List<SnCloudFile> favorites = const []}) async {
+Future<ProviderContainer> _container({
+  List<SnCloudFile> favorites = const [],
+}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       selectedWorkspaceProvider.overrideWith((ref) async => null),
-      favoriteCloudFilesProvider.overrideWith((ref, workspaceId) async => favorites),
+      favoriteCloudFilesProvider.overrideWith(
+        (ref, workspaceId) async => favorites,
+      ),
       driveFavoritePathsProvider.overrideWith(
         (ref, workspaceId) async => {
           for (final file in favorites) file.id: '/',
@@ -35,16 +40,17 @@ Future<ProviderContainer> _container({List<SnCloudFile> favorites = const []}) a
   );
 }
 
-Widget _app(ProviderContainer container, Widget child) => UncontrolledProviderScope(
-  container: container,
-  child: MaterialApp(
-    theme: createSolWattTheme(Brightness.light),
-    home: MediaQuery(
-      data: const MediaQueryData(size: Size(1280, 800)),
-      child: Scaffold(body: child),
-    ),
-  ),
-);
+Widget _app(ProviderContainer container, Widget child) =>
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: createSolWattTheme(Brightness.light),
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(1280, 800)),
+          child: Scaffold(body: child),
+        ),
+      ),
+    );
 
 SnCloudFile _favoriteFile(String id, String name) => SnCloudFile(
   id: id,
@@ -124,6 +130,44 @@ void main() {
     // The row carries the path the file lives in, not just its name.
     expect(find.text('/'), findsOneWidget);
     expect(find.byTooltip('Remove from Favorites'), findsOneWidget);
+  });
+
+  testWidgets('the drive dock stays pinned when the column scrolls', (
+    tester,
+  ) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    // A phone-height column cannot fit favorites, the tree and the dock at
+    // once, so the dock must sit outside the scroll view.
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: createSolWattTheme(Brightness.light),
+          home: const MediaQuery(
+            data: MediaQueryData(size: Size(1280, 320)),
+            child: Scaffold(
+              body: ContextualSidebar(
+                activeLens: WorkspaceLens.drive,
+                onSelectLens: _ignore,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final scrollBottom = tester
+        .getRect(find.byType(SingleChildScrollView))
+        .bottom;
+    expect(
+      tester.getRect(find.text('Storage')).top,
+      greaterThanOrEqualTo(scrollBottom),
+    );
+    expect(find.text('Cloud'), findsOneWidget);
   });
 }
 

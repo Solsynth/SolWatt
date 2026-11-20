@@ -4,15 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/drive/favorites.dart';
+import 'package:solwatt/drive/usage.dart';
+import 'package:solwatt/drive/widgets/drive_pane_switch.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart' show FileListMode;
+import 'package:solwatt/drive/widgets/storage_meter.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
-import 'package:solar_network_foundation/solar_network_foundation.dart'
-    show formatFileSize;
 
 /// Zone 2: Contextual Sidebar (240px on Desktop, modal left Drawer on Tablet).
 ///
@@ -20,11 +21,12 @@ import 'package:solar_network_foundation/solar_network_foundation.dart'
 /// 1. `Favorites` — one shared list across mail, boards, pages and drive
 ///    files. Drive bookmarks live on the filesystem service, so they follow the
 ///    reader between devices; the rest are local workspace references.
-/// 2. The active [WorkspaceLens]'s own tree. For Drive that tree is the pane
-///    switch (cloud folders / service attachments), the storage meter, and the
-///    drop targets that save mail attachments. Lenses without a tree of their
-///    own (Today, Flywheel, Profile, Settings) hide this column entirely — it
-///    would only repeat the rail.
+/// 2. The active [WorkspaceLens]'s own tree. For Drive that tree is the drop
+///    target that saves mail attachments and the recent files; the pane switch
+///    and the storage meter dock to the column's bottom edge instead, where
+///    they stay reachable. Lenses without a tree of their own (Today, Flywheel,
+///    Profile, Settings) hide this column entirely — it would only repeat the
+///    rail.
 class ContextualSidebar extends ConsumerWidget {
   final WorkspaceLens activeLens;
   final ValueChanged<WorkspaceLens> onSelectLens;
@@ -57,10 +59,10 @@ class ContextualSidebar extends ConsumerWidget {
       width: SolWorkspaceGeometry.sidebarWidth,
       color: scheme.surfaceContainerLow,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: ListView(
+            child: SingleChildScrollView(
               // The column is a panel, not a bare list: it keeps a real gutter
               // from its own edge so rows never sit flush against the rail's
               // rounded corner.
@@ -70,65 +72,73 @@ class ContextualSidebar extends ConsumerWidget {
                 SolSpace.md,
                 SolSpace.sm,
               ),
-              children: [
-                _SectionLabel(label: 'Favorites'),
-                if (favorites.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: SolSpace.xs,
-                      vertical: SolSpace.xs,
-                    ),
-                    child: Text(
-                      'Star a file, folder, page, thread, or board to keep it here.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SectionLabel(label: 'Favorites'),
+                  if (favorites.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: SolSpace.xs,
+                        vertical: SolSpace.xs,
                       ),
-                    ),
-                  )
-                else
-                  for (final item in favorites)
-                    WorkspaceListRow(
-                      compact: true,
-                      leading: Icon(
-                        item.domain.icon,
-                        size: 16,
-                        color: scheme.primary,
+                      child: Text(
+                        'Star a file, folder, page, thread, or board to keep it here.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
-                      title: Text(item.title),
-                      subtitle: item.domain == WorkspaceDomain.drive &&
-                              (item.subtitle?.isNotEmpty ?? false)
-                          ? Text(item.subtitle!)
-                          : null,
-                      trailing: IconButton(
-                        icon: const Icon(Symbols.star_rounded, size: 15),
-                        tooltip: 'Remove from Favorites',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () =>
-                            toggleFavoriteEntity(ref, item),
+                    )
+                  else
+                    for (final item in favorites)
+                      WorkspaceListRow(
+                        compact: true,
+                        leading: Icon(
+                          item.domain.icon,
+                          size: 16,
+                          color: scheme.primary,
+                        ),
+                        title: Text(item.title),
+                        subtitle:
+                            item.domain == WorkspaceDomain.drive &&
+                                (item.subtitle?.isNotEmpty ?? false)
+                            ? Text(item.subtitle!)
+                            : null,
+                        trailing: IconButton(
+                          icon: const Icon(Symbols.star_rounded, size: 15),
+                          tooltip: 'Remove from Favorites',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => toggleFavoriteEntity(ref, item),
+                        ),
+                        onTap: () {
+                          onCloseDrawer?.call();
+                          if (onOpenEntity != null) {
+                            onOpenEntity!(item);
+                          } else {
+                            ref.read(peekProvider.notifier).open(item);
+                          }
+                        },
                       ),
-                      onTap: () {
-                        onCloseDrawer?.call();
-                        if (onOpenEntity != null) {
-                          onOpenEntity!(item);
-                        } else {
-                          ref.read(peekProvider.notifier).open(item);
-                        }
-                      },
-                    ),
-                const SizedBox(height: SolSpace.lg),
-                _SectionLabel(
-                  label: activeLens == WorkspaceLens.today ||
-                          activeLens == WorkspaceLens.flywheel ||
-                          activeLens == WorkspaceLens.profile ||
-                          activeLens == WorkspaceLens.settings
-                      ? 'BROWSE'
-                      : activeLens.label.toUpperCase(),
-                ),
-                const SizedBox(height: SolSpace.xs),
-                _buildLensTree(context, ref, scheme),
-              ],
+                  const SizedBox(height: SolSpace.lg),
+                  _SectionLabel(
+                    label:
+                        activeLens == WorkspaceLens.today ||
+                            activeLens == WorkspaceLens.flywheel ||
+                            activeLens == WorkspaceLens.profile ||
+                            activeLens == WorkspaceLens.settings
+                        ? 'BROWSE'
+                        : activeLens.label.toUpperCase(),
+                  ),
+                  const SizedBox(height: SolSpace.xs),
+                  _buildLensTree(context, ref, scheme),
+                ],
+              ),
             ),
           ),
+          // The drive dock sits outside the scroll view so the pane switch and
+          // the meter stay reachable no matter how long Favorites grows.
+          if (activeLens == WorkspaceLens.drive)
+            _DriveDock(onCloseDrawer: onCloseDrawer),
         ],
       ),
     );
@@ -171,27 +181,14 @@ class ContextualSidebar extends ConsumerWidget {
           onCloseDrawer: onCloseDrawer,
         );
       case WorkspaceLens.drive:
-        final browseMode = ref.watch(driveBrowseModeProvider);
-        final storage = ref.watch(driveStorageUsageProvider).value;
         final recentDriveFiles = ref
             .watch(recentEntitiesProvider)
             .where((item) => item.domain == WorkspaceDomain.drive)
             .take(5)
             .toList(growable: false);
         return Column(
+          crossAxisAlignment: .stretch,
           children: [
-            _DrivePaneSwitch(
-              mode: browseMode,
-              onSelect: (mode) {
-                ref.read(driveBrowseModeProvider.notifier).select(mode);
-                onCloseDrawer?.call();
-              },
-            ),
-            if (storage != null) ...[
-              const SizedBox(height: SolSpace.sm),
-              _StorageMeter(storage: storage),
-            ],
-            const SizedBox(height: SolSpace.md),
             // Saving a mail attachment into Drive is a drop, so the drop
             // target is the row itself.
             _DriveDropRow(
@@ -270,108 +267,59 @@ class ContextualSidebar extends ConsumerWidget {
   }
 }
 
-/// The Drive lens has two panes, not two lenses: cloud folders and service
-/// attachments. Choosing one here retargets the open drive browser.
-class _DrivePaneSwitch extends StatelessWidget {
-  final FileListMode mode;
-  final ValueChanged<FileListMode> onSelect;
+/// The Drive lens' control dock, pinned below the scrolling column: the pane
+/// switch on top, then the storage meter. The meter is the drive's usage
+/// sheet trigger, so the exact figures stay one tap from the column without
+/// growing it into a dashboard.
+class _DriveDock extends ConsumerWidget {
+  final VoidCallback? onCloseDrawer;
 
-  const _DrivePaneSwitch({required this.mode, required this.onSelect});
+  const _DriveDock({this.onCloseDrawer});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: SolSpace.xs),
-      child: SegmentedButton<FileListMode>(
-        showSelectedIcon: false,
-        style: SegmentedButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          textStyle: Theme.of(context).textTheme.labelSmall,
-          selectedForegroundColor: scheme.onSecondaryContainer,
-          selectedBackgroundColor: scheme.secondaryContainer,
+    final mode = ref.watch(driveBrowseModeProvider);
+    final storage = ref.watch(driveStorageUsageProvider).value;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
         ),
-        segments: const [
-          ButtonSegment(
-            value: FileListMode.normal,
-            label: Text('Cloud'),
-            icon: Icon(Symbols.folder_rounded, size: 15),
-          ),
-          ButtonSegment(
-            value: FileListMode.unindexed,
-            label: Text('Assets'),
-            icon: Icon(Symbols.inventory_2_rounded, size: 15),
-          ),
-        ],
-        selected: {mode},
-        onSelectionChanged: (selection) => onSelect(selection.first),
       ),
-    );
-  }
-}
-
-/// Quiet storage readout: the meter is the headline, the numbers carry the
-/// exact figures. Tapping it is the drive's own usage sheet, so the column
-/// never becomes a dashboard.
-class _StorageMeter extends StatelessWidget {
-  final DriveStorageSnapshot storage;
-
-  const _StorageMeter({required this.storage});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final ratio = storage.ratio;
-    final tone = ratio >= 0.9
-        ? scheme.error
-        : ratio >= 0.75
-        ? scheme.tertiary
-        : scheme.primary;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: SolSpace.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Symbols.cloud_rounded, size: 14, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 6),
-              Text(
-                'Storage',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${(ratio * 100).toStringAsFixed(0)}%',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: tone,
-                  fontWeight: FontWeight.w700,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: SolSpace.md,
+          vertical: SolSpace.sm,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DrivePaneSwitch(
+              mode: mode,
+              onSelect: (mode) {
+                ref.read(driveBrowseModeProvider.notifier).select(mode);
+                onCloseDrawer?.call();
+              },
+            ),
+            if (storage != null) ...[
+              const SizedBox(height: SolSpace.md),
+              InkWell(
+                borderRadius: BorderRadius.circular(SolRadius.xs),
+                onTap: () => showDriveUsageSheet(context, storage),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: SolSpace.xs,
+                    vertical: SolSpace.xs,
+                  ),
+                  child: DriveStorageMeter(storage: storage),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 6,
-              color: tone,
-              backgroundColor: scheme.surfaceContainerHighest,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${formatFileSize(storage.usedBytes)} of ${formatFileSize(storage.totalBytes)}',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

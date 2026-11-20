@@ -5,6 +5,9 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/boards/create_broad_sheet.dart';
 import 'package:solwatt/drive/favorites.dart';
+import 'package:solwatt/drive/usage.dart';
+import 'package:solwatt/drive/widgets/drive_pane_switch.dart';
+import 'package:solwatt/drive/widgets/storage_meter.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
@@ -241,6 +244,10 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
               title: Text(lens.label),
               onTap: () => onSelectLens(lens),
             ),
+          if (activeLens == WorkspaceLens.drive) ...[
+            const SizedBox(height: SolSpace.md),
+            const _DriveSheetControls(),
+          ],
           const SizedBox(height: SolSpace.lg),
           for (final lens in [
             WorkspaceLens.flywheel,
@@ -390,6 +397,46 @@ class MobileFloatingActionPill extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The drive controls the desktop sidebar carries, for the phone switcher
+/// sheet: the pane switch and the storage meter. The drawer closes after a
+/// pane choice so the browser underneath is what the reader sees.
+class _DriveSheetControls extends ConsumerWidget {
+  const _DriveSheetControls();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(driveBrowseModeProvider);
+    final storage = ref.watch(driveStorageUsageProvider).value;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DrivePaneSwitch(
+          mode: mode,
+          onSelect: (mode) {
+            ref.read(driveBrowseModeProvider.notifier).select(mode);
+            Navigator.of(context).pop();
+          },
+        ),
+        if (storage != null) ...[
+          const SizedBox(height: SolSpace.md),
+          InkWell(
+            borderRadius: BorderRadius.circular(SolRadius.xs),
+            onTap: () => showDriveUsageSheet(context, storage),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: SolSpace.xs,
+                vertical: SolSpace.xs,
+              ),
+              child: DriveStorageMeter(storage: storage),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

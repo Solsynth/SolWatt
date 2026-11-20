@@ -12,7 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/drive/files/file_list.dart';
-import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/workspaces/workspace_management.dart';
@@ -39,7 +38,7 @@ const _lunar = Workspace(
 /// from the `material_ui` fork, whose classes are distinct from
 /// `flutter/material`'s and therefore invisible to `CommonFinders.byType`.
 final _sourceSwitch = find.byWidgetPredicate(
-  (widget) => widget is mui.SegmentedButton,
+  (widget) => widget is mui.SegmentedButton<FileListMode>,
 );
 
 /// Answers every drive request with an empty page so the browser renders
@@ -69,7 +68,6 @@ void main() {
     await EasyLocalization.ensureInitialized();
     final prefs = await SharedPreferences.getInstance();
     var selected = _solar;
-    final quotaSlugs = <String?>[];
 
     final dio = Dio(BaseOptions(baseUrl: 'https://localhost'))
       ..httpClientAdapter = _EmptyDriveAdapter();
@@ -84,12 +82,6 @@ void main() {
         workspaceListProvider.overrideWith(
           (ref) async => const [_solar, _lunar],
         ),
-        workspaceQuotaProvider.overrideWith((ref, slug) async {
-          quotaSlugs.add(slug);
-          return null;
-        }),
-        billingUsageProvider.overrideWith((ref) async => null),
-        billingQuotaProvider.overrideWith((ref) async => null),
       ],
     );
     addTearDown(container.dispose);
@@ -134,20 +126,21 @@ void main() {
     expect(_sourceSwitch, findsNothing);
     // The seeded tab browses the globally active workspace.
     expect(find.byType(FileListView), findsOneWidget);
-    expect(quotaSlugs, contains('solar'));
+    expect(tester.widget<FileListView>(find.byType(FileListView)).workspaceId,
+        'ws-1');
 
     // Switching the app-selected workspace retargets the open folder tab.
     selected = _lunar;
     container.invalidate(selectedWorkspaceProvider);
-    for (var i = 0; i < 10 && !quotaSlugs.contains('lunar'); i++) {
+    for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.pump(const Duration(milliseconds: 50));
 
     expect(tester.takeException(), isNull);
     expect(find.byType(FileListView), findsOneWidget);
     expect(_sourceSwitch, findsNothing);
-    expect(quotaSlugs, contains('lunar'));
+    expect(tester.widget<FileListView>(find.byType(FileListView)).workspaceId,
+        'ws-2');
 
     // Settle the revived listing requests so no Dio timeout stays pending.
     await tester.pump(const Duration(milliseconds: 100));
