@@ -41,7 +41,7 @@ dependencies:
       # by path inside that checkout, so a floating HEAD resolves one package
       # from two sources ("at HEAD" vs "at <commit>") and version solving fails.
       # Bump all five refs together.
-      ref: f135d75c228ff7bfc597faea254f7f8696201a42
+      ref: 8f5cf5314564e77488490aafc8e2c723fc9dee23
   # The island_ui_foundation window frame renders with this Material fork's
   # widgets; theme it directly so the titlebar follows the app theme.
   material_ui: ^1.11.1
@@ -68,12 +68,12 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_sdk
-      ref: f135d75c228ff7bfc597faea254f7f8696201a42
+      ref: 8f5cf5314564e77488490aafc8e2c723fc9dee23
   solar_network_foundation:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solar_network_foundation
-      ref: f135d75c228ff7bfc597faea254f7f8696201a42
+      ref: 8f5cf5314564e77488490aafc8e2c723fc9dee23
   # The block editor for page bodies and written mail. Solar Network's fork of
   # AppFlowy 6.2, branded Island Editor (fixed content loss, Solar-aware
   # markdown, `Island*` public symbols); pages and mail share it so both
@@ -82,7 +82,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/island_editor
-      ref: f135d75c228ff7bfc597faea254f7f8696201a42
+      ref: 8f5cf5314564e77488490aafc8e2c723fc9dee23
   # Release update checks against the Solsynth Express distribution service
   # (the same package Solian wires): channel lookup, update check and the
   # release sheet with the per-platform installer.
@@ -90,7 +90,7 @@ dependencies:
     git:
       url: https://src.solsynth.dev/SoSYS/Socommon.git
       path: packages/solsynth_express
-      ref: f135d75c228ff7bfc597faea254f7f8696201a42
+      ref: 8f5cf5314564e77488490aafc8e2c723fc9dee23
   file_picker: ^13.4.0
   http_parser: ^4.1.2
   # Mail bodies arrive as HTML. The dark-mode contrast pass rewrites inline
