@@ -43,6 +43,7 @@ class MobileContextHeader extends ConsumerWidget {
       bottom: false,
       child: WorkspaceCanvasHeader(
         leading: InkWell(
+          key: const ValueKey('lens-switcher'),
           borderRadius: SolRadius.pillRadius,
           onTap: () => _showWorkspaceSwitcherSheet(context, ref),
           child: PillSurface(
@@ -153,22 +154,6 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
                 label: Text('switch'.tr()),
               ),
             ],
-          ),
-          const SizedBox(height: SolSpace.md),
-          Text(
-            'unifiedViews'.tr().toUpperCase(),
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: SolSpace.xs),
-          WorkspaceListRow(
-            selected: activeLens == WorkspaceLens.today,
-            leading: Icon(Symbols.star_rounded, color: scheme.primary),
-            title: Text('todayFocus'.tr()),
-            subtitle: Text('priorityMailSubtitle'.tr()),
-            onTap: () => onSelectLens(WorkspaceLens.today),
           ),
           if (recent.isNotEmpty) ...[
             const SizedBox(height: SolSpace.md),

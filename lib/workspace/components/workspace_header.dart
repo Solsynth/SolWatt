@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:solwatt/theme.dart';
 
 /// Fixed 52px workspace canvas header shared across Mail, Todo, Pages, Drive,
-/// Today/Focus, and the Peek Pane so switching lenses produces zero visual
-/// jarring.
+/// and the Peek Pane so switching lenses produces zero visual jarring.
 class WorkspaceCanvasHeader extends StatelessWidget {
   final Widget? leading;
   final Widget title;

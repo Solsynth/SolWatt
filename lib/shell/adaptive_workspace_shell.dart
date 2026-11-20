@@ -24,7 +24,6 @@ import 'package:solwatt/workspace/workspace_state.dart';
 
 /// Ordered list of lenses matching [AppShellPage]'s `AutoTabsRouter.routes`.
 const List<WorkspaceLens> kShellLenses = [
-  WorkspaceLens.today,
   WorkspaceLens.mail,
   WorkspaceLens.todo,
   WorkspaceLens.drive,
@@ -50,7 +49,6 @@ _ViewportClass _classifyViewport(double width) {
 /// leaves that column to the canvas instead.
 bool _lensOwnsSidebar(WorkspaceLens lens) => switch (lens) {
   WorkspaceLens.mail || WorkspaceLens.todo || WorkspaceLens.drive => true,
-  WorkspaceLens.today ||
   WorkspaceLens.flywheel ||
   WorkspaceLens.profile ||
   WorkspaceLens.settings => false,
@@ -563,13 +561,6 @@ class _SlimLensRail extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: SolSpace.sm),
-            _RailIconButton(
-              icon: WorkspaceLens.today.icon,
-              tooltip: 'todayFocus'.tr(),
-              selected: activeLens == WorkspaceLens.today,
-              onTap: () => onSelectLens(WorkspaceLens.today),
-            ),
-            const SizedBox(height: SolSpace.md),
             _RailIconButton(
               icon: WorkspaceLens.mail.icon,
               tooltip: WorkspaceLens.mail.label,

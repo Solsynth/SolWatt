@@ -302,7 +302,7 @@ class SavedAttachmentIdsNotifier extends Notifier<Set<String>> {
 }
 
 // ---------------------------------------------------------------------------
-// Recent Items (for Mobile Workspace Switcher & Today/Focus)
+// Recent Items (for Mobile Workspace Switcher & Peek)
 // ---------------------------------------------------------------------------
 
 final recentEntitiesProvider =

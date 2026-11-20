@@ -14,7 +14,6 @@ import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/settings/about_page.dart';
 import 'package:solwatt/settings/app_settings_page.dart';
-import 'package:solwatt/workspace/today_focus_page.dart';
 import 'package:solwatt/workspaces/workspace_detail_screen.dart';
 import 'package:solwatt/workspaces/workspace_management_screen.dart';
 
@@ -39,9 +38,9 @@ class AppRouter extends RootStackRouter {
     AutoRoute(
       page: AppShellRoute.page,
       children: [
-        AutoRoute(page: TodayFocusRoute.page, initial: true),
         AutoRoute(
           page: MailRoute.page,
+          initial: true,
           children: [
             AutoRoute(page: MailListRoute.page, path: '', initial: true),
             AutoRoute(page: MailSettingsRoute.page, path: 'settings'),

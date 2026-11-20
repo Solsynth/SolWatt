@@ -90,7 +90,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const _DocumentSurface(
             domain: WorkspaceDomain.mail,
@@ -122,7 +122,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -339,7 +339,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 4,
+          selectedIndex: 3,
           onSelected: (_) {},
           child: const _DocumentSurface(
             domain: WorkspaceDomain.drive,
@@ -392,7 +392,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -435,7 +435,7 @@ void main() {
           container,
           AdaptiveWorkspaceShell(
             isShown: true,
-            selectedIndex: 1,
+            selectedIndex: 0,
             onSelected: (_) {},
             child: const SizedBox.expand(),
           ),
@@ -471,7 +471,7 @@ void main() {
         withBoard,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 2,
+          selectedIndex: 1,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -509,7 +509,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const _DocumentSurface(
             domain: WorkspaceDomain.mail,
@@ -557,11 +557,11 @@ void main() {
     }
 
     // Mail owns a real tree (folders), so its sidebar stays.
-    await pumpLens(1);
+    await pumpLens(0);
     expect(find.byType(ContextualSidebar), findsOneWidget);
 
-    // Today, Flywheel, Profile and Settings only list the rail's own lenses.
-    for (final index in [0, 4, 5, 6]) {
+    // Flywheel, Profile and Settings only list the rail's own lenses.
+    for (final index in [3, 4, 5]) {
       await pumpLens(index);
       expect(
         find.byType(ContextualSidebar),
@@ -572,7 +572,7 @@ void main() {
 
     // Todo lists boards and pages; Drive has its own tree. Both keep the
     // sidebar.
-    for (final index in [1, 2, 3]) {
+    for (final index in [0, 1, 2]) {
       await pumpLens(index);
       expect(
         find.byType(ContextualSidebar),
@@ -595,7 +595,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -630,7 +630,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -662,7 +662,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 1,
+          selectedIndex: 0,
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -697,7 +697,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 3,
+          selectedIndex: 1,
           onSelected: (_) {},
           child: const _DocumentSurface(
             domain: WorkspaceDomain.pages,
@@ -715,7 +715,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 3,
+          selectedIndex: 1,
           onSelected: (_) {},
           child: const _DocumentSurface(
             domain: WorkspaceDomain.pages,

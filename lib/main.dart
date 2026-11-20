@@ -289,7 +289,6 @@ class AppShellPage extends ConsumerWidget {
           child: AutoTabsRouter(
             // Order matches [kShellLenses] in adaptive_workspace_shell.dart.
             routes: const [
-              TodayFocusRoute(),
               MailRoute(),
               IdeaskLensRoute(),
               FileListRoute(),

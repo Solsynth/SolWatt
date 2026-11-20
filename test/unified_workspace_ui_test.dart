@@ -91,7 +91,7 @@ void main() {
         container,
         AdaptiveWorkspaceShell(
           isShown: true,
-          selectedIndex: 2, // Todo: boards and pages share the lens
+          selectedIndex: 1, // Todo: boards and pages share the lens
           onSelected: (_) {},
           child: const SizedBox.expand(),
         ),
@@ -141,7 +141,7 @@ void main() {
           container,
           AdaptiveWorkspaceShell(
             isShown: true,
-            selectedIndex: 2,
+            selectedIndex: 1,
             onSelected: (_) {},
             child: const SizedBox.expand(),
           ),
@@ -184,7 +184,7 @@ void main() {
           container,
           AdaptiveWorkspaceShell(
             isShown: true,
-            selectedIndex: 2,
+            selectedIndex: 1,
             onSelected: (_) {},
             child: const SizedBox.expand(),
           ),

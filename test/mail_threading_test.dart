@@ -285,7 +285,8 @@ void main() {
               .toList() ??
           const [];
 
-      // The shell opens on Today, so reach the mail lens the way a reader does.
+      // The shell opens on the Mail lens; the tap keeps this test honest if a
+      // restored lens ever leads instead.
       await tester.tap(find.byTooltip('Mail').first);
       await tester.pumpAndSettle(
         const Duration(milliseconds: 100),

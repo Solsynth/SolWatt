@@ -132,7 +132,7 @@ void main() {
     // the route belongs to that tab's nested stack.
     // The header's pill names the active lens; open its switcher sheet and
     // pick Mail.
-    await tester.tap(find.text('Today').first);
+    await tester.tap(find.byKey(const ValueKey('lens-switcher')));
     await tester.pumpAndSettle();
     // The switcher lists the lenses below the drawer's own header; drag the
     // sheet up until the Mail row is on screen.

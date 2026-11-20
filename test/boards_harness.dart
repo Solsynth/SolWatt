@@ -177,7 +177,7 @@ Future<void> openBoardsTab(WidgetTester tester) async {
   }
   // Phone: the header's lens label opens the switcher sheet, where every lens
   // is a row.
-  await tester.tap(find.text('Today').first);
+  await tester.tap(find.byKey(const ValueKey('lens-switcher')));
   await tester.pumpAndSettle();
   await tester.tap(find.text('Todo').last);
   await tester.pumpAndSettle();

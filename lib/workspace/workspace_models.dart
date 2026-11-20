@@ -50,7 +50,6 @@ enum WorkspaceDomain {
 /// share one lens: the Todo lens browses that tree and opens a document above
 /// itself.
 enum WorkspaceLens {
-  today,
   mail,
   todo,
   drive,
@@ -60,7 +59,6 @@ enum WorkspaceLens {
 
   /// Translation key for the lens' name.
   String get labelKey => switch (this) {
-    WorkspaceLens.today => 'today',
     WorkspaceLens.mail => 'mail',
     WorkspaceLens.todo => 'todo',
     WorkspaceLens.drive => 'drive',
@@ -72,7 +70,6 @@ enum WorkspaceLens {
   String get label => labelKey.tr();
 
   IconData get icon => switch (this) {
-    WorkspaceLens.today => Symbols.star_rounded,
     WorkspaceLens.mail => Symbols.mail_rounded,
     WorkspaceLens.todo => Symbols.check_box_rounded,
     WorkspaceLens.drive => Symbols.cloud_rounded,
@@ -90,7 +87,6 @@ enum WorkspaceLens {
 
   /// Generated route name of the lens' page, as listed in [AppShellPage].
   String get routeName => switch (this) {
-    WorkspaceLens.today => 'TodayFocusRoute',
     WorkspaceLens.mail => 'MailRoute',
     WorkspaceLens.todo => 'IdeaskLensRoute',
     WorkspaceLens.drive => 'FileListRoute',

@@ -138,6 +138,6 @@ void main() {
     expect(await storage.read(key: 'selected_workspace_id'), _workspace.id);
     expect(find.byKey(shellScaffoldKey), findsOneWidget);
     // A phone shell leads with its lens header rather than the desktop rail.
-    expect(find.text('Today / Focus'), findsWidgets);
+    expect(find.byKey(const ValueKey('lens-switcher')), findsOneWidget);
   });
 }

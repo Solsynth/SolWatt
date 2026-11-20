@@ -579,22 +579,6 @@ class TaskListRouteArgs {
 }
 
 /// generated route for
-/// [TodayFocusPage]
-class TodayFocusRoute extends PageRouteInfo<void> {
-  const TodayFocusRoute({List<PageRouteInfo>? children})
-    : super(TodayFocusRoute.name, initialChildren: children);
-
-  static const String name = 'TodayFocusRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const TodayFocusPage();
-    },
-  );
-}
-
-/// generated route for
 /// [WorkspaceDetailPage]
 class WorkspaceDetailRoute extends PageRouteInfo<WorkspaceDetailRouteArgs> {
   WorkspaceDetailRoute({

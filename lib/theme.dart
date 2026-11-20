@@ -46,8 +46,8 @@ abstract final class SolSpace {
 /// Shared spatial geometry & density tokens for the unified workspace shell.
 ///
 /// Enforces identical header heights, list row density, and breakpoint widths
-/// across Mail, Todo, Pages, Drive, and Today/Focus so switching lenses
-/// produces zero visual jarring.
+/// across Mail, Todo, Pages, and Drive so switching lenses produces zero
+/// visual jarring.
 abstract final class SolWorkspaceGeometry {
   static const double headerHeight = 60;
   static const double desktopRowCompact = 40;

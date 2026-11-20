@@ -228,8 +228,8 @@ String _bodyText(WidgetTester tester) => tester
     .join('\n');
 
 Future<void> _openComposer(WidgetTester tester) async {
-  // The shell starts on Today/Focus; the mail list — and its compose FAB —
-  // live on the Mail lens.
+  // The shell starts on the Mail lens, so its compose FAB is already there;
+  // the check keeps the helper usable from any starting lens.
   if (find.byType(FloatingActionButton).evaluate().isEmpty) {
     await tester.tap(find.byTooltip('Mail').first);
     await tester.pumpAndSettle();

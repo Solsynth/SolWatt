@@ -25,7 +25,7 @@ import 'package:solwatt/workspace/workspace_state.dart';
 /// 2. The active [WorkspaceLens]'s own tree. For Drive that tree is the drop
 ///    target that saves mail attachments and the recent files; the pane switch
 ///    and the storage meter dock to the column's bottom edge instead, where
-///    they stay reachable. Lenses without a tree of their own (Today, Flywheel,
+///    they stay reachable. Lenses without a tree of their own (Flywheel,
 ///    Profile, Settings) hide this column entirely — it would only repeat the
 ///    rail.
 class ContextualSidebar extends ConsumerWidget {
@@ -123,8 +123,7 @@ class ContextualSidebar extends ConsumerWidget {
                   const SizedBox(height: SolSpace.lg),
                   _SectionLabel(
                     label:
-                        activeLens == WorkspaceLens.today ||
-                            activeLens == WorkspaceLens.flywheel ||
+                        activeLens == WorkspaceLens.flywheel ||
                             activeLens == WorkspaceLens.profile ||
                             activeLens == WorkspaceLens.settings
                         ? 'browse'.tr().toUpperCase()
@@ -222,8 +221,6 @@ class ContextualSidebar extends ConsumerWidget {
             ],
           ],
         );
-
-      case WorkspaceLens.today:
       case WorkspaceLens.flywheel:
       case WorkspaceLens.profile:
       case WorkspaceLens.settings:

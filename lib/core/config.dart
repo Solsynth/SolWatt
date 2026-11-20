@@ -104,7 +104,10 @@ class AppAccentColorNotifier extends Notifier<int?> {
 
 // --- App shell: last visited top-level tab --------------------------------
 
-const _kLastTabIndexKey = 'app_last_tab_index';
+/// Renamed from `app_last_tab_index` when the Today lens was dropped: the old
+/// value indexed a list whose first lens no longer exists, so reading it would
+/// send every reader one lens to the right. A fresh key starts them on Mail.
+const _kLastTabIndexKey = 'app_last_lens_index';
 
 /// The top-level tab the user was last on, persisted so a relaunch reopens
 /// there. The value is an index into the shell's tab routes, clamped to the

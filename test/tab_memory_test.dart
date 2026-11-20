@@ -12,6 +12,7 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
@@ -126,7 +127,7 @@ Future<void> _openMailLens(WidgetTester tester) async {
 }
 
 Future<int?> _storedTabIndex() async =>
-    (await SharedPreferences.getInstance()).getInt('app_last_tab_index');
+    (await SharedPreferences.getInstance()).getInt('app_last_lens_index');
 
 void main() {
   testWidgets('the shell reopens on the last lens but not the mail folder', (
@@ -135,22 +136,21 @@ void main() {
     // Fresh install: Mail is the initial lens and nothing is stored until the
     // reader actually moves.
     await _pumpShell(tester, const Size(1200, 800), 'fresh');
-    // Today is the shell's initial lens; nothing is stored yet.
-    expect(find.text('Today / Focus'), findsWidgets);
+    expect(find.byType(MailPage), findsOneWidget);
     expect(await _storedTabIndex(), isNull);
 
     // Switch to Todo through the rail: the lens index is what is stored.
     await _openTodoLens(tester);
     expect(find.byType(IdeaskBrowserPage), findsOneWidget);
-    // The Todo lens is index 2 in kShellLenses (today, mail, todo, …).
-    expect(await _storedTabIndex(), 2);
+    // The Todo lens is index 1 in kShellLenses (mail, todo, drive, …).
+    expect(await _storedTabIndex(), 1);
 
     // Relaunch into the stored lens…
     await _pumpShell(
       tester,
       const Size(1200, 800),
       'relaunch',
-      prefs: const {'app_last_tab_index': 2},
+      prefs: const {'app_last_lens_index': 1},
     );
     expect(find.byType(IdeaskBrowserPage), findsOneWidget);
 
