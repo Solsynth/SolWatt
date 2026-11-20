@@ -143,66 +143,106 @@ class EditorMentions {
       left: left,
       top: top,
       width: width,
-      child: Material(
-        elevation: 6,
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(SolRadius.sm),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 260, minWidth: 220),
-          child: _items.isEmpty
-              ? _buildEmpty(context, scheme)
-              : ListView.builder(
-            padding: const EdgeInsets.all(SolSpace.xs),
-            shrinkWrap: true,
-            itemCount: _items.length,
-            itemBuilder: (context, index) {
-              final item = _items[index];
-              final highlighted = index == _highlighted;
-              return InkWell(
-                borderRadius: BorderRadius.circular(SolRadius.xs),
-                onTap: () => _select(item),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: SolSpace.sm,
-                    vertical: SolSpace.sm,
-                  ),
-                  decoration: BoxDecoration(
-                    color: highlighted
-                        ? scheme.secondaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(SolRadius.xs),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(item.entity.domain.icon, size: 18, color: scheme.primary),
-                      const SizedBox(width: SolSpace.sm),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              item.entity.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w600),
+      // Open: fade + rise + scale in, matching Solian's mention popup. The
+      // whole surface lives inside the child so the animating builders never
+      // rebuild the list.
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) => Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 4),
+            child: Transform.scale(
+              scale: 0.97 + 0.03 * value,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        ),
+        child: Material(
+          elevation: 6,
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(SolRadius.sm),
+          clipBehavior: Clip.antiAlias,
+          // Results replace each other (empty row ↔ list) mid-popup; resize
+          // rather than snapping to the new height.
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 130),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260, minWidth: 220),
+              child: _items.isEmpty
+                  ? _buildEmpty(context, scheme)
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(SolSpace.xs),
+                      shrinkWrap: true,
+                      itemCount: _items.length,
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        final highlighted = index == _highlighted;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(SolRadius.xs),
+                          onTap: () => _select(item),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: SolSpace.sm,
+                              vertical: SolSpace.sm,
                             ),
-                            Text(
-                              item.entity.domain.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                            decoration: BoxDecoration(
+                              color: highlighted
+                                  ? scheme.secondaryContainer
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(SolRadius.xs),
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                            child: Row(
+                              children: [
+                                Icon(
+                                  item.entity.domain.icon,
+                                  size: 18,
+                                  color: scheme.primary,
+                                ),
+                                const SizedBox(width: SolSpace.sm),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        item.entity.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      Text(
+                                        item.entity.domain.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
           ),
         ),
       ),

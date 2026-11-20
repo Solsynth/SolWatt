@@ -418,8 +418,8 @@ directly, so the mail tab is conversation-first:
   `text/html` at the boundary: `solarHTMLToDocument` / `solarDocumentToHTML`
   in `solar_network_foundation` keep `<br>`, lists, quotes, headings, inline
   code and colours. A quoted `<img>` arrives inside the quoted paragraph,
-  which this AppFlowy fork paints without its children, so the composer lifts
-  image blocks to the top level (`liftImagesToRoot`) to render them.
+  which this Island Editor fork paints without its children, so the composer
+  lifts image blocks to the top level (`liftImagesToRoot`) to render them.
 - Row actions (read, star, move, delete) apply to every message of the
   conversation, since the API only mutates one message at a time.
 - Trash is the one place a delete is permanent. Everywhere else the delete

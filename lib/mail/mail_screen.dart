@@ -6507,7 +6507,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     final selection = _body.editorState.selection;
     if (selection == null || selection.isCollapsed) return;
     await _body.editorState.formatDelta(selection, {
-      AppFlowyRichTextKeys.href: url,
+      IslandRichTextKeys.href: url,
     });
   }
 
@@ -6839,28 +6839,28 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                     icon: Symbols.format_bold,
                     label: 'bold'.tr(),
                     apply: () => _body.editorState.toggleAttribute(
-                      AppFlowyRichTextKeys.bold,
+                      IslandRichTextKeys.bold,
                     ),
                   ),
                   (
                     icon: Symbols.format_italic,
                     label: 'italic'.tr(),
                     apply: () => _body.editorState.toggleAttribute(
-                      AppFlowyRichTextKeys.italic,
+                      IslandRichTextKeys.italic,
                     ),
                   ),
                   (
                     icon: Symbols.format_underlined,
                     label: 'underline'.tr(),
                     apply: () => _body.editorState.toggleAttribute(
-                      AppFlowyRichTextKeys.underline,
+                      IslandRichTextKeys.underline,
                     ),
                   ),
                   (
                     icon: Symbols.format_strikethrough,
                     label: 'strikethrough'.tr(),
                     apply: () => _body.editorState.toggleAttribute(
-                      AppFlowyRichTextKeys.strikethrough,
+                      IslandRichTextKeys.strikethrough,
                     ),
                   ),
                   (
@@ -6897,7 +6897,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                     icon: Symbols.code,
                     label: 'codeBlock'.tr(),
                     apply: () => _body.editorState.toggleAttribute(
-                      AppFlowyRichTextKeys.code,
+                      IslandRichTextKeys.code,
                     ),
                   ),
                 ],
