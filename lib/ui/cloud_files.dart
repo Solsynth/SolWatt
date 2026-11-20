@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -164,7 +165,7 @@ Future<T?> showCloudFilePicker<T>({
   String? parentId,
   bool indexed = true,
   bool allowLinkAttachment = true,
-  String title = 'Upload file',
+  String? title,
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -179,7 +180,7 @@ Future<T?> showCloudFilePicker<T>({
       parentId: parentId,
       indexed: indexed,
       allowLinkAttachment: allowLinkAttachment,
-      title: title,
+      title: title ?? 'uploadTitle'.tr(),
     ),
   );
 }
@@ -218,7 +219,7 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
     }
   } catch (error, stack) {
     _uploadLog.warning('File picker failed', error, stack);
-    showSnackBar('Could not open the file picker: $error');
+    showSnackBar('cloudFilePickerFailed'.tr(namedArgs: {'error': '$error'}));
     return null;
   }
   if (selected.isEmpty) {
@@ -229,9 +230,7 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
   final resolvedWorkspaceId =
       workspaceId ?? (await ref.read(selectedWorkspaceProvider.future))?.id;
   if (resolvedWorkspaceId == null || resolvedWorkspaceId.isEmpty) {
-    showSnackBar(
-      'Select a workspace first. SolWatt only uses workspace Drive.',
-    );
+    showSnackBar('selectWorkspaceForDrive'.tr());
     return null;
   }
   final tasks = ref.read(appTasksProvider.notifier);
@@ -243,9 +242,7 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
       final platformFile = selected[i];
       final bytes = await platformFile.readAsBytes();
       if (bytes.isEmpty) {
-        throw const OAuthException(
-          'Could not read the selected file. Try another file.',
-        );
+        throw OAuthException('uploadFileFailed'.tr());
       }
 
       final taskId = tasks.addTask(
@@ -260,12 +257,16 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
       );
       tasks.updateTask(
         taskId,
-        statusMessage: 'Uploading ${i + 1} of ${selected.length}…',
+        statusMessage: 'uploadProgress'.tr(
+          namedArgs: {'current': '${i + 1}', 'total': '${selected.length}'},
+        ),
         progress: 0,
       );
 
       onProgress?.call(
-        'Uploading ${i + 1} of ${selected.length}…',
+        'uploadProgress'.tr(
+          namedArgs: {'current': '${i + 1}', 'total': '${selected.length}'},
+        ),
         i / selected.length,
       );
       _uploadLog.info(
@@ -287,7 +288,12 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
             tasks.updateTask(
               taskId,
               progress: fileProgress.clamp(0.0, 1.0),
-              statusMessage: 'Uploading ${i + 1} of ${selected.length}…',
+              statusMessage: 'uploadProgress'.tr(
+                namedArgs: {
+                  'current': '${i + 1}',
+                  'total': '${selected.length}',
+                },
+              ),
               metadata: {
                 'fileSize': bytes.length,
                 'transmissionProgress': fileProgress,
@@ -295,7 +301,12 @@ Future<List<SnCloudFile>?> uploadLocalCloudFiles(
               },
             );
             onProgress?.call(
-              'Uploading ${i + 1} of ${selected.length}…',
+              'uploadProgress'.tr(
+                namedArgs: {
+                  'current': '${i + 1}',
+                  'total': '${selected.length}',
+                },
+              ),
               overall,
             );
           },
@@ -341,7 +352,7 @@ Future<SnCloudFileReference?> pickCloudImageReference(
   WidgetRef ref, {
   String? usage,
   String? workspaceId,
-  String title = 'Choose image',
+  String? title,
   bool indexed = false,
 }) async {
   final file = await showCloudFilePicker<SnCloudFile>(
@@ -350,7 +361,7 @@ Future<SnCloudFileReference?> pickCloudImageReference(
     type: FileType.image,
     usage: usage,
     workspaceId: workspaceId,
-    title: title,
+    title: title ?? 'chooseImage'.tr(),
     indexed: indexed,
   );
   if (file == null) return null;
@@ -517,11 +528,11 @@ class _CloudFilePickerSheetState extends ConsumerState<_CloudFilePickerSheet> {
                 if (widget.allowLinkAttachment)
                   ListTile(
                     leading: const Icon(Symbols.link),
-                    title: const Text('Link existing file'),
+                    title: Text('linkExistingFile'.tr()),
                     subtitle: Text(
                       hasWorkspaceScope
-                          ? 'Browse workspace Drive files'
-                          : 'Browse files already on Drive',
+                          ? 'browseWorkspaceDriveFiles'.tr()
+                          : 'browseDriveFiles'.tr(),
                     ),
                     enabled: !_busy,
                     onTap: _busy ? null : _pickLinkAttachment,
@@ -534,13 +545,13 @@ class _CloudFilePickerSheetState extends ConsumerState<_CloudFilePickerSheet> {
                   ),
                   title: Text(
                     widget.type == FileType.image
-                        ? 'Choose image'
-                        : 'Choose file',
+                        ? 'chooseImage'.tr()
+                        : 'chooseFile'.tr(),
                   ),
                   subtitle: Text(
                     hasWorkspaceScope
-                        ? 'Upload from this device — workspace storage'
-                        : 'Requires an active workspace',
+                        ? 'uploadFromDevice'.tr()
+                        : 'requiresActiveWorkspace'.tr(),
                   ),
                   enabled: !_busy && hasWorkspaceScope,
                   onTap: _busy || !hasWorkspaceScope ? null : _pickAndUpload,
@@ -654,7 +665,7 @@ class _WorkspaceLinkAttachmentSheetState
                     context,
                     _selected.values.toList(growable: false),
                   ),
-            child: const Text('Done'),
+            child: Text('done'.tr()),
           ),
         if (widget.allowMultiple)
           IconButton(
@@ -754,11 +765,11 @@ class _RecentWorkspaceFiles extends ConsumerWidget {
                   .where((e) => e.belongsToWorkspace(workspaceId!))
                   .toList(growable: false);
         if (filtered.isEmpty) {
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Text(
-                'No workspace files yet. Upload one first.',
+                'noWorkspaceFilesUploadFirst'.tr(),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -842,7 +853,7 @@ class _WorkspaceFolderBrowser extends ConsumerWidget {
                 onPressed: folderStack.isEmpty
                     ? null
                     : () => onNavigate(const []),
-                child: const Text('Root'),
+                child: Text('root'.tr()),
               ),
               for (var i = 0; i < folderStack.length; i++) ...[
                 Icon(
@@ -898,7 +909,7 @@ class _WorkspaceFolderBrowser extends ConsumerWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: const Text('Folder'),
+                      subtitle: Text('folder'.tr()),
                       trailing: IconButton(
                         icon: Icon(
                           selectionMode
@@ -964,9 +975,8 @@ class _ManualFileIdForm extends StatelessWidget {
         TextField(
           controller: controller,
           decoration: InputDecoration(
-            labelText: 'File ID',
-            helperText:
-                'Paste a cloud file ID to attach an existing Drive object.',
+            labelText: 'fileId'.tr(),
+            helperText: 'fileIdHint'.tr(),
             helperMaxLines: 3,
             errorText: errorText,
             border: const OutlineInputBorder(
@@ -987,7 +997,7 @@ class _ManualFileIdForm extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Symbols.add),
-            label: const Text('Add'),
+            label: Text('add'.tr()),
           ),
         ),
       ],

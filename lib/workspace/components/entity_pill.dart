@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -251,7 +252,9 @@ class _EntityHoverCard extends StatelessWidget {
                           : Symbols.check_box_outline_blank_rounded,
                       size: 16,
                     ),
-                    label: Text(entity.isCompleted ? 'Reopen' : 'Complete'),
+                    label: Text(
+                      entity.isCompleted ? 'reopen'.tr() : 'complete'.tr(),
+                    ),
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                     ),
@@ -263,7 +266,7 @@ class _EntityHoverCard extends StatelessWidget {
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: const Text('Open in Peek'),
+                  child: Text('openInPeek'.tr()),
                 ),
               ],
             ),

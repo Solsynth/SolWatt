@@ -13,6 +13,8 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
+import 'localization_harness.dart';
+
 /// The drive sidebar is the drive's own control surface: the pane switch, the
 /// storage meter, and favorites that come from the filesystem service.
 Future<ProviderContainer> _container({
@@ -78,6 +80,8 @@ SnCloudFile _favoriteFile(String id, String name) => SnCloudFile(
 );
 
 void main() {
+  setUpAll(loadTestLocalization);
+
   testWidgets('drive sidebar owns the pane switch and storage meter', (
     tester,
   ) async {

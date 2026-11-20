@@ -17,6 +17,8 @@ import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
+import 'localization_harness.dart';
+
 Future<ProviderContainer> _container() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -69,6 +71,10 @@ class _DocumentSurface extends StatelessWidget {
 }
 
 void main() {
+  setUpAll(() {
+    SharedPreferences.setMockInitialValues({});
+    loadTestLocalization();
+  });
   testWidgets('title bar lists open documents and tracks the active one', (
     tester,
   ) async {
@@ -253,20 +259,17 @@ void main() {
     addTearDown(container.dispose);
 
     await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          theme: createSolWattTheme(Brightness.light),
-          home: Scaffold(
-            body: WorkspaceTitleBar(
-              tabs: const WorkspaceTabState(
-                tabs: [mail, board],
-                activeKey: 'mail:t-1',
-              ),
-              onSelect: (_) {},
-              onClose: (tab) => closed.add(tab.key),
-              onOpenOmnibox: () {},
+      _app(
+        container,
+        Scaffold(
+          body: WorkspaceTitleBar(
+            tabs: const WorkspaceTabState(
+              tabs: [mail, board],
+              activeKey: 'mail:t-1',
             ),
+            onSelect: (_) {},
+            onClose: (tab) => closed.add(tab.key),
+            onOpenOmnibox: () {},
           ),
         ),
       ),
@@ -302,20 +305,17 @@ void main() {
     addTearDown(container.dispose);
 
     await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(
-          theme: createSolWattTheme(Brightness.light),
-          home: Scaffold(
-            body: WorkspaceTitleBar(
-              tabs: const WorkspaceTabState(
-                tabs: [mail, board],
-                activeKey: 'todo:b-1',
-              ),
-              onSelect: (tab) => selected.add(tab.key),
-              onClose: (_) {},
-              onOpenOmnibox: () {},
+      _app(
+        container,
+        Scaffold(
+          body: WorkspaceTitleBar(
+            tabs: const WorkspaceTabState(
+              tabs: [mail, board],
+              activeKey: 'todo:b-1',
             ),
+            onSelect: (tab) => selected.add(tab.key),
+            onClose: (_) {},
+            onOpenOmnibox: () {},
           ),
         ),
       ),

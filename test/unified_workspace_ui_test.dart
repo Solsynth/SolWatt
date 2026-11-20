@@ -24,6 +24,8 @@ import 'package:solwatt/workspace/editor/solar_editor.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
+import 'localization_harness.dart';
+
 Future<ProviderContainer> _makeContainer() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -72,6 +74,8 @@ Widget _wrapApp(
 }
 
 void main() {
+  setUpAll(loadTestLocalization);
+
   testWidgets('Desktop (>1024px) renders 4-zone split and resizable Peek pane', (
     tester,
   ) async {
@@ -197,7 +201,7 @@ void main() {
       expect(find.byType(MobileContextHeader), findsOneWidget);
       expect(find.byType(MobileFloatingActionPill), findsOneWidget);
       expect(find.byType(PillSurface), findsWidgets);
-      expect(find.text('Search mail, tasks, pages, files...'), findsOneWidget);
+      expect(find.text('Search mail, tasks, pages, files…'), findsOneWidget);
 
       // Open Peek -> MobilePeekSheet (DraggableScrollableSheet)
       container

@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -118,8 +119,7 @@ class _FederatedOmniboxDialogState
                     filled: true,
                     fillColor: scheme.surfaceContainerHigh,
                     prefixIcon: const Icon(Symbols.search_rounded),
-                    hintText:
-                        'Search mail, tasks, pages, files... (in:mail, in:tasks, in:pages, in:drive)',
+                    hintText: 'searchHint'.tr(),
                     suffixIcon: IconButton(
                       icon: const Icon(Symbols.close_rounded, size: 18),
                       onPressed: () => Navigator.of(context).pop(),
@@ -138,7 +138,7 @@ class _FederatedOmniboxDialogState
                 child: Row(
                   children: [
                     FilterChip(
-                      label: const Text('All'),
+                      label: Text('all'.tr()),
                       selected: _filter == null,
                       onSelected: (_) => setState(() => _filter = null),
                     ),
@@ -161,7 +161,7 @@ class _FederatedOmniboxDialogState
                 child: results.isEmpty
                     ? Center(
                         child: Text(
-                          'No matching items across Mail, Tasks, Pages, or Drive.',
+                          'searchNoResults'.tr(),
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
@@ -172,7 +172,7 @@ class _FederatedOmniboxDialogState
                           if (effectiveFilter == null &&
                               topHits.isNotEmpty) ...[
                             _GroupTitle(
-                              title: 'Top Hits',
+                              title: 'topHits'.tr(),
                               count: topHits.length,
                             ),
                             for (final item in topHits)
@@ -188,7 +188,7 @@ class _FederatedOmniboxDialogState
                                   '${item.domain.label}${item.subtitle != null ? ' · ${item.subtitle}' : ''}',
                                 ),
                                 trailing: IconButton(
-                                  tooltip: 'Open in Full View',
+                                  tooltip: 'openInFullView'.tr(),
                                   icon: const Icon(
                                     Symbols.open_in_new_rounded,
                                     size: 16,
@@ -232,7 +232,7 @@ class _FederatedOmniboxDialogState
                                       ? Text(item.subtitle!)
                                       : null,
                                   trailing: IconButton(
-                                    tooltip: 'Open in Full View',
+                                    tooltip: 'openInFullView'.tr(),
                                     icon: const Icon(
                                       Symbols.open_in_new_rounded,
                                       size: 16,

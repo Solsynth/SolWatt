@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -121,12 +122,12 @@ class _AppWindowFrameState extends State<AppWindowFrame> with WindowListener {
           ),
           _WindowButton(
             icon: Symbols.remove,
-            tooltip: 'Minimize',
+            tooltip: 'minimize'.tr(),
             onPressed: () => windowManager.minimize(),
           ),
           _WindowButton(
             icon: _isMaximized ? Symbols.fullscreen_exit : Symbols.fullscreen,
-            tooltip: _isMaximized ? 'Restore' : 'Maximize',
+            tooltip: _isMaximized ? 'restore'.tr() : 'maximize'.tr(),
             onPressed: () async {
               if (await windowManager.isMaximized()) {
                 await windowManager.unmaximize();

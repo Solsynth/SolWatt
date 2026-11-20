@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -390,7 +391,7 @@ class _VideoErrorWidget extends StatelessWidget {
                     ElevatedButton.icon(
                       onPressed: onRetry,
                       icon: const Icon(Symbols.refresh, size: 18),
-                      label: const Text('Retry'),
+                      label: Text('retry'.tr()),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red[700],
                         foregroundColor: Colors.white,
@@ -401,14 +402,14 @@ class _VideoErrorWidget extends StatelessWidget {
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: errorMessage));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Error copied to clipboard'),
-                            duration: Duration(seconds: 2),
+                          SnackBar(
+                            content: Text('errorCopied'.tr()),
+                            duration: const Duration(seconds: 2),
                           ),
                         );
                       },
                       icon: const Icon(Symbols.content_copy, size: 18),
-                      label: const Text('Copy'),
+                      label: Text('copy'.tr()),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white70,
                         side: const BorderSide(color: Colors.white30),

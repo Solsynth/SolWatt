@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -71,7 +72,7 @@ class MobileContextHeader extends ConsumerWidget {
         title: const SizedBox.shrink(),
         actions: [
           IconButton(
-            tooltip: 'Workspaces',
+            tooltip: 'workspaces'.tr(),
             icon: const Icon(Symbols.workspaces_rounded, size: 20),
             onPressed: () =>
                 context.router.push(const WorkspaceManagementRoute()),
@@ -137,7 +138,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           Row(
             children: [
               Text(
-                workspace?.name ?? 'Workspace',
+                workspace?.name ?? 'workspace'.tr(),
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
@@ -149,13 +150,13 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
                   context.router.push(const WorkspaceManagementRoute());
                 },
                 icon: const Icon(Symbols.swap_horiz_rounded, size: 16),
-                label: const Text('Switch'),
+                label: Text('switch'.tr()),
               ),
             ],
           ),
           const SizedBox(height: SolSpace.md),
           Text(
-            'UNIFIED VIEWS',
+            'unifiedViews'.tr().toUpperCase(),
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
@@ -165,14 +166,14 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           WorkspaceListRow(
             selected: activeLens == WorkspaceLens.today,
             leading: Icon(Symbols.star_rounded, color: scheme.primary),
-            title: const Text('Today / Focus'),
-            subtitle: const Text('Priority mail, tasks & recent pages'),
+            title: Text('todayFocus'.tr()),
+            subtitle: Text('priorityMailSubtitle'.tr()),
             onTap: () => onSelectLens(WorkspaceLens.today),
           ),
           if (recent.isNotEmpty) ...[
             const SizedBox(height: SolSpace.md),
             Text(
-              'RECENT',
+              'recent'.tr().toUpperCase(),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
@@ -192,7 +193,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           ],
           const SizedBox(height: SolSpace.md),
           Text(
-            'Favorites',
+            'favorites'.tr(),
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
@@ -203,7 +204,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: SolSpace.sm),
               child: Text(
-                'No favorites yet. Star files, pages, threads, or folders.',
+                'noFavoritesHint'.tr(),
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -226,7 +227,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
               ),
           const SizedBox(height: SolSpace.md),
           Text(
-            'LENSES',
+            'lenses'.tr().toUpperCase(),
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
@@ -318,7 +319,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
                         const SizedBox(width: SolSpace.sm),
                         Expanded(
                           child: Text(
-                            'Search mail, tasks, pages, files...',
+                            'searchPlaceholder'.tr(),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall
@@ -337,7 +338,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
                 child: FilledButton.icon(
                   onPressed: () => _showQuickCreateSheet(context, ref),
                   icon: const Icon(Symbols.add_rounded, size: 18),
-                  label: const Text('New'),
+                  label: Text('new'.tr()),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: const Size(0, 40),
@@ -362,7 +363,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Symbols.add_rounded),
-              title: const Text('New folder, page or collection'),
+              title: Text('newFolderPageCollection'.tr()),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.todo);
@@ -371,7 +372,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Symbols.mail_rounded),
-              title: const Text('Compose Email'),
+              title: Text('composeEmail'.tr()),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.mail);
@@ -380,7 +381,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Symbols.check_box_rounded),
-              title: const Text('Open Todo'),
+              title: Text('openTodo'.tr()),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.todo);
@@ -388,7 +389,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Symbols.cloud_upload_rounded),
-              title: const Text('Open Drive'),
+              title: Text('openDrive'.tr()),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.drive);

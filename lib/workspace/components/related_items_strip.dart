@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -75,7 +76,7 @@ class _RelatedItemsStripState extends ConsumerState<RelatedItemsStrip> {
                   Text(
                     // A count belongs in the label's own badge, not in
                     // parentheses the reader has to parse.
-                    'Related items · ${items.length}',
+                    'relatedItems'.tr(namedArgs: {'count': '${items.length}'}),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: scheme.onSurfaceVariant,
@@ -103,7 +104,7 @@ class _RelatedItemsStripState extends ConsumerState<RelatedItemsStrip> {
               ),
               child: items.isEmpty
                   ? Text(
-                      'No linked items yet. Mention with @ or embed with / to link across Mail, Todo, Pages, and Drive.',
+                      'noLinkedItems'.tr(),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

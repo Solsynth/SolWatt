@@ -10,6 +10,7 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:island_editor/island_editor.dart';
@@ -266,7 +267,7 @@ class EditorMentions {
           const SizedBox(width: SolSpace.sm),
           Flexible(
             child: Text(
-              'No matching pages, tasks, mail or files',
+              'noMatchingMentions'.tr(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(

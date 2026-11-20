@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -214,9 +215,7 @@ class _AdaptiveWorkspaceShellState
     if (ref.read(ideaskWorkspaceIdProvider) == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Select a workspace to convert mail into a task.'),
-          ),
+          SnackBar(content: Text('selectWorkspaceToConvertMail'.tr())),
         );
       }
       return;
@@ -227,26 +226,34 @@ class _AdaptiveWorkspaceShellState
           .read(ideaskActionsProvider)
           .createTask(
             task: WorkTaskDraft(
-              name: 'Follow up: ${mailEntity.title}',
+              name: 'followUpTaskName'.tr(
+                namedArgs: {'title': mailEntity.title},
+              ),
               description: mailEntity.subtitle,
             ),
           );
       final taskEntity = ideaskEntityRefForTask(
         createdTask,
-        fallbackTitle: 'Unfiled tasks',
+        fallbackTitle: 'unfiledTasks'.tr(),
       );
       ref.read(backlinksProvider.notifier).link(mailEntity, taskEntity);
       ref.read(peekProvider.notifier).open(taskEntity);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Created task "${createdTask.name}"')),
+          SnackBar(
+            content: Text(
+              'taskCreatedNamed'.tr(namedArgs: {'name': createdTask.name}),
+            ),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not create task: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('taskCreateFailed'.tr(namedArgs: {'error': '$e'})),
+          ),
+        );
       }
     }
   }
@@ -532,7 +539,9 @@ class _SlimLensRail extends ConsumerWidget {
             // The workspace the app is in: its avatar carries the identity and
             // its name is the tooltip, so the rail keeps one icon of width.
             Tooltip(
-              message: '$label — tap to switch workspace',
+              message: 'switchWorkspaceHint'.tr(
+                namedArgs: {'workspace': label},
+              ),
               child: InkWell(
                 borderRadius: BorderRadius.circular(SolRadius.sm),
                 onTap: () => showWorkspaceSwitcher(context, ref),
@@ -556,14 +565,14 @@ class _SlimLensRail extends ConsumerWidget {
             const SizedBox(height: SolSpace.sm),
             _RailIconButton(
               icon: WorkspaceLens.today.icon,
-              tooltip: 'Today / Focus',
+              tooltip: 'todayFocus'.tr(),
               selected: activeLens == WorkspaceLens.today,
               onTap: () => onSelectLens(WorkspaceLens.today),
             ),
             const SizedBox(height: SolSpace.md),
             _RailIconButton(
               icon: WorkspaceLens.mail.icon,
-              tooltip: 'Mail',
+              tooltip: WorkspaceLens.mail.label,
               selected: activeLens == WorkspaceLens.mail,
               onTap: () => onSelectLens(WorkspaceLens.mail),
             ),
@@ -579,7 +588,7 @@ class _SlimLensRail extends ConsumerWidget {
                 final hovered = candidateData.isNotEmpty;
                 return _RailIconButton(
                   icon: WorkspaceLens.todo.icon,
-                  tooltip: 'Todo — drop mail to create a task',
+                  tooltip: 'todoDropMailTooltip'.tr(),
                   selected: activeLens == WorkspaceLens.todo || hovered,
                   onTap: () => onSelectLens(WorkspaceLens.todo),
                 );
@@ -588,21 +597,21 @@ class _SlimLensRail extends ConsumerWidget {
             const SizedBox(height: SolSpace.xs),
             _RailIconButton(
               icon: WorkspaceLens.drive.icon,
-              tooltip: 'Drive',
+              tooltip: WorkspaceLens.drive.label,
               selected: activeLens == WorkspaceLens.drive,
               onTap: () => onSelectLens(WorkspaceLens.drive),
             ),
             const SizedBox(height: SolSpace.md),
             _RailIconButton(
               icon: Symbols.add_rounded,
-              tooltip: 'New folder, page or collection',
+              tooltip: 'newFolderPageCollection'.tr(),
               selected: false,
               onTap: onOpenCreate,
             ),
             const SizedBox(height: SolSpace.xs),
             _RailIconButton(
               icon: Symbols.search_rounded,
-              tooltip: 'Omnibox — Cmd K or Ctrl K',
+              tooltip: 'omniboxTooltip'.tr(),
               selected: false,
               onTap: onOpenOmnibox,
             ),
@@ -612,25 +621,27 @@ class _SlimLensRail extends ConsumerWidget {
                 icon: sidebarCollapsed
                     ? Symbols.left_panel_open_rounded
                     : Symbols.left_panel_close_rounded,
-                tooltip: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
+                tooltip: sidebarCollapsed
+                    ? 'showSidebar'.tr()
+                    : 'hideSidebar'.tr(),
                 selected: false,
                 onTap: onToggleSidebar,
               ),
             _RailIconButton(
               icon: WorkspaceLens.flywheel.icon,
-              tooltip: 'Flywheel',
+              tooltip: WorkspaceLens.flywheel.label,
               selected: activeLens == WorkspaceLens.flywheel,
               onTap: () => onSelectLens(WorkspaceLens.flywheel),
             ),
             _RailIconButton(
               icon: WorkspaceLens.profile.icon,
-              tooltip: 'Profile',
+              tooltip: WorkspaceLens.profile.label,
               selected: activeLens == WorkspaceLens.profile,
               onTap: () => onSelectLens(WorkspaceLens.profile),
             ),
             _RailIconButton(
               icon: WorkspaceLens.settings.icon,
-              tooltip: 'Settings',
+              tooltip: WorkspaceLens.settings.label,
               selected: activeLens == WorkspaceLens.settings,
               onTap: () => onSelectLens(WorkspaceLens.settings),
             ),

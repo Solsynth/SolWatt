@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -47,7 +48,7 @@ class PeekPanelContent extends ConsumerWidget {
             leading: peek.canGoBack
                 ? IconButton(
                     icon: const Icon(Symbols.arrow_back_rounded, size: 18),
-                    tooltip: 'Back in Peek',
+                    tooltip: 'backInPeek'.tr(),
                     onPressed: () => ref.read(peekProvider.notifier).back(),
                   )
                 : Icon(entity.domain.icon, size: 18, color: scheme.primary),
@@ -55,7 +56,9 @@ class PeekPanelContent extends ConsumerWidget {
             subtitle: Text(entity.domain.label),
             actions: [
               IconButton(
-                tooltip: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+                tooltip: isFavorite
+                    ? 'removeFromFavorites'.tr()
+                    : 'addToFavorites'.tr(),
                 icon: Icon(
                   Symbols.star_rounded,
                   fill: isFavorite ? 1 : 0,
@@ -66,13 +69,13 @@ class PeekPanelContent extends ConsumerWidget {
               ),
               if (showPopOut)
                 IconButton(
-                  tooltip: 'Pop Out',
+                  tooltip: 'popOut'.tr(),
                   icon: const Icon(Symbols.open_in_new_rounded, size: 18),
                   onPressed: () => _popOutWindow(context, entity),
                 ),
               if (onOpenFullView != null)
                 IconButton(
-                  tooltip: 'Open in Full View',
+                  tooltip: 'openInFullView'.tr(),
                   icon: const Icon(Symbols.fullscreen_rounded, size: 18),
                   onPressed: () {
                     ref.read(peekProvider.notifier).close();
@@ -80,7 +83,7 @@ class PeekPanelContent extends ConsumerWidget {
                   },
                 ),
               IconButton(
-                tooltip: 'Close Peek — Esc',
+                tooltip: 'closePeek'.tr(),
                 icon: const Icon(Symbols.close_rounded, size: 18),
                 onPressed: () => ref.read(peekProvider.notifier).close(),
               ),
@@ -190,14 +193,14 @@ class _PeekBody extends ConsumerWidget {
                 // A still placeholder: the peek must not animate while the
                 // page loads, or a widget test can never settle.
                 ? Text(
-                    'Loading page…',
+                    'loadingPage'.tr(),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   )
                 : MarkdownTextContent(
                     content: (pageBody?.contentMd ?? '').trim().isEmpty
-                        ? 'This page is empty.'
+                        ? 'pageIsEmpty'.tr()
                         : pageBody!.contentMd.trim(),
                   ),
           ),
@@ -225,7 +228,9 @@ class _PeekBody extends ConsumerWidget {
                 onOpenFullView!(entity);
               },
               icon: const Icon(Symbols.open_in_full_rounded, size: 16),
-              label: Text('Open in ${entity.domain.label}'),
+              label: Text(
+                'openInDomain'.tr(namedArgs: {'domain': entity.domain.label}),
+              ),
             ),
           ),
       ],
@@ -265,7 +270,9 @@ class _MailThreadPreview extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    email.from?.name ?? email.from?.address ?? 'Unknown sender',
+                    email.from?.name ??
+                        email.from?.address ??
+                        'unknownSender'.tr(),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),

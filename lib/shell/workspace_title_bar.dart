@@ -1,10 +1,9 @@
-import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
-import 'package:solwatt/route.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
@@ -93,7 +92,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Close all document tabs',
+                          tooltip: 'closeAllTabs'.tr(),
                           iconSize: 16,
                           visualDensity: VisualDensity.compact,
                           onPressed: () => documents.forEach(onClose),
@@ -103,7 +102,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Search — Cmd K or Ctrl K',
+                          tooltip: 'omniboxTooltip'.tr(),
                           iconSize: 17,
                           visualDensity: VisualDensity.compact,
                           onPressed: onOpenOmnibox,
@@ -162,7 +161,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
                 SolSpace.md,
               ),
               child: Text(
-                'Switch workspace',
+                'switchWorkspaceTitle'.tr(),
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
@@ -212,15 +211,6 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
                   );
                 },
               ),
-            ),
-            ListTile(
-              leading: const Icon(Symbols.workspaces_rounded),
-              title: const Text('Manage workspaces'),
-              trailing: const Icon(Symbols.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                context.router.push(const WorkspaceManagementRoute());
-              },
             ),
             const SizedBox(height: SolSpace.sm),
           ],
@@ -330,7 +320,7 @@ class _TitleTab extends StatelessWidget {
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
                     iconSize: 15,
-                    tooltip: 'Close tab',
+                    tooltip: 'closeTab'.tr(),
                     style: IconButton.styleFrom(
                       minimumSize: const Size(24, 24),
                       maximumSize: const Size(24, 24),

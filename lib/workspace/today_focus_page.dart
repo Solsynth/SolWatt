@@ -83,19 +83,25 @@ class TodayFocusPage extends ConsumerWidget {
               color: scheme.primary,
               size: 20,
             ),
-            title: const Text('Today / Focus'),
+            title: Text('todayFocus'.tr()),
             subtitle: Text(
-              '${unreadMail.length} unread mail · ${openTasks.length} open tasks · ${pages.length} pages',
+              'todaySummary'.tr(
+                namedArgs: {
+                  'mail': '${unreadMail.length}',
+                  'tasks': '${openTasks.length}',
+                  'pages': '${pages.length}',
+                },
+              ),
             ),
             actions: [
               IconButton(
-                tooltip: 'New Page',
+                tooltip: 'newPage'.tr(),
                 icon: const Icon(Symbols.note_add_rounded, size: 18),
                 onPressed: () async {
                   try {
                     final page = await ref
                         .read(ideaskActionsProvider)
-                        .createPage(title: 'Daily Note');
+                        .createPage(title: 'dailyNote'.tr());
                     ref
                         .read(peekProvider.notifier)
                         .open(ideaskEntityRefForPage(page));
@@ -117,9 +123,9 @@ class TodayFocusPage extends ConsumerWidget {
               ).add(const EdgeInsets.symmetric(vertical: SolSpace.xl)),
               children: [
                 if (pinned.isNotEmpty) ...[
-                  const _SectionHeader(
+                  _SectionHeader(
                     icon: Symbols.star_rounded,
-                    title: 'Favorites',
+                    title: 'favorites'.tr(),
                   ),
                   const SizedBox(height: SolSpace.sm),
                   Wrap(
@@ -137,15 +143,13 @@ class TodayFocusPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: SolSpace.section),
                 ],
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Symbols.mail_rounded,
-                  title: 'Priority & Unread Mail',
+                  title: 'priorityAndUnreadMail'.tr(),
                 ),
                 const SizedBox(height: SolSpace.sm),
                 if (unreadMail.isEmpty)
-                  const _EmptySectionCard(
-                    message: 'Inbox zero — no unread threads right now.',
-                  )
+                  _EmptySectionCard(message: 'inboxZero'.tr())
                 else
                   for (final thread in unreadMail) ...[
                     EntityCard(
@@ -160,22 +164,22 @@ class TodayFocusPage extends ConsumerWidget {
                             thread.latestMessage.from?.name ??
                             thread.latestMessage.from?.address ??
                             thread.participants.firstOrNull,
-                        status: '${thread.unreadCount} unread',
+                        status: 'unreadCount'.tr(
+                          namedArgs: {'count': '${thread.unreadCount}'},
+                        ),
                         metadata: {'threadId': thread.id},
                       ),
                     ),
                     const SizedBox(height: SolSpace.sm),
                   ],
                 const SizedBox(height: SolSpace.section),
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Symbols.check_box_rounded,
-                  title: 'Open Tasks',
+                  title: 'openTasks'.tr(),
                 ),
                 const SizedBox(height: SolSpace.sm),
                 if (openTasks.isEmpty)
-                  const _EmptySectionCard(
-                    message: 'No open tasks in this workspace.',
-                  )
+                  _EmptySectionCard(message: 'noOpenTasks'.tr())
                 else
                   for (final task in openTasks) ...[
                     EntityCard(
@@ -185,15 +189,13 @@ class TodayFocusPage extends ConsumerWidget {
                     const SizedBox(height: SolSpace.sm),
                   ],
                 const SizedBox(height: SolSpace.section),
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Symbols.article_rounded,
-                  title: 'Pages',
+                  title: 'pages'.tr(),
                 ),
                 const SizedBox(height: SolSpace.sm),
                 if (pages.isEmpty)
-                  const _EmptySectionCard(
-                    message: 'No pages yet. Tap + to create your first page.',
-                  )
+                  _EmptySectionCard(message: 'noPagesYetCreate'.tr())
                 else
                   for (final page in pages) ...[
                     EntityCard(

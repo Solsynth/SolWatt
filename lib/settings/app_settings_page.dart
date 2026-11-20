@@ -157,10 +157,8 @@ class AppSettingsHomePage extends ConsumerWidget {
               SwitchListTile(
                 contentPadding: _kSettingsTilePadding,
                 secondary: const Icon(Symbols.blur_on_rounded),
-                title: const Text('Liquid Glass Effects'),
-                subtitle: const Text(
-                  'Use translucent glass material on floating pills and chrome',
-                ),
+                title: Text('liquidGlassEffects'.tr()),
+                subtitle: Text('liquidGlassEffectsDescription'.tr()),
                 value: ref.watch(appGlassEffectsProvider),
                 onChanged: (value) => ref
                     .read(appGlassEffectsProvider.notifier)

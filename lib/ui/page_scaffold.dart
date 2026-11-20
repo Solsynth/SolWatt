@@ -1,4 +1,5 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -330,14 +331,14 @@ class PageError extends StatelessWidget {
   Widget build(BuildContext context) {
     return EmptyState(
       icon: Symbols.error,
-      title: 'Something went wrong',
+      title: 'somethingWentWrong'.tr(),
       message: message,
       action: onRetry == null
           ? null
           : OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Symbols.refresh, size: 18),
-              label: const Text('Try again'),
+              label: Text('tryAgain'.tr()),
             ),
     );
   }

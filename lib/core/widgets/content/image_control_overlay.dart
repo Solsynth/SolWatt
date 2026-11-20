@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gap/gap.dart';
@@ -66,14 +67,14 @@ class ImageControlOverlay extends HookWidget {
     final controlButtons = <Widget>[
       _toolButton(
         icon: Icons.remove,
-        tooltip: 'Zoom out',
+        tooltip: 'zoomOut'.tr(),
         onPressed: () {
           photoViewController.scale = (photoViewController.scale ?? 1) - 0.05;
         },
       ),
       _toolButton(
         icon: Icons.add,
-        tooltip: 'Zoom in',
+        tooltip: 'zoomIn'.tr(),
         onPressed: () {
           photoViewController.scale = (photoViewController.scale ?? 1) + 0.05;
         },
@@ -81,7 +82,7 @@ class ImageControlOverlay extends HookWidget {
       const Gap(2),
       _toolButton(
         icon: Icons.rotate_left,
-        tooltip: 'Rotate left',
+        tooltip: 'rotateLeft'.tr(),
         onPressed: () {
           rotation.value = (rotation.value - 1) % 4;
           photoViewController.rotation = rotation.value * -math.pi / 2;
@@ -89,7 +90,7 @@ class ImageControlOverlay extends HookWidget {
       ),
       _toolButton(
         icon: Icons.rotate_right,
-        tooltip: 'Rotate right',
+        tooltip: 'rotateRight'.tr(),
         onPressed: () {
           rotation.value = (rotation.value + 1) % 4;
           photoViewController.rotation = rotation.value * -math.pi / 2;
@@ -99,7 +100,7 @@ class ImageControlOverlay extends HookWidget {
         const Gap(2),
         _toolButton(
           icon: showExifInfo ? Icons.info : Icons.info_outline,
-          tooltip: showExifInfo ? 'Hide EXIF' : 'Show EXIF',
+          tooltip: showExifInfo ? 'hideExif'.tr() : 'showExif'.tr(),
           selected: showExifInfo,
           onPressed: onToggleExif,
         ),
@@ -109,10 +110,8 @@ class ImageControlOverlay extends HookWidget {
     final qualityButton = _toolButton(
       icon: showOriginal ? Symbols.hd : Symbols.sd,
       tooltip: isQualityLoading
-          ? 'Loading…'
-          : (showOriginal
-                ? 'Original quality — HD'
-                : 'Compressed quality — SD'),
+          ? 'loading'.tr()
+          : (showOriginal ? 'originalQuality'.tr() : 'compressedQuality'.tr()),
       selected: showOriginal,
       onPressed: isQualityLoading ? null : onToggleQuality,
       iconWidget: isQualityLoading

@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:dio/dio.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
@@ -36,17 +37,17 @@ class FlywheelPage extends ConsumerWidget {
     final workspace = ref.watch(selectedWorkspaceProvider);
     return workspace.when(
       loading: () =>
-          const PageScaffold(title: 'Flywheel', child: PageLoading()),
+          PageScaffold(title: 'flywheel'.tr(), child: const PageLoading()),
       error: (error, _) => PageScaffold(
-        title: 'Flywheel',
+        title: 'flywheel'.tr(),
         child: PageError(message: wattApiErrorMessage(error)),
       ),
       data: (value) => value == null
-          ? const PageScaffold(
-              title: 'Flywheel',
+          ? PageScaffold(
+              title: 'flywheel'.tr(),
               child: EmptyState(
                 icon: Symbols.workspaces,
-                title: 'Select a workspace',
+                title: 'selectWorkspaceTitle'.tr(),
               ),
             )
           : _FlywheelWorkspacePage(workspaceId: value.id),
@@ -92,11 +93,10 @@ class _FlywheelWorkspacePageState
 
   @override
   Widget build(BuildContext context) => PageScaffold(
-    title: 'Flywheel',
-    subtitle:
-        'Securely sync WattEngine productivity apps, like MaidKit, across your devices.',
+    title: 'flywheel'.tr(),
+    subtitle: 'flywheelSubtitle'.tr(),
     action: IconButton.filledTonal(
-      tooltip: 'Refresh',
+      tooltip: 'refresh'.tr(),
       onPressed: () => setState(_reload),
       icon: const Icon(Symbols.refresh),
     ),
@@ -113,25 +113,24 @@ class _FlywheelWorkspacePageState
           return EmptyState(
             icon: denied ? Symbols.lock : Symbols.error,
             title: denied
-                ? 'Workspace owner access required'
-                : 'Could not load Flywheel',
+                ? 'flywheelOwnerRequired'.tr()
+                : 'flywheelLoadFailed'.tr(),
             message: denied
-                ? 'Only the workspace owner can manage encrypted saves and view their audit trail.'
+                ? 'flywheelOwnerRequiredDetail'.tr()
                 : wattApiErrorMessage(snapshot.error!),
             action: OutlinedButton.icon(
               onPressed: () => setState(_reload),
               icon: const Icon(Symbols.refresh),
-              label: const Text('Retry'),
+              label: Text('retry'.tr()),
             ),
           );
         }
         final apps = snapshot.data ?? const [];
         if (apps.isEmpty) {
-          return const EmptyState(
+          return EmptyState(
             icon: Symbols.sync,
-            title: 'No Flywheel saves',
-            message:
-                'Apps will appear here after they upload an encrypted save for this workspace.',
+            title: 'flywheelNoSaves'.tr(),
+            message: 'flywheelNoSavesHint'.tr(),
           );
         }
         final wide = MediaQuery.sizeOf(context).width >= 900;
@@ -163,7 +162,13 @@ class _FlywheelWorkspacePageState
                 leading: _FlywheelProductIcon(product: product),
                 title: Text(product?.name ?? app.appId),
                 subtitle: Text(
-                  '${app.blobCount} saves · ${app.retainedRevisionCountTotal} retained revisions · ${_bytes(app.retainedBytes)}',
+                  'flywheelSavesSummaryRetained'.tr(
+                    namedArgs: {
+                      'saves': '${app.blobCount}',
+                      'revisions': '${app.retainedRevisionCountTotal}',
+                      'size': _bytes(app.retainedBytes),
+                    },
+                  ),
                 ),
                 trailing: const Icon(Symbols.chevron_right),
                 onTap: () => _openApp(app),
@@ -228,7 +233,12 @@ class _FlywheelAppCard extends StatelessWidget {
               ],
               const Spacer(),
               Text(
-                '${app.blobCount} saves · ${app.retainedRevisionCountTotal} revisions',
+                'flywheelSavesSummary'.tr(
+                  namedArgs: {
+                    'saves': '${app.blobCount}',
+                    'revisions': '${app.retainedRevisionCountTotal}',
+                  },
+                ),
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 2),
@@ -316,11 +326,11 @@ class _FlywheelAppSheetState extends ConsumerState<FlywheelAppSheet> {
 
   Future<void> _delete(FlywheelOwnerBlob blob) async {
     final confirmed = await showConfirmAlert(
-      'This permanently removes every retained encrypted revision. Apps cannot restore it.',
-      'Delete this Flywheel save?',
+      'flywheelDeleteSaveDetail'.tr(),
+      'flywheelDeleteSaveTitle'.tr(),
       icon: Symbols.delete,
       isDanger: true,
-      confirmLabel: 'Delete',
+      confirmLabel: 'delete'.tr(),
     );
     if (!confirmed || !mounted) {
       return;
@@ -337,7 +347,7 @@ class _FlywheelAppSheetState extends ConsumerState<FlywheelAppSheet> {
         return;
       }
       setState(_reload);
-      _notify('Flywheel save deleted.');
+      _notify('flywheelSaveDeleted'.tr());
     } catch (error) {
       if (mounted) {
         _notify(wattApiErrorMessage(error));
@@ -375,10 +385,10 @@ class _FlywheelAppSheetState extends ConsumerState<FlywheelAppSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const TabBar(
+                TabBar(
                   tabs: [
-                    Tab(text: 'Saves'),
-                    Tab(text: 'Audit'),
+                    Tab(text: 'flywheelSaves'.tr()),
+                    Tab(text: 'flywheelAudit'.tr()),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -407,7 +417,10 @@ class _BlobList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (blobs.isEmpty) {
-      return const EmptyState(icon: Symbols.sync, title: 'No saves');
+      return EmptyState(
+        icon: Symbols.sync,
+        title: 'flywheelNoEncryptedSaves'.tr(),
+      );
     }
     return ListView.separated(
       padding: EdgeInsets.zero,
@@ -421,10 +434,16 @@ class _BlobList extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           subtitle: Text(
-            'Revision ${blob.currentRevision} · ${blob.retainedRevisionCount} retained · ${_bytes(blob.retainedBytes)}',
+            'flywheelRevisionSummary'.tr(
+              namedArgs: {
+                'revision': '${blob.currentRevision}',
+                'retained': '${blob.retainedRevisionCount}',
+                'size': _bytes(blob.retainedBytes),
+              },
+            ),
           ),
           trailing: IconButton(
-            tooltip: 'Delete encrypted save',
+            tooltip: 'flywheelDeleteSave'.tr(),
             onPressed: () => onDelete(blob),
             icon: Icon(
               Symbols.delete,
@@ -444,7 +463,10 @@ class _AuditList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
-      return const EmptyState(icon: Symbols.history, title: 'No audit events');
+      return EmptyState(
+        icon: Symbols.history,
+        title: 'flywheelNoAuditEvents'.tr(),
+      );
     }
     return ListView.separated(
       itemCount: entries.length,
@@ -453,14 +475,21 @@ class _AuditList extends StatelessWidget {
         final entry = entries[index];
         final revision = entry.revision == null
             ? ''
-            : ' · revision ${entry.revision}';
+            : 'flywheelRevisionSuffix'.tr(
+                namedArgs: {'revision': '${entry.revision}'},
+              );
         return ListTile(
           leading: Icon(
             entry.action == 'blob.deleted' ? Symbols.delete : Symbols.upload,
           ),
           title: Text('${entry.action}$revision'),
           subtitle: Text(
-            'User ${entry.actorAccountId}\n${entry.createdAt.toLocal()}',
+            'flywheelAuditActor'.tr(
+              namedArgs: {
+                'id': entry.actorAccountId,
+                'time': '${entry.createdAt.toLocal()}',
+              },
+            ),
           ),
           isThreeLine: true,
         );

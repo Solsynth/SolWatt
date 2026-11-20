@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -8,12 +9,18 @@ enum WorkspaceDomain {
   pages,
   drive;
 
-  String get label => switch (this) {
-    WorkspaceDomain.mail => 'Mail',
-    WorkspaceDomain.todo => 'Todo',
-    WorkspaceDomain.pages => 'Pages',
-    WorkspaceDomain.drive => 'Drive',
+  /// Translation key for the domain's name. Callers render it through
+  /// `.tr()` so the label follows the app language.
+  String get labelKey => switch (this) {
+    WorkspaceDomain.mail => 'mail',
+    WorkspaceDomain.todo => 'todo',
+    WorkspaceDomain.pages => 'pages',
+    WorkspaceDomain.drive => 'drive',
   };
+
+  /// The domain's name in the current language. Kept as a getter so call
+  /// sites that already render [label] do not have to thread a context.
+  String get label => labelKey.tr();
 
   String get filterChipLabel => switch (this) {
     WorkspaceDomain.mail => 'in:mail',
@@ -51,15 +58,18 @@ enum WorkspaceLens {
   profile,
   settings;
 
-  String get label => switch (this) {
-    WorkspaceLens.today => 'Today',
-    WorkspaceLens.mail => 'Mail',
-    WorkspaceLens.todo => 'Todo',
-    WorkspaceLens.drive => 'Drive',
-    WorkspaceLens.flywheel => 'Flywheel',
-    WorkspaceLens.profile => 'Profile',
-    WorkspaceLens.settings => 'Settings',
+  /// Translation key for the lens' name.
+  String get labelKey => switch (this) {
+    WorkspaceLens.today => 'today',
+    WorkspaceLens.mail => 'mail',
+    WorkspaceLens.todo => 'todo',
+    WorkspaceLens.drive => 'drive',
+    WorkspaceLens.flywheel => 'flywheel',
+    WorkspaceLens.profile => 'profile',
+    WorkspaceLens.settings => 'settings',
   };
+
+  String get label => labelKey.tr();
 
   IconData get icon => switch (this) {
     WorkspaceLens.today => Symbols.star_rounded,

@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,7 +76,7 @@ class ContextualSidebar extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SectionLabel(label: 'Favorites'),
+                  _SectionLabel(label: 'favorites'.tr()),
                   if (favorites.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -83,7 +84,7 @@ class ContextualSidebar extends ConsumerWidget {
                         vertical: SolSpace.xs,
                       ),
                       child: Text(
-                        'Star a file, folder, page, thread, or board to keep it here.',
+                        'noFavoritesHint'.tr(),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -106,7 +107,7 @@ class ContextualSidebar extends ConsumerWidget {
                             : null,
                         trailing: IconButton(
                           icon: const Icon(Symbols.star_rounded, size: 15),
-                          tooltip: 'Remove from Favorites',
+                          tooltip: 'removeFromFavorites'.tr(),
                           visualDensity: VisualDensity.compact,
                           onPressed: () => toggleFavoriteEntity(ref, item),
                         ),
@@ -126,7 +127,7 @@ class ContextualSidebar extends ConsumerWidget {
                             activeLens == WorkspaceLens.flywheel ||
                             activeLens == WorkspaceLens.profile ||
                             activeLens == WorkspaceLens.settings
-                        ? 'BROWSE'
+                        ? 'browse'.tr().toUpperCase()
                         : activeLens.label.toUpperCase(),
                   ),
                   const SizedBox(height: SolSpace.xs),
@@ -192,7 +193,7 @@ class ContextualSidebar extends ConsumerWidget {
             // Saving a mail attachment into Drive is a drop, so the drop
             // target is the row itself.
             _DriveDropRow(
-              label: 'All Files',
+              label: 'allFiles'.tr(),
               icon: Symbols.folder_rounded,
               onTap: () {
                 ref
@@ -203,7 +204,7 @@ class ContextualSidebar extends ConsumerWidget {
             ),
             if (recentDriveFiles.isNotEmpty) ...[
               const SizedBox(height: SolSpace.md),
-              _SectionLabel(label: 'RECENT'),
+              _SectionLabel(label: 'recent'.tr().toUpperCase()),
               for (final item in recentDriveFiles)
                 WorkspaceListRow(
                   compact: true,
@@ -245,7 +246,7 @@ class ContextualSidebar extends ConsumerWidget {
               ),
             if (recent.isNotEmpty) ...[
               const SizedBox(height: SolSpace.md),
-              _SectionLabel(label: 'RECENT'),
+              _SectionLabel(label: 'recent'.tr().toUpperCase()),
               for (final item in recent.take(5))
                 WorkspaceListRow(
                   compact: true,
@@ -358,7 +359,11 @@ class _DriveDropRow extends ConsumerWidget {
             .read(savedAttachmentIdsProvider.notifier)
             .markSaved(details.data.id);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved "${details.data.title}" to Drive')),
+          SnackBar(
+            content: Text(
+              'savedToDrive'.tr(namedArgs: {'name': details.data.title}),
+            ),
+          ),
         );
       },
       builder: (context, candidateData, rejectedData) {
@@ -418,7 +423,7 @@ class _IdeaskTree extends ConsumerWidget {
       return Padding(
         padding: const EdgeInsets.all(SolSpace.sm),
         child: Text(
-          'Select a workspace to see its folders.',
+          'selectWorkspaceToSeeFolders'.tr(),
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -439,7 +444,7 @@ class _IdeaskTree extends ConsumerWidget {
       loading: () => Padding(
         padding: const EdgeInsets.all(SolSpace.sm),
         child: Text(
-          'Loading folders…',
+          'loadingFolders'.tr(),
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -448,7 +453,7 @@ class _IdeaskTree extends ConsumerWidget {
       error: (error, _) => Padding(
         padding: const EdgeInsets.all(SolSpace.sm),
         child: Text(
-          'Could not load the tree.',
+          'couldNotLoadTree'.tr(),
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -468,7 +473,7 @@ class _IdeaskTree extends ConsumerWidget {
           return Padding(
             padding: const EdgeInsets.all(SolSpace.sm),
             child: Text(
-              'No folders or pages here yet.',
+              'noTreeNodes'.tr(),
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -482,7 +487,7 @@ class _IdeaskTree extends ConsumerWidget {
               WorkspaceListRow(
                 compact: true,
                 leading: const Icon(Symbols.arrow_upward, size: 16),
-                title: const Text('Up one level'),
+                title: Text('upOneLevel'.tr()),
                 onTap: () {
                   onCloseDrawer?.call();
                   ref.read(ideaskSelectionProvider.notifier).openRoot();
@@ -550,7 +555,7 @@ class _IdeaskTreeRow extends ConsumerWidget {
       onLongPress: () =>
           ref.read(favoritesProvider.notifier).toggleFavorite(entity),
       trailing: IconButton(
-        tooltip: favorite ? 'Remove from Favorites' : 'Add to Favorites',
+        tooltip: favorite ? 'removeFromFavorites'.tr() : 'addToFavorites'.tr(),
         visualDensity: VisualDensity.compact,
         icon: Icon(
           favorite ? Symbols.star_rounded : Symbols.star_border_rounded,

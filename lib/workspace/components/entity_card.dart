@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -209,7 +210,7 @@ class EntityCard extends ConsumerWidget {
             onSaveToDrive?.call();
           },
           icon: const Icon(Symbols.cloud_upload_rounded, size: 16),
-          label: const Text('Save to Drive'),
+          label: Text('saveToDrive'.tr()),
           style: FilledButton.styleFrom(
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -222,7 +223,7 @@ class EntityCard extends ConsumerWidget {
         IconButton(
           onPressed: onDownloadOrPreview,
           icon: const Icon(Symbols.download_rounded, size: 18),
-          tooltip: 'Download',
+          tooltip: 'download'.tr(),
           visualDensity: VisualDensity.compact,
         ),
       );
@@ -232,7 +233,7 @@ class EntityCard extends ConsumerWidget {
       IconButton(
         onPressed: () => ref.read(peekProvider.notifier).open(entity),
         icon: const Icon(Symbols.dock_to_right_rounded, size: 18),
-        tooltip: 'Open in Peek',
+        tooltip: 'openInPeek'.tr(),
         visualDensity: VisualDensity.compact,
       ),
     );
