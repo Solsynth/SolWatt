@@ -11,6 +11,7 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/mail/mail_screen.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/theme.dart';
@@ -132,7 +133,9 @@ Future<void> _pumpMailList(
         ),
         threadProvider.overrideWith((ref, id) async => [email]),
         emailProvider.overrideWith((ref, id) async => email),
-        broadsProvider.overrideWith((ref) async => const <Broad>[]),
+        ideaskBrowserProvider.overrideWith(
+            (ref) async => const IdeaskBrowserState(),
+          ),
         wattEngineClientProvider.overrideWith((ref) => client),
         mailAddressSuggestionsProvider.overrideWith((ref, request) async {
           if (request.query.toLowerCase() != 'alice') return const [];

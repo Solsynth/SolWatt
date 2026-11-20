@@ -4,12 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
@@ -101,7 +101,9 @@ void main() {
           mailCredentialsProvider.overrideWith(
             (ref) async => const <MailCredential>[],
           ),
-          broadsProvider.overrideWith((ref) async => const <Broad>[]),
+          ideaskBrowserProvider.overrideWith(
+            (ref) async => const IdeaskBrowserState(),
+          ),
           realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
           websocketStateProvider.overrideWith(_ConnectedWebSocket.new),
         ],
@@ -135,6 +137,7 @@ void main() {
 
     expect(await storage.read(key: 'selected_workspace_id'), _workspace.id);
     expect(find.byKey(shellScaffoldKey), findsOneWidget);
-    expect(find.byIcon(Symbols.menu), findsOneWidget);
+    // A phone shell leads with its lens header rather than the desktop rail.
+    expect(find.text('Today / Focus'), findsWidgets);
   });
 }

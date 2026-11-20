@@ -39,8 +39,9 @@ enum WorkspaceDomain {
 
 /// Top-level lenses inside [AdaptiveWorkspaceShell].
 ///
-/// Ideask serves boards and pages from one tree, so they share one lens: the
-/// Todo lens lists both and opens either as its own document.
+/// Ideask serves folders, pages, collections and tasks from one tree, so they
+/// share one lens: the Todo lens browses that tree and opens a document above
+/// itself.
 enum WorkspaceLens {
   today,
   mail,
@@ -81,7 +82,7 @@ enum WorkspaceLens {
   String get routeName => switch (this) {
     WorkspaceLens.today => 'TodayFocusRoute',
     WorkspaceLens.mail => 'MailRoute',
-    WorkspaceLens.todo => 'BoardsRoute',
+    WorkspaceLens.todo => 'IdeaskLensRoute',
     WorkspaceLens.drive => 'FileListRoute',
     WorkspaceLens.flywheel => 'FlywheelRoute',
     WorkspaceLens.profile => 'ProfileRoute',

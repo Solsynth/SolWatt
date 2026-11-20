@@ -4,8 +4,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:logging/logging.dart';
 // The SDK ships its own gateway frame type; this app's realtime bridge talks
 // to its local WebSocketService, whose frames are solwatt's WebSocketPacket.
-import 'package:solar_network_sdk/solar_network_sdk.dart'
-    hide WebSocketPacket;
+import 'package:solar_network_sdk/solar_network_sdk.dart' hide WebSocketPacket;
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/notifications/notifications.dart';
 import 'package:solwatt/websocket.dart';
@@ -13,7 +13,7 @@ import 'package:solwatt/websocket.dart';
 final _log = Logger('SolWatt.Realtime');
 
 /// Keeps the gateway websocket connected while a session exists, and routes
-/// packets into Riverpod invalidations (notifications + Ideask tasks/boards).
+/// packets into Riverpod invalidations (notifications and the Ideask tree).
 ///
 /// Watch this from the app shell so the bridge stays alive for the signed-in
 /// session.
@@ -49,7 +49,7 @@ class RealtimeBridge {
   final WebSocketService _ws;
   StreamSubscription<WebSocketPacket>? _packetSub;
   final Map<String, Timer> _taskDebounce = {};
-  Timer? _boardsDebounce;
+  Timer? _treeDebounce;
   Timer? _notificationDebounce;
   Timer? _mailDebounce;
 
@@ -69,7 +69,7 @@ class RealtimeBridge {
       timer.cancel();
     }
     _taskDebounce.clear();
-    _boardsDebounce?.cancel();
+    _treeDebounce?.cancel();
     _notificationDebounce?.cancel();
     _mailDebounce?.cancel();
     await _ws.disconnect();
@@ -148,90 +148,59 @@ class RealtimeBridge {
 
   void _handleIdeask(String type, Map<String, dynamic>? data) {
     final event = type.substring('ideask.'.length);
-    final broadId = _extractBroadId(data);
 
     switch (event) {
+      // Tasks and their comments change what a list shows, not the tree.
       case 'task_created':
       case 'task_updated':
       case 'task_assigned':
       case 'task_due_reminder':
-        if (broadId != null && broadId.isNotEmpty) {
-          _debounceTaskRefresh(broadId);
-        } else {
-          // Fall back: refresh all currently cached task families is not
-          // possible; boards list is enough for navigation.
-          _debounceBoardsRefresh();
-        }
-      case 'broad_created':
-      case 'broad_updated':
-        _debounceBoardsRefresh();
+        _debounceTaskRefresh();
+      // The tree's own nodes: folders, pages, collections and their views.
+      case 'folder_created':
+      case 'folder_updated':
+      case 'folder_deleted':
+      case 'page_created':
+      case 'page_updated':
+      case 'page_deleted':
+      case 'collection_created':
+      case 'collection_updated':
+      case 'collection_deleted':
+      case 'view_created':
+      case 'view_updated':
+      case 'view_deleted':
+        _debounceTreeRefresh();
+      // A body save only changes the document being read; the page's own
+      // provider is invalidated by the save it made. Nothing to fan out.
+      case 'page_body_updated':
+        _debounceTreeRefresh();
+      // A collection row is a page: the collection's query and the page both
+      // change.
+      case 'collection_row_changed':
+        _debounceTaskRefresh();
+        _debounceTreeRefresh();
       default:
         _log.fine('Unhandled ideask event: $event');
     }
   }
 
-  void _debounceTaskRefresh(String broadId) {
-    _taskDebounce[broadId]?.cancel();
-    _taskDebounce[broadId] = Timer(const Duration(milliseconds: 250), () {
-      _taskDebounce.remove(broadId);
-      _log.info('Refreshing tasks for board $broadId');
+  void _debounceTaskRefresh() {
+    _taskDebounce['*']?.cancel();
+    _taskDebounce['*'] = Timer(const Duration(milliseconds: 250), () {
+      _taskDebounce.remove('*');
+      _log.info('Refreshing Ideask tasks');
       _ref.invalidate(tasksProvider);
     });
   }
 
-  void _debounceBoardsRefresh() {
-    _boardsDebounce?.cancel();
-    _boardsDebounce = Timer(const Duration(milliseconds: 250), () {
-      _log.info('Refreshing boards list');
-      _ref.invalidate(broadsProvider);
+  void _debounceTreeRefresh() {
+    _treeDebounce?.cancel();
+    _treeDebounce = Timer(const Duration(milliseconds: 250), () {
+      _log.info('Refreshing the Ideask tree');
+      _ref.invalidate(ideaskTreeProvider);
+      _ref.invalidate(ideaskBrowserProvider);
     });
   }
-}
-
-/// Walks nested maps to find a board id from Ideask payloads.
-///
-/// Supports both the clean payload shape and the double-wrapped packet that
-/// RealtimeDeliveryService currently publishes (full packet JSON as `data`).
-String? _extractBroadId(Map<String, dynamic>? root) {
-  if (root == null) return null;
-
-  String? fromMap(Map<dynamic, dynamic> map) {
-    for (final key in const ['broad_id', 'broadId', 'board_id', 'boardId']) {
-      final value = map[key];
-      if (value != null && value.toString().isNotEmpty) {
-        return value.toString();
-      }
-    }
-    final broad = map['broad'];
-    if (broad is Map) {
-      final id = broad['id'];
-      if (id != null && id.toString().isNotEmpty) return id.toString();
-    }
-    final task = map['task'];
-    if (task is Map) {
-      final nested = fromMap(task);
-      if (nested != null) return nested;
-    }
-    return null;
-  }
-
-  // Flatten possible wraps: data / data.data / nested type envelope.
-  final queue = <Map<dynamic, dynamic>>[root];
-  final seen = <Map<dynamic, dynamic>>{};
-  while (queue.isNotEmpty) {
-    final current = queue.removeAt(0);
-    if (!seen.add(current)) continue;
-
-    final hit = fromMap(current);
-    if (hit != null) return hit;
-
-    for (final value in current.values) {
-      if (value is Map) {
-        queue.add(value);
-      }
-    }
-  }
-  return null;
 }
 
 /// Prefer the innermost map that looks like a domain payload.

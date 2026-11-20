@@ -4,6 +4,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'boards_harness.dart';
 
+/// A refused task create still reports the reason the server gave, in the
+/// reader's own words: the editor sheet closes only after the write succeeds.
 void main() {
   testWidgets('a refused task create reports the reason the server gave', (
     tester,
@@ -15,12 +17,21 @@ void main() {
       client: RejectingTaskClient(),
     );
     await openBoardsTab(tester);
-    await tester.tap(find.text('Roadmap'));
+
+    await tester.tap(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Roadmap').last,
+          matching: find.byType(ListTile),
+        ),
+        matching: find.byIcon(Symbols.task_alt),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Symbols.add_task));
     await tester.pumpAndSettle();
-    // The sheet owns several fields and the board behind it keeps its search
+    // The sheet owns several fields and the list behind it keeps its search
     // box, so scope the name field to the sheet itself.
     await tester.enterText(
       find
@@ -31,7 +42,7 @@ void main() {
           .first,
       'Ship the release',
     );
-    final save = find.widgetWithText(FilledButton, 'Save');
+    final save = find.widgetWithText(FilledButton, 'Create task');
     await tester.ensureVisible(save);
     await tester.pumpAndSettle();
     await tester.tap(save);

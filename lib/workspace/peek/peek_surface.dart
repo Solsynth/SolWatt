@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
@@ -133,7 +133,10 @@ class _PeekBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final page = entity.domain == WorkspaceDomain.pages
-        ? ref.watch(pageProvider(entity.id))
+        ? ref.watch(ideaskPageProvider(entity.id)).value
+        : null;
+    final pageBody = entity.domain == WorkspaceDomain.pages
+        ? ref.watch(ideaskPageBodyProvider(entity.id)).value
         : null;
 
     return Column(
@@ -141,9 +144,8 @@ class _PeekBody extends ConsumerWidget {
       children: [
         EntityCard(
           entity: entity,
-          onToggleComplete:
-              entity.domain == WorkspaceDomain.todo &&
-                  entity.metadata['isBoard'] != true
+          onToggleComplete: entity.domain == WorkspaceDomain.todo &&
+                  entity.metadata[IdeaskKind.task] == true
               ? () async {
                   final nextCompleted = !entity.isCompleted;
                   final updated = entity.copyWith(
@@ -151,19 +153,18 @@ class _PeekBody extends ConsumerWidget {
                     status: nextCompleted ? 'Completed' : 'Open',
                   );
                   ref.read(peekProvider.notifier).updateCurrentEntity(updated);
-                  final broadId = entity.metadata['broadId'] as String?;
                   try {
-                    await ref
+                    final task = await ref
                         .read(wattEngineClientProvider)
-                        .updateTask(
-                          entity.id,
-                          WorkTaskDraft(name: entity.title),
+                        .getTask(entity.id);
+                    await ref
+                        .read(ideaskActionsProvider)
+                        .setTaskStatus(
+                          task,
+                          nextCompleted
+                              ? TaskStatus.completed
+                              : TaskStatus.open,
                         );
-                    if (broadId != null) {
-                      ref.invalidate(
-                        tasksProvider(TaskListRequest(broadId: broadId)),
-                      );
-                    }
                   } catch (_) {
                     // Revert optimistic state if network fails.
                     ref.read(peekProvider.notifier).updateCurrentEntity(entity);
@@ -175,8 +176,8 @@ class _PeekBody extends ConsumerWidget {
         if (entity.domain == WorkspaceDomain.mail) ...[
           _MailThreadPreview(threadId: entity.id),
         ] else if (entity.domain == WorkspaceDomain.todo &&
-            entity.metadata['isBoard'] == true) ...[
-          _BoardTasksPreview(broadId: entity.id),
+            entity.metadata[IdeaskKind.folder] == true) ...[
+          _FolderTasksPreview(folderId: entity.id),
         ] else if (entity.domain == WorkspaceDomain.pages) ...[
           Container(
             width: double.infinity,
@@ -185,23 +186,20 @@ class _PeekBody extends ConsumerWidget {
               color: scheme.surfaceContainer,
               borderRadius: BorderRadius.circular(SolRadius.sm),
             ),
-            child: page?.when(
-                  // A still placeholder: the peek must not animate while the
-                  // page loads, or a widget test can never settle.
-                  loading: () => Text(
+            child: page == null
+                // A still placeholder: the peek must not animate while the
+                // page loads, or a widget test can never settle.
+                ? Text(
                     'Loading page…',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
-                  ),
-                  error: (error, _) => const Text('Could not load this page.'),
-                  data: (broad) => MarkdownTextContent(
-                    content: (broad?.content ?? '').trim().isEmpty
+                  )
+                : MarkdownTextContent(
+                    content: (pageBody?.contentMd ?? '').trim().isEmpty
                         ? 'This page is empty.'
-                        : broad!.content!.trim(),
+                        : pageBody!.contentMd.trim(),
                   ),
-                ) ??
-                const SizedBox.shrink(),
           ),
         ] else if (entity.subtitle != null && entity.subtitle!.isNotEmpty) ...[
           Container(
@@ -288,15 +286,15 @@ class _MailThreadPreview extends ConsumerWidget {
   }
 }
 
-class _BoardTasksPreview extends ConsumerWidget {
-  final String broadId;
+class _FolderTasksPreview extends ConsumerWidget {
+  final String folderId;
 
-  const _BoardTasksPreview({required this.broadId});
+  const _FolderTasksPreview({required this.folderId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tasksAsync = ref.watch(
-      tasksProvider(TaskListRequest(broadId: broadId)),
+      tasksProvider(TaskListRequest(folderId: folderId)),
     );
     return tasksAsync.when(
       loading: () => const Center(
@@ -311,15 +309,7 @@ class _BoardTasksPreview extends ConsumerWidget {
           for (final task in tasks.take(8)) ...[
             EntityCard(
               compact: true,
-              entity: WorkspaceEntityRef(
-                id: task.id,
-                domain: WorkspaceDomain.todo,
-                title: task.name,
-                subtitle: task.description,
-                isCompleted: task.completedAt != null,
-                status: task.completedAt != null ? 'Completed' : 'Open',
-                metadata: {'broadId': broadId, 'taskId': task.id},
-              ),
+              entity: ideaskEntityRefForTask(task, fallbackTitle: null),
             ),
             const SizedBox(height: SolSpace.xs),
           ],

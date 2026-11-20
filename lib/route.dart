@@ -2,7 +2,9 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import 'package:solwatt/boards/boards_screen.dart';
+import 'package:solwatt/ideask/ideask_page.dart';
+import 'package:solwatt/ideask/page_doc_page.dart';
+import 'package:solwatt/ideask/task_list_page.dart';
 import 'package:solwatt/drive/files/file_detail.dart';
 import 'package:solwatt/drive/files/file_list.dart';
 import 'package:solwatt/flywheel/flywheel_page.dart';
@@ -10,7 +12,6 @@ import 'package:solwatt/gate/gate_page.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/mail/mail_settings_page.dart';
 import 'package:solwatt/main.dart';
-import 'package:solwatt/pages/pages_screen.dart';
 import 'package:solwatt/settings/about_page.dart';
 import 'package:solwatt/settings/app_settings_page.dart';
 import 'package:solwatt/workspace/today_focus_page.dart';
@@ -48,15 +49,16 @@ class AppRouter extends RootStackRouter {
             AutoRoute(page: MailDetailRoute.page, path: ':id'),
           ],
         ),
-        // The boards tab owns a nested stack: the board list is the root and
-        // a board or a page is pushed on top of it. Boards and pages come from
-        // one Ideask tree, so they share one stack and one Back path.
+        // The Todo tab owns a nested stack: the Ideask browser is the root and
+        // a page, a folder's task list or a collection is pushed on top of it.
+        // They come from one tree, so they share one stack and one Back path.
         AutoRoute(
-          page: BoardsRoute.page,
+          page: IdeaskLensRoute.page,
           children: [
-            AutoRoute(page: BoardsListRoute.page, path: '', initial: true),
-            AutoRoute(page: TaskBoardRoute.page, path: 'board/:broadId'),
-            AutoRoute(page: BroadDocRoute.page, path: 'page/:pageId'),
+            AutoRoute(page: IdeaskBrowserRoute.page, path: '', initial: true),
+            AutoRoute(page: DocRoute.page, path: 'page/:pageId'),
+            AutoRoute(page: TaskListRoute.page, path: 'tasks'),
+            AutoRoute(page: CollectionRoute.page, path: 'collection/:collectionId'),
           ],
         ),
         AutoRoute(page: FileListRoute.page),

@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
@@ -44,23 +44,33 @@ class TodayFocusPage extends ConsumerWidget {
             ?.items ??
         const <MailThread>[];
     final unreadMail = threads.where((t) => t.unreadCount > 0).take(5).toList();
-    // Pages are broads too, but a page holds no tasks: only boards are read
-    // for the open-task rollup.
-    final boards = ref.watch(taskBoardsProvider).value ?? const <Broad>[];
-    final openTasks = <({WorkTask task, Broad board})>[];
-    for (final board in boards) {
-      final tasks =
-          ref.watch(tasksProvider(TaskListRequest(broadId: board.id))).value ??
-          const <WorkTask>[];
-      for (final task in tasks) {
-        if (task.completedAt == null) {
-          openTasks.add((task: task, board: board));
-        }
-      }
-    }
-    final pages = (ref.watch(pagesProvider).value ?? const <Broad>[])
-        .take(5)
-        .toList();
+    // Tasks live in the workspace; one request is the whole open-task rollup.
+    final workspaceId = ref.watch(ideaskWorkspaceIdProvider);
+    final openTasks = workspaceId == null
+        ? const <WorkTask>[]
+        : (ref
+                      .watch(
+                        tasksProvider(
+                          TaskListRequest(
+                            workspaceId: workspaceId,
+                            filters: const TaskListFilters(
+                              status: TaskStatus.open,
+                            ),
+                          ),
+                        ),
+                      )
+                      .value ??
+                  const <WorkTask>[])
+              .take(8)
+              .toList(growable: false);
+    final pages =
+        (ref
+                    .watch(ideaskBrowserProvider)
+                    .value
+                    ?.pages ??
+                const <IdeaskPage>[])
+            .take(5)
+            .toList();
     final pinned = ref.watch(favoritesProvider);
 
     return Scaffold(
@@ -84,11 +94,11 @@ class TodayFocusPage extends ConsumerWidget {
                 onPressed: () async {
                   try {
                     final page = await ref
-                        .read(pageActionsProvider)
+                        .read(ideaskActionsProvider)
                         .createPage(title: 'Daily Note');
                     ref
                         .read(peekProvider.notifier)
-                        .open(broadToEntityRef(page));
+                        .open(ideaskEntityRefForPage(page));
                   } catch (error) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,23 +174,13 @@ class TodayFocusPage extends ConsumerWidget {
                 const SizedBox(height: SolSpace.sm),
                 if (openTasks.isEmpty)
                   const _EmptySectionCard(
-                    message: 'No open tasks across your boards.',
+                    message: 'No open tasks in this workspace.',
                   )
                 else
-                  for (final entry in openTasks.take(6)) ...[
+                  for (final task in openTasks) ...[
                     EntityCard(
                       compact: true,
-                      entity: WorkspaceEntityRef(
-                        id: entry.task.id,
-                        domain: WorkspaceDomain.todo,
-                        title: entry.task.name,
-                        subtitle: entry.task.description ?? entry.board.name,
-                        status: 'Open',
-                        metadata: {
-                          'broadId': entry.board.id,
-                          'taskId': entry.task.id,
-                        },
-                      ),
+                      entity: ideaskEntityRefForTask(task, fallbackTitle: null),
                     ),
                     const SizedBox(height: SolSpace.sm),
                   ],
@@ -196,7 +196,10 @@ class TodayFocusPage extends ConsumerWidget {
                   )
                 else
                   for (final page in pages) ...[
-                    EntityCard(compact: true, entity: broadToEntityRef(page)),
+                    EntityCard(
+                      compact: true,
+                      entity: ideaskEntityRefForPage(page),
+                    ),
                     const SizedBox(height: SolSpace.sm),
                   ],
               ],

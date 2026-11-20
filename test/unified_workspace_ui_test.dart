@@ -6,6 +6,7 @@ import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/shared/widgets/glass_effects.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
@@ -31,15 +32,20 @@ Future<ProviderContainer> _makeContainer() async {
       sharedPreferencesProvider.overrideWithValue(prefs),
       // Pages come from the Ideask tree now; these surfaces only need one
       // named page to search and mention.
-      broadsProvider.overrideWith(
-        (ref) async => const [
-          Broad(
-            id: 'page-q3',
-            name: 'Q3 Roadmap',
-            workspaceId: 'ws-1',
-            kind: Broad.kindPage,
-          ),
-        ],
+      ideaskBrowserProvider.overrideWith(
+        (ref) async => const IdeaskBrowserState(
+          pages: [
+            IdeaskPage(id: 'page-q3', title: 'Q3 Roadmap', workspaceId: 'ws-1'),
+          ],
+        ),
+      ),
+      selectedWorkspaceProvider.overrideWith(
+        (ref) async => const Workspace(
+          id: 'ws-1',
+          slug: 'ws-1',
+          name: 'Test Workspace',
+          isBundled: false,
+        ),
       ),
     ],
   );

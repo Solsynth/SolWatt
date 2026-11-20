@@ -1,4 +1,4 @@
-/// Fixtures and the app harness shared by the boards widget tests.
+/// Fixtures and the app harness shared by the Todo (Ideask) widget tests.
 ///
 /// The router is an app-wide singleton, so a test file can only pump one app;
 /// a scenario that needs its own router state lives in its own test file.
@@ -11,11 +11,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
@@ -29,15 +29,24 @@ const boardWorkspace = Workspace(
   isBundled: false,
 );
 
-const roadmapBoard = Broad(
-  id: 'board-a',
+const roadmapFolder = IdeaskFolder(
+  id: 'folder-a',
   name: 'Roadmap',
   description: 'What ships next',
   workspaceId: 'ws-1',
-  taskPrefix: 'RM',
 );
 
-const choresBoard = Broad(id: 'board-b', name: 'Chores', workspaceId: 'ws-1');
+const choresFolder = IdeaskFolder(
+  id: 'folder-b',
+  name: 'Chores',
+  workspaceId: 'ws-1',
+);
+
+const runbookPage = IdeaskPage(
+  id: 'page-1',
+  title: 'Runbook',
+  workspaceId: 'ws-1',
+);
 
 /// The Mail tab is where the shell opens, so the harness has to keep it
 /// rendering; its content is irrelevant here.
@@ -58,7 +67,8 @@ final boardTasks = [
     WorkTask(
       id: 'task-$index',
       name: 'Task $index',
-      broadId: 'board-a',
+      workspaceId: 'ws-1',
+      folderId: 'folder-a',
       taskKey: index == 6 ? null : 'RM-$index',
       description: index == 1 ? 'Notes with *emphasis*' : null,
       content: index == 1 ? '**Bold** detail\n\n- item' : null,
@@ -109,10 +119,31 @@ Future<void> pumpBoardsApp(
         mailSenderIndexProvider.overrideWith(
           (ref) async => const <String, MailAddressSuggestion>{},
         ),
-        broadsProvider.overrideWith(
-          (ref) async => const [roadmapBoard, choresBoard],
+        ideaskBrowserProvider.overrideWith(
+          (ref) async => const IdeaskBrowserState(
+            folders: [roadmapFolder, choresFolder],
+            pages: [runbookPage],
+          ),
+        ),
+        // Both folders start empty: the browser has nothing to fetch here.
+        ideaskFolderContentsProvider.overrideWith(
+          (ref, folderId) async => IdeaskFolderContents(
+            folder: folderId == roadmapFolder.id
+                ? roadmapFolder
+                : choresFolder,
+          ),
         ),
         tasksProvider.overrideWith((ref, request) async => boardTasks),
+        // The page editor and the task detail both read locally, so no surface
+        // spins on a network call the harness never makes.
+        ideaskPageProvider.overrideWith((ref, id) async => runbookPage),
+        ideaskPageBodyProvider.overrideWith(
+          (ref, id) async => const IdeaskPageBody(
+            pageId: 'page-1',
+            contentMd: '# Runbook\n\nShip it.',
+          ),
+        ),
+        taskCommentsProvider.overrideWith((ref, taskId) async => const []),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
         if (client != null) wattEngineClientProvider.overrideWithValue(client),
@@ -135,32 +166,41 @@ Future<void> pumpBoardsApp(
   );
 }
 
-/// The board tabs live behind the burger on every width (the rail shows mail
-/// folders while Mail is active).
+/// Switches to the Todo lens: the slim rail on wide screens, the lens switcher
+/// sheet on a phone.
 Future<void> openBoardsTab(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Symbols.menu));
+  final railButton = find.byTooltip('Todo — drop mail to create a task');
+  if (railButton.evaluate().isNotEmpty) {
+    await tester.tap(railButton);
+    await tester.pumpAndSettle();
+    return;
+  }
+  // Phone: the header's lens label opens the switcher sheet, where every lens
+  // is a row.
+  await tester.tap(find.text('Today').first);
   await tester.pumpAndSettle();
-  await tester.tap(
-    find.descendant(
-      of: find.byType(NavigationDrawer),
-      matching: find.text('Boards'),
-    ),
-  );
+  await tester.tap(find.text('Todo').last);
   await tester.pumpAndSettle();
 }
 
-/// Rejects task creation the way WattEngine does when the board is over its
+/// Rejects task creation the way WattEngine does when the workspace is over its
 /// plan quota: HTTP 400 with the reason in a plain-text body.
 class RejectingTaskClient extends WattEngineClient {
   RejectingTaskClient()
     : super(SolarNetworkAuthenticator(const FlutterSecureStorage()));
 
   static const reason =
-      'Workspace plan (0) allows max 100 tasks per broad. Current count: 118.';
+      'Workspace plan (0) allows max 100 tasks per workspace. Current count: 118.';
 
   @override
-  Future<WorkTask> createTask(String broadId, WorkTaskDraft task) async {
-    final options = RequestOptions(path: '/ideask/broads/$broadId/tasks');
+  Future<WorkTask> createTask({
+    required String workspaceId,
+    required WorkTaskDraft task,
+    String? folderId,
+  }) async {
+    final options = RequestOptions(
+      path: '/ideask/workspaces/$workspaceId/tasks',
+    );
     throw DioException(
       requestOptions: options,
       type: DioExceptionType.badResponse,

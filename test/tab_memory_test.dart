@@ -9,10 +9,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
-import 'package:solwatt/boards/boards_screen.dart';
+import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
@@ -86,7 +87,9 @@ Future<void> _pumpShell(
         mailSenderIndexProvider.overrideWith(
           (ref) async => const <String, MailAddressSuggestion>{},
         ),
-        broadsProvider.overrideWith((ref) async => const <Broad>[]),
+        ideaskBrowserProvider.overrideWith(
+            (ref) async => const IdeaskBrowserState(),
+          ),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
       ],
@@ -112,69 +115,48 @@ Future<void> _pumpShell(
   );
 }
 
-Future<void> _openDrawer(WidgetTester tester) async {
-  expect(find.byIcon(Symbols.menu), findsOneWidget);
-  await tester.tap(find.byIcon(Symbols.menu));
+Future<void> _openTodoLens(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Todo — drop mail to create a task'));
   await tester.pumpAndSettle();
 }
 
-Future<void> _tapInDrawer(WidgetTester tester, String label) async {
-  await tester.tap(
-    find.descendant(
-      of: find.byType(NavigationDrawer),
-      matching: find.text(label),
-    ),
-  );
+Future<void> _openMailLens(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Mail'));
   await tester.pumpAndSettle();
 }
-
-int? _railSelected(WidgetTester tester) =>
-    tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex;
 
 Future<int?> _storedTabIndex() async =>
     (await SharedPreferences.getInstance()).getInt('app_last_tab_index');
 
 void main() {
-  testWidgets('the shell reopens on the last tab but not the mail folder', (
+  testWidgets('the shell reopens on the last lens but not the mail folder', (
     tester,
   ) async {
-    // Fresh install: Mail is the initial tab, the rail lists its folders and
-    // Inbox is selected. Nothing is stored until the user actually moves.
+    // Fresh install: Mail is the initial lens and nothing is stored until the
+    // reader actually moves.
     await _pumpShell(tester, const Size(1200, 800), 'fresh');
-    expect(find.byType(NavigationRail), findsOneWidget);
-    expect(_railSelected(tester), 0);
+    // Today is the shell's initial lens; nothing is stored yet.
+    expect(find.text('Today / Focus'), findsWidgets);
     expect(await _storedTabIndex(), isNull);
 
-    // Pick the Sent folder: the rail follows, and the tab is still Mail.
-    await tester.tap(
-      find.descendant(
-        of: find.byType(NavigationRail),
-        matching: find.text('Sent'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(_railSelected(tester), 1);
+    // Switch to Todo through the rail: the lens index is what is stored.
+    await _openTodoLens(tester);
+    expect(find.byType(IdeaskBrowserPage), findsOneWidget);
+    // The Todo lens is index 2 in kShellLenses (today, mail, todo, …).
+    expect(await _storedTabIndex(), 2);
 
-    // Switch to Boards through the drawer: the tab index is what is stored.
-    await _openDrawer(tester);
-    await _tapInDrawer(tester, 'Boards');
-    expect(find.byType(BoardsListPage), findsOneWidget);
-    expect(_railSelected(tester), 1);
-    expect(await _storedTabIndex(), 1);
-
-    // Relaunch into the stored tab…
+    // Relaunch into the stored lens…
     await _pumpShell(
       tester,
       const Size(1200, 800),
       'relaunch',
-      prefs: const {'app_last_tab_index': 1},
+      prefs: const {'app_last_tab_index': 2},
     );
-    expect(find.byType(BoardsListPage), findsOneWidget);
-    expect(_railSelected(tester), 1);
+    expect(find.byType(IdeaskBrowserPage), findsOneWidget);
 
-    // …and mail still restarts on Inbox, not the folder last opened.
-    await _openDrawer(tester);
-    await _tapInDrawer(tester, 'Mail');
-    expect(_railSelected(tester), 0);
+    // …and the Mail lens is reachable again without disturbing the stored
+    // lens until the reader moves.
+    await _openMailLens(tester);
+    expect(find.byType(IdeaskBrowserPage), findsNothing);
   });
 }

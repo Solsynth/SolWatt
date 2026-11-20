@@ -77,7 +77,7 @@ Future<String> driveFolderPathOf(
 }
 
 /// Favorited drive files as workspace entities, so the shared Favorites section
-/// can render them beside mail threads, pages and boards.
+/// can render them beside mail threads, pages and folders.
 final driveFavoriteEntitiesProvider =
     FutureProvider.autoDispose<List<WorkspaceEntityRef>>((ref) async {
       final workspaceId = ref.watch(activeDriveWorkspaceIdProvider);

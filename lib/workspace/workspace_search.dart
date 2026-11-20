@@ -2,11 +2,15 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
 /// Searches across all four domains (Mail, Todo/Ideask, Pages, Drive)
 /// simultaneously using live LightBeam/WattEngine API providers.
+///
+/// Ideask is one tree: folders, collections and tasks answer under Todo and
+/// pages under Pages, so a reader who does not know which node holds what
+/// still finds it.
 List<WorkspaceEntityRef> searchWorkspaceEntities(
   WidgetRef ref,
   String query, {
@@ -22,13 +26,15 @@ List<WorkspaceEntityRef> searchWorkspaceEntities(
         (subtitle?.toLowerCase().contains(q) ?? false);
   }
 
-  // 1. Pages (user-created)
+  final tree = ref.watch(ideaskBrowserProvider).value;
+
+  // 1. Pages of the workspace root, plus the one folder currently open.
   if (domainFilter == null || domainFilter == WorkspaceDomain.pages) {
-    final pages = ref.watch(pagesProvider).value ?? const <Broad>[];
+    final pages = tree?.pages ?? const <IdeaskPage>[];
     var count = 0;
     for (final page in pages) {
       if (count >= limitPerDomain) break;
-      final entity = broadToEntityRef(page);
+      final entity = ideaskEntityRefForPage(page);
       if (matches(entity.title, entity.subtitle)) {
         results.add(entity);
         count++;
@@ -84,43 +90,47 @@ List<WorkspaceEntityRef> searchWorkspaceEntities(
     }
   }
 
-  // 3. Todo / Ideask Tasks & Boards (real Ideask API)
+  // 3. Todo / Ideask: folders and collections of the level on screen, plus
+  //    the tasks of the folder the reader is in (or the workspace's unfiled
+  //    tasks when the browser is at the root).
   if (domainFilter == null || domainFilter == WorkspaceDomain.todo) {
-    final boards = ref.watch(taskBoardsProvider).value ?? const <Broad>[];
     var count = 0;
-    for (final board in boards) {
+    for (final folder in [...?tree?.folders]) {
       if (count >= limitPerDomain) break;
-      final tasks =
-          ref.watch(tasksProvider(TaskListRequest(broadId: board.id))).value ??
-          const <WorkTask>[];
-      for (final task in tasks) {
-        if (count >= limitPerDomain) break;
-        if (matches(task.name, task.description)) {
-          results.add(
-            WorkspaceEntityRef(
-              id: task.id,
-              domain: WorkspaceDomain.todo,
-              title: task.name,
-              subtitle: task.description ?? board.name,
-              status: task.completedAt != null ? 'Completed' : 'Open',
-              isCompleted: task.completedAt != null,
-              metadata: {'broadId': board.id, 'taskId': task.id},
-            ),
-          );
-          count++;
-        }
+      final entity = ideaskEntityRefForFolder(folder);
+      if (matches(entity.title, entity.subtitle)) {
+        results.add(entity);
+        count++;
       }
-      if (count < limitPerDomain && matches(board.name, board.description)) {
-        results.add(
-          WorkspaceEntityRef(
-            id: board.id,
-            domain: WorkspaceDomain.todo,
-            title: board.name,
-            subtitle: board.description ?? 'Task Board',
-            badgeText: 'Board',
-            metadata: {'broadId': board.id, 'isBoard': true},
+    }
+    for (final collection in [...?tree?.collections]) {
+      if (count >= limitPerDomain) break;
+      final entity = ideaskEntityRefForCollection(collection);
+      if (matches(entity.title, entity.subtitle)) {
+        results.add(entity);
+        count++;
+      }
+    }
+    final selection = ref.watch(ideaskSelectionProvider);
+    final folderId = selection is IdeaskFolderSelection
+        ? selection.folderId
+        : null;
+    final workspaceId = ref.watch(ideaskWorkspaceIdProvider);
+    final tasks = ref
+        .watch(
+          tasksProvider(
+            TaskListRequest(
+              workspaceId: folderId == null ? workspaceId : null,
+              folderId: folderId,
+              unfiled: folderId == null,
+            ),
           ),
-        );
+        )
+        .value;
+    for (final task in tasks ?? const <WorkTask>[]) {
+      if (count >= limitPerDomain) break;
+      if (matches(task.name, task.description)) {
+        results.add(ideaskEntityRefForTask(task, fallbackTitle: null));
         count++;
       }
     }

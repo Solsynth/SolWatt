@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/gate/gate_page.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/route.dart';
@@ -114,7 +115,9 @@ void main() {
           mailCredentialsProvider.overrideWith(
             (ref) async => const <MailCredential>[],
           ),
-          broadsProvider.overrideWith((ref) async => const <Broad>[]),
+          ideaskBrowserProvider.overrideWith(
+            (ref) async => const IdeaskBrowserState(),
+          ),
           realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
           websocketStateProvider.overrideWith(_ConnectedWebSocket.new),
         ],

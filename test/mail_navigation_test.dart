@@ -10,6 +10,7 @@ import 'package:solar_network_sdk/solar_network_sdk.dart';
 
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/main.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/theme.dart';
@@ -151,7 +152,9 @@ void main() {
             ),
             emailProvider.overrideWith((ref, emailId) async => _email),
             threadProvider.overrideWith((ref, threadId) async => [_email]),
-            broadsProvider.overrideWith((ref) async => const <Broad>[]),
+            ideaskBrowserProvider.overrideWith(
+            (ref) async => const IdeaskBrowserState(),
+          ),
             realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
             websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
           ],

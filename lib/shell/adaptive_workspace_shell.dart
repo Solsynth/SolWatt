@@ -5,9 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:solwatt/boards/create_broad_sheet.dart';
+import 'package:solwatt/ideask/ideask_page.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
 import 'package:solwatt/shell/mobile_workspace_chrome.dart';
@@ -127,11 +127,15 @@ class _AdaptiveWorkspaceShellState
             .read(mailPendingFocusProvider.notifier)
             .request(entity.id, fullScreen: true);
       case WorkspaceDomain.todo:
-        _nestedStack(lens)?.navigate(TaskBoardRoute(broadId: entity.id));
+        // Folders and collections are places in the tree: the browser opens
+        // them in place rather than pushing a document above itself.
+        final selection = ideaskSelectionOf(entity);
+        if (selection != null) {
+          ref.read(ideaskSelectionProvider.notifier).select(selection);
+        }
       case WorkspaceDomain.pages:
-        // A page is a broad of kind 1 in the same tree, so it opens in the
-        // boards stack beside the board list.
-        _nestedStack(lens)?.navigate(BroadDocRoute(pageId: entity.id));
+        // Pages are documents: they open in the Todo lens' stack.
+        _nestedStack(lens)?.navigate(DocRoute(pageId: entity.id));
       case WorkspaceDomain.drive:
         ref.read(drivePendingFocusProvider.notifier).request(entity.id);
     }
@@ -177,10 +181,14 @@ class _AdaptiveWorkspaceShellState
         _selectLens(WorkspaceLens.mail);
       case WorkspaceDomain.todo:
         _selectLens(WorkspaceLens.todo);
+        final selection = ideaskSelectionOf(entity);
+        if (selection != null) {
+          ref.read(ideaskSelectionProvider.notifier).select(selection);
+        }
       case WorkspaceDomain.pages:
         _selectLens(WorkspaceLens.todo);
         _nestedStack(WorkspaceLens.todo)?.navigate(
-          BroadDocRoute(pageId: entity.id),
+          DocRoute(pageId: entity.id),
         );
       case WorkspaceDomain.drive:
         _selectLens(WorkspaceLens.drive);
@@ -191,27 +199,23 @@ class _AdaptiveWorkspaceShellState
     showFederatedOmnibox(context, onSwitchLens: _switchToEntity);
   }
 
-  /// The one create action: a board or a page. Both are Ideask broads, so the
-  /// sheet asks which kind rather than making the reader know which lens owns
-  /// it.
+  /// The one create action: a folder, a page, a collection or a task. Which
+  /// one is the reader's choice, not the lens' — the tree holds all four.
   Future<void> _openCreateSheet() async {
     _selectLens(WorkspaceLens.todo);
     _nestedStack(WorkspaceLens.todo)?.popUntilRoot();
-    await showCreateBroadSheet(context, ref);
+    await showIdeaskCreateSheet(context, ref);
   }
 
   Future<void> _handleConvertMailToTask(WorkspaceEntityRef mailEntity) async {
     HapticFeedback.selectionClick();
-    // Pages are broads too, but a page holds no tasks: convert into a board.
-    final boards = ref.read(taskBoardsProvider).value ?? const <Broad>[];
-    final firstBoard = boards.firstOrNull;
-    if (firstBoard == null) {
+    // Tasks live in the workspace or in one of its folders. A mail sweep
+    // files into the unfiled task list, which always exists.
+    if (ref.read(ideaskWorkspaceIdProvider) == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Create a Todo board first to convert mail into a task.',
-            ),
+            content: Text('Select a workspace to convert mail into a task.'),
           ),
         );
       }
@@ -220,22 +224,16 @@ class _AdaptiveWorkspaceShellState
 
     try {
       final createdTask = await ref
-          .read(wattEngineClientProvider)
+          .read(ideaskActionsProvider)
           .createTask(
-            firstBoard.id,
-            WorkTaskDraft(
+            task: WorkTaskDraft(
               name: 'Follow up: ${mailEntity.title}',
               description: mailEntity.subtitle,
             ),
           );
-      ref.invalidate(tasksProvider(TaskListRequest(broadId: firstBoard.id)));
-      final taskEntity = WorkspaceEntityRef(
-        id: createdTask.id,
-        domain: WorkspaceDomain.todo,
-        title: createdTask.name,
-        subtitle: firstBoard.name,
-        status: 'Open',
-        metadata: {'broadId': firstBoard.id, 'taskId': createdTask.id},
+      final taskEntity = ideaskEntityRefForTask(
+        createdTask,
+        fallbackTitle: 'Unfiled tasks',
       );
       ref.read(backlinksProvider.notifier).link(mailEntity, taskEntity);
       ref.read(peekProvider.notifier).open(taskEntity);
@@ -597,7 +595,7 @@ class _SlimLensRail extends ConsumerWidget {
             const SizedBox(height: SolSpace.md),
             _RailIconButton(
               icon: Symbols.add_rounded,
-              tooltip: 'New board or page',
+              tooltip: 'New folder, page or collection',
               selected: false,
               onTap: onOpenCreate,
             ),

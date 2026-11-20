@@ -291,7 +291,7 @@ class AppShellPage extends ConsumerWidget {
             routes: const [
               TodayFocusRoute(),
               MailRoute(),
-              BoardsRoute(),
+              IdeaskLensRoute(),
               FileListRoute(),
               FlywheelRoute(),
               ProfileRoute(),
@@ -791,7 +791,7 @@ BorderRadius _inflateBorderRadius(BorderRadius radius, double delta) {
 }
 
 const _mailTabIndex = 0;
-const _boardsTabIndex = 1;
+const _todoTabIndex = 1;
 const _filesTabIndex = 2;
 const _flywheelTabIndex = 3;
 const _profileTabIndex = 4;
@@ -801,7 +801,7 @@ const _settingsTabIndex = 5;
 /// and the phone bottom bar.
 const _appTabs = [
   (index: _mailTabIndex, icon: Symbols.mail, label: 'mail'),
-  (index: _boardsTabIndex, icon: Symbols.view_kanban, label: 'boards'),
+  (index: _todoTabIndex, icon: Symbols.check_box, label: 'todo'),
   (index: _filesTabIndex, icon: Symbols.folder, label: 'files'),
   (index: _flywheelTabIndex, icon: Symbols.sync, label: 'flywheel'),
   (index: _profileTabIndex, icon: Symbols.person, label: 'profile'),
@@ -811,7 +811,7 @@ const _appTabs = [
 /// Tabs the desktop rail and the phone bottom bar carry directly. Flywheel,
 /// Profile and Settings stay in the drawer on both: the drawer is one tap away
 /// either way, and a six-destination bar would crowd a phone.
-const _primaryTabIndexes = {_mailTabIndex, _boardsTabIndex, _filesTabIndex};
+const _primaryTabIndexes = {_mailTabIndex, _todoTabIndex, _filesTabIndex};
 
 /// [_appTabs] narrowed to the primary destinations, in bar/rail order. Bar and
 /// rail indices are positions in this list, not tab indices.
@@ -946,7 +946,7 @@ class _MailFolderNavigationBar extends ConsumerWidget {
   }
 }
 
-/// Bottom navigation shown on the primary tabs: Mail, Boards and Files,
+/// Bottom navigation shown on the primary tabs: Mail, Todo and Files,
 /// matching the desktop rail. The mail tab swaps it for the mail folders;
 /// Flywheel, Profile and Settings are drawer-driven on a phone.
 class _TabNavigationBar extends ConsumerWidget {

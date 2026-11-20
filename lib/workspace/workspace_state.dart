@@ -133,7 +133,7 @@ class FocusedEntityNotifier extends Notifier<WorkspaceEntityRef?> {
 }
 
 // ---------------------------------------------------------------------------
-// Favorites (Shared across Mail, Todo, Pages, Boards; Drive lives on the server)
+// Favorites (Shared across Mail, Todo and Pages; Drive lives on the server)
 // ---------------------------------------------------------------------------
 
 /// Local favorites. Drive files are favorited on the filesystem service (see

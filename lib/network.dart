@@ -324,8 +324,10 @@ class SolarNetworkAuthenticator {
       data: fields,
       options: Options(contentType: Headers.formUrlEncodedContentType),
     );
-    return _sessionFrom(response.data ?? const <String, dynamic>{},
-        previous: previous);
+    return _sessionFrom(
+      response.data ?? const <String, dynamic>{},
+      previous: previous,
+    );
   }
 
   /// Signs in with RFC 8628's device flow: take a code, hand it to the user,
@@ -886,169 +888,541 @@ class WattEngineClient {
     return WorkspacePlanOrder.fromJson(response.data ?? const {});
   }
 
-  /// The caller's broads, optionally narrowed to one workspace and/or kind.
-  ///
-  /// Boards (`kind == Broad.kindBoard`) own tasks; pages (`kind ==
-  /// Broad.kindPage`) carry Markdown content. Both are Ideask broads, so they
-  /// share the tree, the workspace, the icon and the cover.
-  Future<List<Broad>> listBroads({String? workspaceId, int? kind}) async {
-    Logger.root.info('[WattEngine] Loading Ideask boards.');
+  // --- Ideask: folders, pages, collections ------------------------------------
+
+  /// The whole workspace tree in one request: every folder, page and
+  /// collection the caller may read (`GET /workspaces/:id/tree`).
+  Future<List<IdeaskTreeNode>> listWorkspaceTree(String workspaceId) async {
     final response = await _get<List<dynamic>>(
-      '/ideask/broads',
-      queryParameters: {'workspace_id': ?workspaceId, 'kind': ?kind},
+      '/ideask/workspaces/$workspaceId/tree',
     );
     return (response.data ?? const [])
         .whereType<Map>()
-        .map((item) => Broad.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+        .map((item) => IdeaskTreeNode.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
-  /// One broad by id, or null when it is gone or unreadable.
-  Future<Broad?> getBroad(String broadId) async {
-    try {
-      final response = await _get<Map<String, dynamic>>(
-        '/ideask/broads/$broadId',
-      );
-      return Broad.fromJson(response.data ?? const {});
-    } on DioException catch (error) {
-      if (error.response?.statusCode == 404) return null;
-      throw OAuthException(wattApiErrorMessage(error));
-    }
+  /// One level of folders. [parentId] lists a folder's children; [root] lists
+  /// the workspace root when no parent is given.
+  Future<List<IdeaskFolder>> listFolders({
+    required String workspaceId,
+    String? parentId,
+    bool root = false,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/folders',
+      queryParameters: {
+        'workspace_id': workspaceId,
+        if (parentId != null && parentId.isNotEmpty) 'parent_id': parentId,
+        if (root && (parentId == null || parentId.isEmpty)) 'root': true,
+      },
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => IdeaskFolder.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
-   Future<Broad> createBroad({
-     required String name,
-     String? description,
-     String? content,
-     required String workspaceId,
-    int kind = Broad.kindBoard,
-     String? backgroundImageId,
-     String? iconImageId,
-     int visibility = 0,
-     String? taskPrefix,
-   }) async {
-    try {
-      final response = await _request<Map<String, dynamic>>(
-        'POST',
-        '/ideask/broads',
-         data: {
-           'name': name,
-           'content': content ?? '',
-           'visibility': visibility,
-           'workspace_id': workspaceId,
-          'kind': kind,
-           'description': ?nonEmptyString(description),
-           'background_image_id': ?backgroundImageId,
-           'icon_image_id': ?iconImageId,
-           'task_prefix': ?nonEmptyString(taskPrefix),
-         },
-      );
-      final data = response.data;
-      if (data == null) {
-        // 201 with empty body — board still created; list will refresh.
-         return Broad(
-           id: '',
-           name: name,
-           description: description,
-           content: content,
-           workspaceId: workspaceId,
-          kind: kind,
-           visibility: visibility,
-           taskPrefix: taskPrefix,
-         );
-      }
-      return Broad.fromJson(data);
-    } on DioException catch (error) {
-      throw OAuthException(wattApiErrorMessage(error));
-    }
+  Future<IdeaskFolder> getFolder(String folderId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/ideask/folders/$folderId',
+    );
+    return IdeaskFolder.fromJson(response.data ?? const {});
   }
 
-  /// Updates a broad. [parentId] nests it under another broad; [clearParent]
-  /// lifts it back to the root, which is what turns boards into folders.
-   Future<Broad> updateBroad({
-     required String broadId,
-     required String name,
-     String? description,
-     String? content,
-     String? workspaceId,
+  /// Everything directly inside one folder.
+  Future<IdeaskFolderContents> folderContents(String folderId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/ideask/folders/$folderId/contents',
+    );
+    return IdeaskFolderContents.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskFolder> createFolder({
+    required String workspaceId,
+    required String name,
+    String? parentId,
+    String? description,
+    String? iconId,
+    String? coverId,
+    int? visibility,
+    String? beforeId,
+    String? afterId,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/folders',
+      data: {
+        'workspace_id': workspaceId,
+        'name': name,
+        'parent_id': ?parentId,
+        'description': ?description,
+        'icon_id': ?iconId,
+        'cover_id': ?coverId,
+        'visibility': ?visibility,
+        'before_id': ?beforeId,
+        'after_id': ?afterId,
+      },
+    );
+    return IdeaskFolder.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskFolder> updateFolder({
+    required String folderId,
+    String? name,
+    String? description,
+    String? iconId,
+    bool clearIcon = false,
+    String? coverId,
+    bool clearCover = false,
+    int? visibility,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/folders/$folderId',
+      data: {
+        'name': ?name,
+        'description': ?description,
+        if (clearIcon) 'clear_icon': true,
+        'icon_id': ?iconId,
+        if (clearCover) 'clear_cover': true,
+        'cover_id': ?coverId,
+        'visibility': ?visibility,
+      },
+    );
+    return IdeaskFolder.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteFolder(String folderId) =>
+      _request<void>('DELETE', '/ideask/folders/$folderId');
+
+  Future<IdeaskFolder> moveFolder({
+    required String folderId,
     String? parentId,
     bool clearParent = false,
-     String? backgroundImageId,
-     bool updateBackgroundImage = false,
-     String? iconImageId,
-     bool updateIconImage = false,
-     int? visibility,
-     String? taskPrefix,
-     bool clearTaskPrefix = false,
-   }) async {
-    try {
-      final response = await _request<Map<String, dynamic>>(
-        'PATCH',
-        '/ideask/broads/$broadId',
-         data: {
-           'name': name,
-           'description': description,
-           'content': content,
-           'workspace_id': ?workspaceId,
-          'parent_id': ?parentId,
-          if (clearParent) 'clear_parent': true,
-           'visibility': ?visibility,
-           if (updateBackgroundImage) 'background_image_id': backgroundImageId,
-           if (updateIconImage) 'icon_image_id': iconImageId,
-           'task_prefix': ?taskPrefix,
-           if (clearTaskPrefix) 'clear_task_prefix': true,
-         },
-      );
-      return Broad.fromJson(response.data!);
-    } on DioException catch (error) {
-      throw OAuthException(wattApiErrorMessage(error));
+    String? beforeId,
+    String? afterId,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/folders/$folderId/move',
+      data: {
+        'parent_id': ?parentId,
+        if (clearParent) 'clear_parent': true,
+        'before_id': ?beforeId,
+        'after_id': ?afterId,
+      },
+    );
+    return IdeaskFolder.fromJson(response.data ?? const {});
+  }
+
+  // --- Ideask: pages -----------------------------------------------------------
+
+  Future<List<IdeaskPage>> listPages({
+    required String workspaceId,
+    String? folderId,
+    String? parentPageId,
+    String? collectionId,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/pages',
+      queryParameters: {
+        'workspace_id': workspaceId,
+        if (folderId != null && folderId.isNotEmpty) 'folder_id': folderId,
+        if (parentPageId != null && parentPageId.isNotEmpty)
+          'parent_page_id': parentPageId,
+        if (collectionId != null && collectionId.isNotEmpty)
+          'collection_id': collectionId,
+      },
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => IdeaskPage.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<IdeaskPage> getPage(String pageId) async {
+    final response = await _get<Map<String, dynamic>>('/ideask/pages/$pageId');
+    return IdeaskPage.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskPage> createPage({
+    required String workspaceId,
+    required String title,
+    String? folderId,
+    String? parentPageId,
+    String? description,
+    String? iconId,
+    String? coverId,
+    List<String>? tags,
+    int? visibility,
+    String? contentMd,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/pages',
+      data: {
+        'workspace_id': workspaceId,
+        'title': title,
+        'folder_id': ?folderId,
+        'parent_page_id': ?parentPageId,
+        'description': ?description,
+        'icon_id': ?iconId,
+        'cover_id': ?coverId,
+        'tags': ?tags,
+        'visibility': ?visibility,
+        'content_md': ?contentMd,
+      },
+    );
+    return IdeaskPage.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskPage> updatePage({
+    required String pageId,
+    String? title,
+    String? description,
+    String? iconId,
+    bool clearIcon = false,
+    String? coverId,
+    bool clearCover = false,
+    List<String>? tags,
+    Map<String, dynamic>? properties,
+    int? visibility,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/pages/$pageId',
+      data: {
+        'title': ?title,
+        'description': ?description,
+        if (clearIcon) 'clear_icon': true,
+        'icon_id': ?iconId,
+        if (clearCover) 'clear_cover': true,
+        'cover_id': ?coverId,
+        'tags': ?tags,
+        'properties': ?properties,
+        'visibility': ?visibility,
+      },
+    );
+    return IdeaskPage.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deletePage(String pageId) =>
+      _request<void>('DELETE', '/ideask/pages/$pageId');
+
+  Future<IdeaskPage> movePage({
+    required String pageId,
+    String? folderId,
+    bool clearFolder = false,
+    String? parentPageId,
+    bool clearParent = false,
+    String? beforeId,
+    String? afterId,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/pages/$pageId/move',
+      data: {
+        'folder_id': ?folderId,
+        if (clearFolder) 'clear_folder': true,
+        'parent_page_id': ?parentPageId,
+        if (clearParent) 'clear_parent': true,
+        'before_id': ?beforeId,
+        'after_id': ?afterId,
+      },
+    );
+    return IdeaskPage.fromJson(response.data ?? const {});
+  }
+
+  /// The page's Markdown body, stored separately from its metadata.
+  Future<IdeaskPageBody> getPageBody(String pageId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/ideask/pages/$pageId/body',
+    );
+    return IdeaskPageBody.fromJson(response.data ?? const {});
+  }
+
+  /// Replaces a page's Markdown. The server re-derives frontmatter, link and
+  /// widget references in the same transaction.
+  Future<IdeaskPageBody> savePageBody(String pageId, String contentMd) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PUT',
+      '/ideask/pages/$pageId/body',
+      data: {'content_md': contentMd},
+    );
+    final body = response.data?['body'];
+    if (body is Map) {
+      return IdeaskPageBody.fromJson(Map<String, dynamic>.from(body));
     }
+    return IdeaskPageBody(
+      pageId: pageId,
+      contentMd: contentMd,
+      updatedAt: DateTime.now(),
+    );
   }
 
-  Future<void> deleteBroad(String broadId) =>
-      _request<void>('DELETE', '/ideask/broads/$broadId');
+  /// The page's children, one level down.
+  Future<List<IdeaskPage>> listPageChildren(String pageId) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/pages/$pageId/children',
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => IdeaskPage.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
 
-  /// Deletes several boards in one request. Returns how many were removed.
-  ///
-  /// Server: `POST /ideask/broads/delete/batch` with `{ "broad_ids": [...] }`.
-  /// All-or-nothing: a stale id fails the whole batch.
-  Future<int> deleteBroads(List<String> broadIds) async {
-    if (broadIds.isEmpty) return 0;
+  // --- Ideask: collections -----------------------------------------------------
+
+  Future<List<IdeaskCollection>> listCollections({
+    required String workspaceId,
+    String? folderId,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/collections',
+      queryParameters: {
+        'workspace_id': workspaceId,
+        if (folderId != null && folderId.isNotEmpty) 'folder_id': folderId,
+      },
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => IdeaskCollection.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<IdeaskCollection> getCollection(String collectionId) async {
+    final response = await _get<Map<String, dynamic>>(
+      '/ideask/collections/$collectionId',
+    );
+    return IdeaskCollection.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskCollection> createCollection({
+    required String workspaceId,
+    required String name,
+    String? folderId,
+    String? description,
+    String? iconId,
+    int? visibility,
+  }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/ideask/broads/delete/batch',
-      data: {'broad_ids': broadIds},
+      '/ideask/collections',
+      data: {
+        'workspace_id': workspaceId,
+        'name': name,
+        'folder_id': ?folderId,
+        'description': ?description,
+        'icon_id': ?iconId,
+        'visibility': ?visibility,
+      },
     );
-    return (response.data?['count'] as num?)?.toInt() ?? broadIds.length;
+    return IdeaskCollection.fromJson(response.data ?? const {});
   }
 
-  /// Reassigns several boards to another workspace in one request. Returns how
-  /// many were moved.
-  ///
-  /// Server: `POST /ideask/broads/move/batch` with
-  /// `{ "broad_ids": [...], "workspace_id": "..." }`.
-  Future<int> moveBroads(List<String> broadIds, String workspaceId) async {
-    if (broadIds.isEmpty) return 0;
+  Future<IdeaskCollection> updateCollection({
+    required String collectionId,
+    String? name,
+    String? description,
+    String? iconId,
+    bool clearIcon = false,
+    int? visibility,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/collections/$collectionId',
+      data: {
+        'name': ?name,
+        'description': ?description,
+        if (clearIcon) 'clear_icon': true,
+        'icon_id': ?iconId,
+        'visibility': ?visibility,
+      },
+    );
+    return IdeaskCollection.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteCollection(String collectionId) =>
+      _request<void>('DELETE', '/ideask/collections/$collectionId');
+
+  Future<IdeaskCollection> addCollectionProperty({
+    required String collectionId,
+    required String name,
+    required String type,
+    List<IdeaskPropertyOption> options = const [],
+    String? relationCollectionId,
+  }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/ideask/broads/move/batch',
-      data: {'broad_ids': broadIds, 'workspace_id': workspaceId},
+      '/ideask/collections/$collectionId/properties',
+      data: {
+        'name': name,
+        'type': type,
+        'options': options.map((option) => option.toJson()).toList(),
+        if (relationCollectionId != null)
+          'relation': {'collection_id': relationCollectionId},
+      },
     );
-    return (response.data?['count'] as num?)?.toInt() ?? broadIds.length;
+    return IdeaskCollection.fromJson(response.data ?? const {});
   }
 
-  Future<List<WorkTask>> listTasks(
-    String broadId, {
+  Future<IdeaskCollection> updateCollectionProperty({
+    required String collectionId,
+    required String propertyId,
+    String? name,
+    List<IdeaskPropertyOption>? options,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/collections/$collectionId/properties/$propertyId',
+      data: {
+        'name': ?name,
+        if (options != null)
+          'options': options.map((option) => option.toJson()).toList(),
+      },
+    );
+    return IdeaskCollection.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteCollectionProperty({
+    required String collectionId,
+    required String propertyId,
+  }) => _request<void>(
+    'DELETE',
+    '/ideask/collections/$collectionId/properties/$propertyId',
+  );
+
+  Future<IdeaskView> createCollectionView({
+    required String collectionId,
+    required String name,
+    required int type,
+    Map<String, dynamic>? config,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/collections/$collectionId/views',
+      data: {
+        'name': name,
+        'type': type,
+        'config':
+            config ??
+            const {
+              'filters': <dynamic>[],
+              'sorts': <dynamic>[],
+              'widths': <String, dynamic>{},
+            },
+      },
+    );
+    return IdeaskView.fromJson(response.data ?? const {});
+  }
+
+  Future<IdeaskView> updateCollectionView({
+    required String collectionId,
+    required String viewId,
+    String? name,
+    Map<String, dynamic>? config,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'PATCH',
+      '/ideask/collections/$collectionId/views/$viewId',
+      data: {'name': ?name, 'config': ?config},
+    );
+    return IdeaskView.fromJson(response.data ?? const {});
+  }
+
+  Future<void> deleteCollectionView({
+    required String collectionId,
+    required String viewId,
+  }) => _request<void>(
+    'DELETE',
+    '/ideask/collections/$collectionId/views/$viewId',
+  );
+
+  /// Runs one collection query, optionally driven by a saved view.
+  Future<IdeaskQueryResult> queryCollection({
+    required String collectionId,
+    String? viewId,
+    Map<String, dynamic>? filter,
+    List<Map<String, dynamic>>? sorts,
+    String? groupBy,
+    String? search,
+    int? limit,
+    int? offset,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/collections/$collectionId/query',
+      data: {
+        'view_id': ?viewId,
+        'filter': ?filter,
+        'sorts': ?sorts,
+        'group_by': ?groupBy,
+        'search': ?search,
+        'limit': ?limit,
+        'offset': ?offset,
+      },
+    );
+    return IdeaskQueryResult.fromJson(response.data ?? const {});
+  }
+
+  /// Adds a row to a collection: a page carrying the property values.
+  Future<IdeaskPage> createCollectionRow({
+    required String collectionId,
+    required String title,
+    Map<String, dynamic>? properties,
+    String? contentMd,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/collections/$collectionId/rows',
+      data: {
+        'title': title,
+        'properties': ?properties,
+        'content_md': ?contentMd,
+      },
+    );
+    return IdeaskPage.fromJson(response.data ?? const {});
+  }
+
+  // --- Ideask: tasks -----------------------------------------------------------
+
+  /// Tasks of a workspace, optionally narrowed to one folder or to unfiled
+  /// tasks. Tasks live in the workspace, not in a board.
+  Future<List<WorkTask>> listTasks({
+    required String workspaceId,
+    TaskListFilters filters = const TaskListFilters(),
+    String? folderId,
+    bool unfiled = false,
+  }) async {
+    final response = await _get<List<dynamic>>(
+      '/ideask/workspaces/$workspaceId/tasks',
+      queryParameters: {
+        if (folderId != null && folderId.isNotEmpty) 'folder_id': folderId,
+        if (unfiled) 'unfiled': true,
+        ...filters.toQueryParameters(),
+      },
+    );
+    return (response.data ?? const [])
+        .whereType<Map>()
+        .map((item) => WorkTask.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<List<WorkTask>> listFolderTasks(
+    String folderId, {
     TaskListFilters filters = const TaskListFilters(),
   }) async {
     final response = await _get<List<dynamic>>(
-      '/ideask/broads/$broadId/tasks',
+      '/ideask/folders/$folderId/tasks',
       queryParameters: filters.toQueryParameters(),
     );
     return (response.data ?? const [])
         .whereType<Map>()
         .map((item) => WorkTask.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+        .toList(growable: false);
   }
 
   Future<WorkTask> getTask(String taskId) async {
@@ -1056,15 +1430,33 @@ class WattEngineClient {
     return WorkTask.fromJson(response.data ?? const {});
   }
 
-  Future<WorkTask> createTask(String broadId, WorkTaskDraft task) async {
+  /// Creates a task in [folderId], or unfiled in the workspace when null.
+  Future<WorkTask> createTask({
+    required String workspaceId,
+    required WorkTaskDraft task,
+    String? folderId,
+  }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
-      '/ideask/broads/$broadId/tasks',
+      '/ideask/workspaces/$workspaceId/tasks',
+      data: {...task.toCreateJson(), 'folder_id': ?folderId},
+    );
+    return WorkTask.fromJson(response.data ?? const {});
+  }
+
+  /// Creates a task inside one folder.
+  Future<WorkTask> createFolderTask(String folderId, WorkTaskDraft task) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/folders/$folderId/tasks',
       data: task.toCreateJson(),
     );
     return WorkTask.fromJson(response.data ?? const {});
   }
 
+  /// Updates a task. The server reads the request as a whole record, so the
+  /// draft must carry the current name and completion reason for every field
+  /// the caller does not intend to change.
   Future<WorkTask> updateTask(String taskId, WorkTaskDraft task) async {
     final response = await _request<Map<String, dynamic>>(
       'PATCH',
@@ -1076,6 +1468,26 @@ class WattEngineClient {
 
   Future<void> deleteTask(String taskId) =>
       _request<void>('DELETE', '/ideask/tasks/$taskId');
+
+  Future<WorkTask> moveTask({
+    required String taskId,
+    String? folderId,
+    bool clearFolder = false,
+    String? beforeTaskId,
+    String? afterTaskId,
+  }) async {
+    final response = await _request<Map<String, dynamic>>(
+      'POST',
+      '/ideask/tasks/$taskId/move',
+      data: {
+        'folder_id': ?folderId,
+        if (clearFolder) 'clear_folder': true,
+        'before_task_id': ?beforeTaskId,
+        'after_task_id': ?afterTaskId,
+      },
+    );
+    return WorkTask.fromJson(response.data ?? const {});
+  }
 
   Future<void> setTaskAssignees(
     String taskId,
@@ -1092,7 +1504,7 @@ class WattEngineClient {
         '/ideask/tasks/$taskId/assignees/$assigneeAccountId',
       );
 
-  // --- Task comments -----------------------------------------------------------
+  // --- Ideask: task comments ---------------------------------------------------
 
   Future<List<TaskComment>> listTaskComments(String taskId) async {
     final response = await _get<List<dynamic>>(
@@ -1101,7 +1513,7 @@ class WattEngineClient {
     return (response.data ?? const [])
         .whereType<Map>()
         .map((item) => TaskComment.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+        .toList(growable: false);
   }
 
   Future<TaskComment> createTaskComment(String taskId, String content) async {
@@ -1127,90 +1539,6 @@ class WattEngineClient {
 
   Future<void> deleteTaskComment(String commentId) =>
       _request<void>('DELETE', '/ideask/task-comments/$commentId');
-
-  // --- GitHub App integration --------------------------------------------------
-
-  /// Returns a GitHub App installation URL for this board.
-  Future<String> createGitHubInstallUrl(String broadId) async {
-    final response = await _get<Map<String, dynamic>>(
-      '/ideask/github/broads/$broadId/install-url',
-    );
-    final url = response.data?['url']?.toString();
-    if (url == null || url.isEmpty) {
-      throw const OAuthException('GitHub install URL was empty.');
-    }
-    return url;
-  }
-
-  /// Completed installation id after the user finishes GitHub setup.
-  ///
-  /// Returns null while installation is still incomplete (HTTP 404).
-  Future<int?> getGitHubInstallation(String broadId) async {
-    try {
-      final response = await _get<Map<String, dynamic>>(
-        '/ideask/github/broads/$broadId/installation',
-      );
-      final raw =
-          response.data?['installation_id'] ?? response.data?['installationId'];
-      if (raw is num) return raw.toInt();
-      return int.tryParse(raw?.toString() ?? '');
-    } on DioException catch (error) {
-      if (error.response?.statusCode == 404) return null;
-      rethrow;
-    }
-  }
-
-  Future<List<GitHubRepository>> listGitHubRepositories(
-    String broadId,
-    int installationId,
-  ) async {
-    final response = await _get<List<dynamic>>(
-      '/ideask/github/broads/$broadId/installations/$installationId/repositories',
-    );
-    return (response.data ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => GitHubRepository.fromJson(Map<String, dynamic>.from(item)),
-        )
-        .toList();
-  }
-
-  /// Linked repository statuses for this board.
-  Future<List<GitHubIntegration>> getGitHubIntegrations(String broadId) async {
-    final response = await _get<List<dynamic>>(
-      '/ideask/github/broads/$broadId',
-    );
-    return (response.data ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => GitHubIntegration.fromJson(Map<String, dynamic>.from(item)),
-        )
-        .toList();
-  }
-
-  Future<GitHubIntegration> linkGitHubRepository({
-    required String broadId,
-    required int installationId,
-    required String owner,
-    required String repository,
-  }) async {
-    final response = await _request<Map<String, dynamic>>(
-      'POST',
-      '/ideask/github/broads/$broadId',
-      data: {
-        'installation_id': installationId,
-        'owner': owner,
-        'repository': repository,
-      },
-    );
-    return GitHubIntegration.fromJson(response.data ?? const {});
-  }
-
-  Future<void> syncGitHubIntegration(String broadId) =>
-      _request<void>('POST', '/ideask/github/broads/$broadId/sync');
-
-  Future<void> unlinkGitHubIntegration(String integrationId) =>
-      _request<void>('DELETE', '/ideask/github/integrations/$integrationId');
 
   // --- ElecPostal (Mail) -------------------------------------------------------
 
@@ -1606,9 +1934,7 @@ class WattEngineClient {
     );
     return (response.data ?? const [])
         .whereType<Map>()
-        .map(
-          (item) => MailForwarding.fromJson(Map<String, dynamic>.from(item)),
-        )
+        .map((item) => MailForwarding.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
 
@@ -1661,8 +1987,7 @@ class WattEngineClient {
         'scope': scope,
         if (workspaceId != null && workspaceId.isNotEmpty)
           'workspace_id': workspaceId,
-        if (mailboxId != null && mailboxId.isNotEmpty)
-          'mailbox_id': mailboxId,
+        if (mailboxId != null && mailboxId.isNotEmpty) 'mailbox_id': mailboxId,
         'pattern': pattern,
       },
     );
@@ -1686,10 +2011,7 @@ class WattEngineClient {
     final response = await _request<Map<String, dynamic>>(
       'PATCH',
       '$kElecPostalBase/settings/notifications',
-      data: {
-        'highlight': ?highlight,
-        'summarize': ?summarize,
-      },
+      data: {'highlight': ?highlight, 'summarize': ?summarize},
     );
     return MailNotificationSettings.fromJson(response.data ?? const {});
   }
@@ -2805,96 +3127,479 @@ class WorkspaceMember {
 
 String _shortId(String id) => id.length > 8 ? id.substring(0, 8) : id;
 
-/// One Ideask broad: a task board or a Markdown page.
+/// One Ideask folder: a container for folders, pages and collections.
 ///
-/// Both live in the same tree, so [parentId] nests either kind under another
-/// and a board can hold its own pages. The server derives task keys from
-/// [taskPrefix]; pages never carry one.
-class Broad {
-  const Broad({
+/// Folders own the tree; pages add a second, page-only level under a folder.
+class IdeaskFolder {
+  const IdeaskFolder({
     required this.id,
     required this.name,
-    this.description,
-    this.content,
     this.workspaceId,
     this.parentId,
-    this.kind = kindBoard,
+    this.ownerAccountId,
+    this.description,
+    this.icon,
+    this.cover,
+    this.position,
     this.visibility = 0,
-    this.taskPrefix,
-    this.backgroundImage,
-    this.iconImage,
+    this.createdAt,
+    this.updatedAt,
   });
-
-  /// A board owns tasks.
-  static const int kindBoard = 0;
-
-  /// A page carries Markdown content.
-  static const int kindPage = 1;
 
   final String id;
   final String name;
-  final String? description;
-  final String? content;
   final String? workspaceId;
   final String? parentId;
-  final int kind;
+  final String? ownerAccountId;
+  final String? description;
+  final SnCloudFileReference? icon;
+  final SnCloudFileReference? cover;
+  final String? position;
   final int visibility;
-  final String? taskPrefix;
-  final SnCloudFileReference? backgroundImage;
-  final SnCloudFileReference? iconImage;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
-  bool get isPage => kind == kindPage;
-  bool get isBoard => kind == kindBoard;
-  String? get displayContent => nonEmptyString(content);
-
-  factory Broad.fromJson(Map<String, dynamic> json) => Broad(
+  factory IdeaskFolder.fromJson(Map<String, dynamic> json) => IdeaskFolder(
     id: json['id']?.toString() ?? '',
-    name:
-        (json['name'] ?? json['title'])?.toString() ??
-        (json['kind'] == kindPage ? 'Untitled page' : 'Untitled board'),
-    description: nonEmptyString(json['description']?.toString()),
-    content: nonEmptyString(json['content']?.toString()),
-    workspaceId: json['workspace_id']?.toString(),
+    name: nonEmptyString(json['name']?.toString()) ?? 'Untitled folder',
+    workspaceId: nonEmptyString(json['workspace_id']?.toString()),
     parentId: nonEmptyString(json['parent_id']?.toString()),
-    kind: (json['kind'] as num?)?.toInt() ?? kindBoard,
+    ownerAccountId: nonEmptyString(json['owner_account_id']?.toString()),
+    description: nonEmptyString(json['description']?.toString()),
+    icon: parseCloudFileReference(json['icon']),
+    cover: parseCloudFileReference(json['cover']),
+    position: nonEmptyString(json['position']?.toString()),
     visibility: (json['visibility'] as num?)?.toInt() ?? 0,
-    taskPrefix: nonEmptyString(json['task_prefix']?.toString()),
-    backgroundImage: parseCloudFileReference(json['background_image']),
-    iconImage: parseCloudFileReference(json['icon_image']),
+    createdAt: parseInstant(json['created_at']),
+    updatedAt: parseInstant(json['updated_at']),
   );
 }
 
-class TaskAssignee {
-  const TaskAssignee({
-    required this.id,
-    required this.accountId,
-    this.displayName,
-    this.username,
+/// Everything directly inside one folder.
+class IdeaskFolderContents {
+  const IdeaskFolderContents({
+    required this.folder,
+    this.folders = const [],
+    this.pages = const [],
+    this.collections = const [],
   });
 
-  final String id;
-  final String accountId;
-  final String? displayName;
-  final String? username;
+  final IdeaskFolder folder;
+  final List<IdeaskFolder> folders;
+  final List<IdeaskPage> pages;
+  final List<IdeaskCollection> collections;
 
-  String get label =>
-      displayName ??
-      (username != null ? '@$username' : 'Account ${_shortId(accountId)}');
+  bool get isEmpty => folders.isEmpty && pages.isEmpty && collections.isEmpty;
 
-  factory TaskAssignee.fromJson(Map<String, dynamic> json) {
-    final account = json['account'] as Map?;
-    return TaskAssignee(
-      id: json['id']?.toString() ?? '',
-      accountId: json['account_id']?.toString() ?? '',
-      displayName:
-          account?['nick']?.toString() ?? json['account_nick']?.toString(),
-      username:
-          account?['name']?.toString() ?? json['account_name']?.toString(),
+  factory IdeaskFolderContents.fromJson(Map<String, dynamic> json) {
+    final folder = json['folder'];
+    return IdeaskFolderContents(
+      folder: folder is Map
+          ? IdeaskFolder.fromJson(Map<String, dynamic>.from(folder))
+          : const IdeaskFolder(id: '', name: ''),
+      folders: _ideaskList(json['folders'], IdeaskFolder.fromJson),
+      pages: _ideaskList(json['pages'], IdeaskPage.fromJson),
+      collections: _ideaskList(json['collections'], IdeaskCollection.fromJson),
     );
   }
 }
 
-/// Server-side filters accepted by a board's task list endpoint.
+/// One Markdown page. Collection rows are pages with [collectionId] set, and
+/// their property values live in [properties].
+class IdeaskPage {
+  const IdeaskPage({
+    required this.id,
+    required this.title,
+    this.workspaceId,
+    this.folderId,
+    this.parentPageId,
+    this.collectionId,
+    this.ownerAccountId,
+    this.description,
+    this.icon,
+    this.cover,
+    this.properties = const {},
+    this.tags = const [],
+    this.position,
+    this.visibility = 0,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String? workspaceId;
+  final String? folderId;
+  final String? parentPageId;
+  final String? collectionId;
+  final String? ownerAccountId;
+  final String? description;
+  final SnCloudFileReference? icon;
+  final SnCloudFileReference? cover;
+  final Map<String, dynamic> properties;
+  final List<String> tags;
+  final String? position;
+  final int visibility;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  bool get isCollectionRow => collectionId != null;
+  String get displayTitle => title.isEmpty ? 'Untitled page' : title;
+
+  factory IdeaskPage.fromJson(Map<String, dynamic> json) {
+    final rawProperties = json['properties'];
+    return IdeaskPage(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      workspaceId: nonEmptyString(json['workspace_id']?.toString()),
+      folderId: nonEmptyString(json['folder_id']?.toString()),
+      parentPageId: nonEmptyString(json['parent_page_id']?.toString()),
+      collectionId: nonEmptyString(json['collection_id']?.toString()),
+      ownerAccountId: nonEmptyString(json['owner_account_id']?.toString()),
+      description: nonEmptyString(json['description']?.toString()),
+      icon: parseCloudFileReference(json['icon']),
+      cover: parseCloudFileReference(json['cover']),
+      properties: rawProperties is Map
+          ? Map<String, dynamic>.from(rawProperties)
+          : const {},
+      tags:
+          (json['tags'] as List?)
+              ?.map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false) ??
+          const [],
+      position: nonEmptyString(json['position']?.toString()),
+      visibility: (json['visibility'] as num?)?.toInt() ?? 0,
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
+    );
+  }
+}
+
+/// A page's Markdown document, stored apart from its metadata.
+class IdeaskPageBody {
+  const IdeaskPageBody({
+    required this.pageId,
+    required this.contentMd,
+    this.frontmatter = const {},
+    this.updatedAt,
+  });
+
+  final String pageId;
+  final String contentMd;
+  final Map<String, dynamic> frontmatter;
+  final DateTime? updatedAt;
+
+  factory IdeaskPageBody.fromJson(Map<String, dynamic> json) {
+    final frontmatter = json['frontmatter'];
+    return IdeaskPageBody(
+      pageId: json['page_id']?.toString() ?? '',
+      contentMd: json['content_md']?.toString() ?? '',
+      frontmatter: frontmatter is Map
+          ? Map<String, dynamic>.from(frontmatter)
+          : const {},
+      updatedAt: parseInstant(json['updated_at']),
+    );
+  }
+}
+
+/// One select or multi-select option.
+class IdeaskPropertyOption {
+  const IdeaskPropertyOption({
+    required this.id,
+    required this.name,
+    this.color,
+  });
+
+  final String id;
+  final String name;
+  final String? color;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (color != null && color!.isNotEmpty) 'color': color,
+  };
+
+  factory IdeaskPropertyOption.fromJson(Map<String, dynamic> json) =>
+      IdeaskPropertyOption(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        color: nonEmptyString(json['color']?.toString()),
+      );
+}
+
+/// One immutable property definition of a collection.
+class IdeaskProperty {
+  const IdeaskProperty({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.options = const [],
+    this.relationCollectionId,
+  });
+
+  final String id;
+  final String name;
+  final String type;
+  final List<IdeaskPropertyOption> options;
+  final String? relationCollectionId;
+
+  factory IdeaskProperty.fromJson(Map<String, dynamic> json) {
+    final relation = json['relation'];
+    return IdeaskProperty(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      type: json['type']?.toString() ?? 'text',
+      options:
+          (json['options'] as List?)
+              ?.whereType<Map>()
+              .map(
+                (item) => IdeaskPropertyOption.fromJson(
+                  Map<String, dynamic>.from(item),
+                ),
+              )
+              .toList(growable: false) ??
+          const [],
+      relationCollectionId: relation is Map
+          ? nonEmptyString(relation['collection_id']?.toString())
+          : null,
+    );
+  }
+}
+
+/// One saved view of a collection.
+class IdeaskView {
+  const IdeaskView({
+    required this.id,
+    required this.collectionId,
+    required this.name,
+    required this.type,
+    this.position,
+    this.config = const {},
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String collectionId;
+  final String name;
+  final int type;
+  final String? position;
+  final Map<String, dynamic> config;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  static const int typeTable = 0;
+  static const int typeBoard = 1;
+  static const int typeCalendar = 2;
+  static const int typeList = 3;
+
+  factory IdeaskView.fromJson(Map<String, dynamic> json) {
+    final config = json['config'];
+    return IdeaskView(
+      id: json['id']?.toString() ?? '',
+      collectionId: json['collection_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'View',
+      type: (json['type'] as num?)?.toInt() ?? typeTable,
+      position: nonEmptyString(json['position']?.toString()),
+      config: config is Map ? Map<String, dynamic>.from(config) : const {},
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
+    );
+  }
+}
+
+/// A database: an immutable property schema plus saved views over rows, which
+/// are pages.
+class IdeaskCollection {
+  const IdeaskCollection({
+    required this.id,
+    required this.name,
+    this.workspaceId,
+    this.folderId,
+    this.ownerAccountId,
+    this.description,
+    this.icon,
+    this.properties = const [],
+    this.views = const [],
+    this.position,
+    this.visibility = 0,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final String? workspaceId;
+  final String? folderId;
+  final String? ownerAccountId;
+  final String? description;
+  final SnCloudFileReference? icon;
+  final List<IdeaskProperty> properties;
+  final List<IdeaskView> views;
+  final String? position;
+  final int visibility;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory IdeaskCollection.fromJson(Map<String, dynamic> json) =>
+      IdeaskCollection(
+        id: json['id']?.toString() ?? '',
+        name: nonEmptyString(json['name']?.toString()) ?? 'Untitled collection',
+        workspaceId: nonEmptyString(json['workspace_id']?.toString()),
+        folderId: nonEmptyString(json['folder_id']?.toString()),
+        ownerAccountId: nonEmptyString(json['owner_account_id']?.toString()),
+        description: nonEmptyString(json['description']?.toString()),
+        icon: parseCloudFileReference(json['icon']),
+        properties: _ideaskList(
+          json['property_schema'],
+          IdeaskProperty.fromJson,
+        ),
+        views: _ideaskList(json['views'], IdeaskView.fromJson),
+        position: nonEmptyString(json['position']?.toString()),
+        visibility: (json['visibility'] as num?)?.toInt() ?? 0,
+        createdAt: parseInstant(json['created_at']),
+        updatedAt: parseInstant(json['updated_at']),
+      );
+}
+
+/// One node of `GET /workspaces/:id/tree`: a folder, a page or a collection.
+class IdeaskTreeNode {
+  const IdeaskTreeNode({
+    required this.type,
+    this.folder,
+    this.page,
+    this.collection,
+  });
+
+  final String type;
+  final IdeaskFolder? folder;
+  final IdeaskPage? page;
+  final IdeaskCollection? collection;
+
+  String get id => folder?.id ?? page?.id ?? collection?.id ?? '';
+  String get title =>
+      folder?.name ?? page?.displayTitle ?? collection?.name ?? '';
+  String? get parentId => folder?.parentId ?? page?.folderId;
+
+  factory IdeaskTreeNode.fromJson(Map<String, dynamic> json) {
+    final folder = json['folder'];
+    final page = json['page'];
+    final collection = json['collection'];
+    return IdeaskTreeNode(
+      type: json['type']?.toString() ?? '',
+      folder: folder is Map
+          ? IdeaskFolder.fromJson(Map<String, dynamic>.from(folder))
+          : null,
+      page: page is Map
+          ? IdeaskPage.fromJson(Map<String, dynamic>.from(page))
+          : null,
+      collection: collection is Map
+          ? IdeaskCollection.fromJson(Map<String, dynamic>.from(collection))
+          : null,
+    );
+  }
+}
+
+/// One row of a collection query.
+class IdeaskQueryRow {
+  const IdeaskQueryRow({
+    required this.id,
+    required this.title,
+    this.icon,
+    this.folderId,
+    this.collectionId,
+    this.properties = const {},
+    this.position,
+    this.ownerAccountId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final SnCloudFileReference? icon;
+  final String? folderId;
+  final String? collectionId;
+  final Map<String, dynamic> properties;
+  final String? position;
+  final String? ownerAccountId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory IdeaskQueryRow.fromJson(Map<String, dynamic> json) {
+    final properties = json['properties'];
+    return IdeaskQueryRow(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      icon: parseCloudFileReference(json['icon']),
+      folderId: nonEmptyString(json['folder_id']?.toString()),
+      collectionId: nonEmptyString(json['collection_id']?.toString()),
+      properties: properties is Map
+          ? Map<String, dynamic>.from(properties)
+          : const {},
+      position: nonEmptyString(json['position']?.toString()),
+      ownerAccountId: nonEmptyString(json['owner_account_id']?.toString()),
+      createdAt: parseInstant(json['created_at']),
+      updatedAt: parseInstant(json['updated_at']),
+    );
+  }
+}
+
+/// One grouped bucket of a collection query.
+class IdeaskQueryGroup {
+  const IdeaskQueryGroup({
+    required this.key,
+    required this.label,
+    this.rows = const [],
+  });
+
+  final String key;
+  final String label;
+  final List<IdeaskQueryRow> rows;
+
+  factory IdeaskQueryGroup.fromJson(Map<String, dynamic> json) =>
+      IdeaskQueryGroup(
+        key: json['key']?.toString() ?? '',
+        label: json['label']?.toString() ?? '',
+        rows: _ideaskList(json['rows'], IdeaskQueryRow.fromJson),
+      );
+}
+
+/// The envelope of a collection query.
+class IdeaskQueryResult {
+  const IdeaskQueryResult({
+    this.rows = const [],
+    this.total = 0,
+    this.groups = const [],
+    this.truncated = false,
+  });
+
+  final List<IdeaskQueryRow> rows;
+  final int total;
+  final List<IdeaskQueryGroup> groups;
+  final bool truncated;
+
+  factory IdeaskQueryResult.fromJson(Map<String, dynamic> json) =>
+      IdeaskQueryResult(
+        rows: _ideaskList(json['rows'], IdeaskQueryRow.fromJson),
+        total: (json['total'] as num?)?.toInt() ?? 0,
+        groups: _ideaskList(json['groups'], IdeaskQueryGroup.fromJson),
+        truncated: json['truncated'] == true,
+      );
+}
+
+/// Parses a JSON array into models, dropping entries that are not objects.
+List<T> _ideaskList<T>(Object? value, T Function(Map<String, dynamic>) parse) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) => parse(Map<String, dynamic>.from(item)))
+      .toList(growable: false);
+}
+
+/// Server-side filters accepted by the task list endpoints.
 class TaskListFilters {
   const TaskListFilters({
     this.search,
@@ -2917,6 +3622,7 @@ class TaskListFilters {
   bool get isEmpty =>
       search == null &&
       status == null &&
+      priority == null &&
       assigneeAccountId == null &&
       tag == null &&
       deadlineFrom == null &&
@@ -2984,33 +3690,62 @@ class TaskListFilters {
   );
 }
 
+/// Task lifecycle, derived from `complete_reason` on the wire.
 enum TaskStatus {
-  open('Open'),
-  completed('Completed'),
-  skipped('Skipped'),
-  duplicated('Duplicated');
+  open(0, 'Open'),
+  completed(1, 'Completed'),
+  skipped(2, 'Skipped'),
+  duplicated(3, 'Duplicated');
 
-  const TaskStatus(this.apiValue);
-  final String apiValue;
+  const TaskStatus(this.apiValue, this.label);
+  final int apiValue;
+  final String label;
+
+  /// `complete_reason`: null = open, 0 completed, 1 skipped, 2 duplicated.
+  static TaskStatus fromCompleteReason(int? reason) => switch (reason) {
+    null => TaskStatus.open,
+    0 => TaskStatus.completed,
+    1 => TaskStatus.skipped,
+    2 => TaskStatus.duplicated,
+    _ => TaskStatus.open,
+  };
+
+  /// The `complete_reason` that records this status.
+  int? get completeReason => switch (this) {
+    TaskStatus.open => null,
+    TaskStatus.completed => 0,
+    TaskStatus.skipped => 1,
+    TaskStatus.duplicated => 2,
+  };
 }
 
+/// One task list: a workspace (optionally unfiled or one folder) or a folder.
 class TaskListRequest {
   const TaskListRequest({
-    required this.broadId,
+    this.workspaceId,
+    this.folderId,
+    this.unfiled = false,
     this.filters = const TaskListFilters(),
   });
 
-  final String broadId;
+  final String? workspaceId;
+  final String? folderId;
+  final bool unfiled;
   final TaskListFilters filters;
+
+  /// The list backed by one folder's own endpoint.
+  bool get isFolderScope => folderId != null && workspaceId == null;
 
   @override
   bool operator ==(Object other) =>
       other is TaskListRequest &&
-      other.broadId == broadId &&
+      other.workspaceId == workspaceId &&
+      other.folderId == folderId &&
+      other.unfiled == unfiled &&
       other.filters == filters;
 
   @override
-  int get hashCode => Object.hash(broadId, filters);
+  int get hashCode => Object.hash(workspaceId, folderId, unfiled, filters);
 }
 
 class WorkTask {
@@ -3027,10 +3762,10 @@ class WorkTask {
     this.deadlineAt,
     this.completedAt,
     this.completeReason,
-    this.broadId,
+    this.workspaceId,
+    this.folderId,
     this.parentTaskId,
-    this.assignees = const [],
-    this.gitHubIssue,
+    this.position,
   });
   final String id;
   final String name;
@@ -3044,12 +3779,15 @@ class WorkTask {
   final DateTime? deadlineAt;
   final DateTime? completedAt;
   final int? completeReason;
-  final String? broadId;
+  final String? workspaceId;
+  final String? folderId;
   final String? parentTaskId;
-  final List<TaskAssignee> assignees;
-  final GitHubIssueLink? gitHubIssue;
+  final String? position;
 
-  bool get isCompleted => completedAt != null || completeReason != null;
+  bool get isCompleted => completeReason != null || completedAt != null;
+
+  /// The lifecycle state the server derives from `complete_reason`.
+  TaskStatus get status => TaskStatus.fromCompleteReason(completeReason);
 
   /// Non-blank description for list/card UI (empty string counts as absent).
   String? get displayDescription => nonEmptyString(description);
@@ -3059,11 +3797,7 @@ class WorkTask {
 
   bool get hasDescription => displayDescription != null;
   bool get hasContent => displayContent != null;
-  bool get isLinkedToGitHub => gitHubIssue != null;
   String? get displayKey => taskKey ?? serialNumber?.toString();
-
-  List<String> get assigneeAccountIds =>
-      assignees.map((item) => item.accountId).toList(growable: false);
 
   /// Copy with the completion flag flipped, timestamped when first completed.
   /// The pushed detail screen owns its task copy, so it can show the toggle
@@ -3081,168 +3815,51 @@ class WorkTask {
     deadlineAt: deadlineAt,
     completedAt: completed ? (completedAt ?? DateTime.now()) : null,
     completeReason: completed ? (completeReason ?? 0) : null,
-    broadId: broadId,
+    workspaceId: workspaceId,
+    folderId: folderId,
     parentTaskId: parentTaskId,
-    assignees: assignees,
-    gitHubIssue: gitHubIssue,
+    position: position,
   );
 
-  factory WorkTask.fromJson(Map<String, dynamic> json) {
-    final issueRaw = json['git_hub_issue'] ?? json['github_issue'];
-    return WorkTask(
-      id: json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? 'Untitled task',
-      description: nonEmptyString(json['description']?.toString()),
-      content: nonEmptyString(json['content']?.toString()),
-      attachments: parseCloudFileReferenceList(json['attachments']),
-      tags:
-          (json['tags'] as List?)
-              ?.map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList() ??
-          const [],
-      priority: (json['priority'] as num?)?.toInt() ?? 0,
-      serialNumber: (json['serial_number'] as num?)?.toInt(),
-      taskKey: nonEmptyString(
-        (json['task_key'] ?? json['taskKey'])?.toString(),
-      ),
-      deadlineAt: parseInstant(json['deadline_at']),
-      completedAt: parseInstant(json['completed_at']),
-      completeReason: (json['complete_reason'] as num?)?.toInt(),
-      broadId: json['broad_id']?.toString(),
-      parentTaskId: json['parent_task_id']?.toString(),
-      assignees:
-          (json['assignees'] as List?)
-              ?.whereType<Map>()
-              .map(
-                (item) =>
-                    TaskAssignee.fromJson(Map<String, dynamic>.from(item)),
-              )
-              .toList() ??
-          const [],
-      gitHubIssue: issueRaw is Map
-          ? GitHubIssueLink.fromJson(Map<String, dynamic>.from(issueRaw))
-          : null,
-    );
-  }
+  /// The update body that keeps every field this screen does not edit.
+  WorkTaskDraft toDraft({TaskStatus? status}) => WorkTaskDraft(
+    name: name,
+    description: displayDescription,
+    content: displayContent,
+    priority: priority,
+    attachmentIds: attachments.map((file) => file.id).toList(growable: false),
+    tags: tags,
+    deadlineAt: deadlineAt,
+    completeReason: status?.completeReason ?? completeReason,
+    parentTaskId: parentTaskId,
+    assigneeAccountIds: const [],
+  );
+
+  factory WorkTask.fromJson(Map<String, dynamic> json) => WorkTask(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Untitled task',
+    description: nonEmptyString(json['description']?.toString()),
+    content: nonEmptyString(json['content']?.toString()),
+    attachments: parseCloudFileReferenceList(json['attachments']),
+    tags:
+        (json['tags'] as List?)
+            ?.map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false) ??
+        const [],
+    priority: (json['priority'] as num?)?.toInt() ?? 0,
+    serialNumber: (json['serial_number'] as num?)?.toInt(),
+    taskKey: nonEmptyString((json['task_key'] ?? json['taskKey'])?.toString()),
+    deadlineAt: parseInstant(json['deadline_at']),
+    completedAt: parseInstant(json['completed_at']),
+    completeReason: (json['complete_reason'] as num?)?.toInt(),
+    workspaceId: nonEmptyString(json['workspace_id']?.toString()),
+    folderId: nonEmptyString(json['folder_id']?.toString()),
+    parentTaskId: nonEmptyString(json['parent_task_id']?.toString()),
+    position: nonEmptyString(json['position']?.toString()),
+  );
 }
 
-/// Link between an Ideask task and a GitHub issue.
-class GitHubIssueLink {
-  const GitHubIssueLink({
-    required this.issueNumber,
-    required this.htmlUrl,
-    this.gitHubIssueId,
-    this.isPullRequest = false,
-    this.repositoryFullName,
-  });
-
-  final int issueNumber;
-  final String htmlUrl;
-  final int? gitHubIssueId;
-  final bool isPullRequest;
-  final String? repositoryFullName;
-
-  String? get resolvedRepositoryFullName {
-    if (repositoryFullName?.isNotEmpty == true) return repositoryFullName;
-    final uri = Uri.tryParse(htmlUrl);
-    if (uri == null ||
-        uri.host != 'github.com' ||
-        uri.pathSegments.length < 2) {
-      return null;
-    }
-    return '${uri.pathSegments[0]}/${uri.pathSegments[1]}';
-  }
-
-  String get reference => resolvedRepositoryFullName != null
-      ? '$resolvedRepositoryFullName#$issueNumber'
-      : '#$issueNumber';
-  String get kindLabel => isPullRequest ? 'PR' : 'Issue';
-  String get label => '$reference $kindLabel';
-
-  factory GitHubIssueLink.fromJson(Map<String, dynamic> json) =>
-      GitHubIssueLink(
-        issueNumber: (json['issue_number'] as num?)?.toInt() ?? 0,
-        htmlUrl: json['html_url']?.toString() ?? '',
-        gitHubIssueId: (json['git_hub_issue_id'] as num?)?.toInt(),
-        isPullRequest: json['is_pull_request'] == true,
-        repositoryFullName: nonEmptyString(
-          (json['repository_full_name'] ?? json['repositoryFullName'])
-              ?.toString(),
-        ),
-      );
-}
-
-/// Board ↔ repository GitHub App integration status.
-class GitHubIntegration {
-  const GitHubIntegration({
-    required this.id,
-    required this.broadId,
-    required this.installationId,
-    required this.owner,
-    required this.repository,
-    this.gitHubRepositoryId,
-    this.lastSyncedAt,
-    this.lastError,
-  });
-
-  final String id;
-  final String broadId;
-  final int installationId;
-  final String owner;
-  final String repository;
-  final int? gitHubRepositoryId;
-  final DateTime? lastSyncedAt;
-  final String? lastError;
-
-  String get fullName => '$owner/$repository';
-
-  factory GitHubIntegration.fromJson(Map<String, dynamic> json) =>
-      GitHubIntegration(
-        id: json['id']?.toString() ?? '',
-        broadId: json['broad_id']?.toString() ?? '',
-        installationId: (json['installation_id'] as num?)?.toInt() ?? 0,
-        owner: json['owner']?.toString() ?? '',
-        repository: json['repository']?.toString() ?? '',
-        gitHubRepositoryId: (json['git_hub_repository_id'] as num?)?.toInt(),
-        lastSyncedAt: parseInstant(json['last_synced_at']),
-        lastError: nonEmptyString(json['last_error']?.toString()),
-      );
-}
-
-/// Repository available to a GitHub App installation.
-class GitHubRepository {
-  const GitHubRepository({
-    required this.id,
-    required this.fullName,
-    required this.owner,
-    required this.name,
-    this.htmlUrl,
-  });
-
-  final int id;
-  final String fullName;
-  final String owner;
-  final String name;
-  final String? htmlUrl;
-
-  factory GitHubRepository.fromJson(Map<String, dynamic> json) {
-    final owner = json['owner']?.toString() ?? '';
-    final name = json['name']?.toString() ?? '';
-    final fullName = json['full_name']?.toString();
-    return GitHubRepository(
-      id: (json['id'] as num?)?.toInt() ?? 0,
-      fullName: (fullName != null && fullName.isNotEmpty)
-          ? fullName
-          : (owner.isEmpty ? name : '$owner/$name'),
-      owner: owner,
-      name: name,
-      htmlUrl: nonEmptyString(json['html_url']?.toString()),
-    );
-  }
-}
-
-/// Task comment (local or mirrored from GitHub).
 // --- ElecPostal mail models --------------------------------------------------
 
 class MailMailbox {
@@ -3581,9 +4198,8 @@ class MailThread {
 
   bool get isMultiMessage => messageCount > 1;
 
-  String get displaySubject => subject.trim().isNotEmpty
-      ? subject
-      : latestMessage.displaySubject;
+  String get displaySubject =>
+      subject.trim().isNotEmpty ? subject : latestMessage.displaySubject;
 
   factory MailThread.fromJson(Map<String, dynamic> json) {
     final latestRaw = json['latest_message'];
@@ -3763,14 +4379,13 @@ class MailForwarding {
   final String destination;
   final DateTime? createdAt;
 
-  factory MailForwarding.fromJson(Map<String, dynamic> json) =>
-      MailForwarding(
-        id: json['id']?.toString() ?? '',
-        mailboxId: json['mailbox_id']?.toString() ?? '',
-        aliasId: json['alias_id']?.toString() ?? '',
-        destination: json['destination']?.toString() ?? '',
-        createdAt: parseInstant(json['created_at']),
-      );
+  factory MailForwarding.fromJson(Map<String, dynamic> json) => MailForwarding(
+    id: json['id']?.toString() ?? '',
+    mailboxId: json['mailbox_id']?.toString() ?? '',
+    aliasId: json['alias_id']?.toString() ?? '',
+    destination: json['destination']?.toString() ?? '',
+    createdAt: parseInstant(json['created_at']),
+  );
 }
 
 /// Workspace-shared mail storage usage and its plan limit.
@@ -3848,7 +4463,11 @@ class MailNotificationSettings {
 
 /// One DNS record a custom domain needs before it verifies.
 class MailDnsRecord {
-  const MailDnsRecord({required this.name, required this.type, required this.value});
+  const MailDnsRecord({
+    required this.name,
+    required this.type,
+    required this.value,
+  });
 
   final String name;
   final String type;
@@ -3863,11 +4482,7 @@ class MailDnsRecord {
 
 /// Used/limit/remaining triple shared by the mailbox and send-usage endpoints.
 class MailUsageSummary {
-  const MailUsageSummary({
-    this.used = 0,
-    this.limit = 0,
-    this.remaining = 0,
-  });
+  const MailUsageSummary({this.used = 0, this.limit = 0, this.remaining = 0});
 
   final int used;
   final int limit;
@@ -3945,9 +4560,8 @@ class MailCustomDomain {
           ? rawRecords
                 .whereType<Map>()
                 .map(
-                  (item) => MailDnsRecord.fromJson(
-                    Map<String, dynamic>.from(item),
-                  ),
+                  (item) =>
+                      MailDnsRecord.fromJson(Map<String, dynamic>.from(item)),
                 )
                 .toList(growable: false)
           : const [],
@@ -4032,37 +4646,25 @@ class TaskComment {
     required this.taskId,
     required this.content,
     this.authorAccountId,
-    this.externalAuthorLogin,
-    this.externalAuthorAvatarUrl,
     this.createdAt,
     this.updatedAt,
-    this.hasGitHubLink = false,
   });
 
   final String id;
   final String taskId;
   final String content;
   final String? authorAccountId;
-  final String? externalAuthorLogin;
-  final String? externalAuthorAvatarUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
-  final bool hasGitHubLink;
-
-  /// Comments authored on GitHub (no local account) are read-only in SolWatt.
-  bool get isFromGitHub =>
-      externalAuthorLogin != null && externalAuthorLogin!.isNotEmpty;
 
   bool isOwnedBy(String? accountId) =>
       accountId != null &&
       authorAccountId != null &&
       authorAccountId == accountId;
 
-  bool canEditOrDelete(String? accountId) =>
-      !isFromGitHub && isOwnedBy(accountId);
+  bool canEditOrDelete(String? accountId) => isOwnedBy(accountId);
 
   String authorLabel({String? currentAccountId}) {
-    if (isFromGitHub) return externalAuthorLogin!;
     if (isOwnedBy(currentAccountId)) return 'You';
     if (authorAccountId != null && authorAccountId!.isNotEmpty) {
       return 'Member ${_shortId(authorAccountId!)}';
@@ -4070,24 +4672,14 @@ class TaskComment {
     return 'Unknown';
   }
 
-  factory TaskComment.fromJson(Map<String, dynamic> json) {
-    final github = json['git_hub_comment'] ?? json['github_comment'];
-    return TaskComment(
-      id: json['id']?.toString() ?? '',
-      taskId: json['task_id']?.toString() ?? '',
-      content: json['content']?.toString() ?? '',
-      authorAccountId: json['author_account_id']?.toString(),
-      externalAuthorLogin: nonEmptyString(
-        json['external_author_login']?.toString(),
-      ),
-      externalAuthorAvatarUrl: nonEmptyString(
-        json['external_author_avatar_url']?.toString(),
-      ),
-      createdAt: parseInstant(json['created_at']),
-      updatedAt: parseInstant(json['updated_at']),
-      hasGitHubLink: github != null,
-    );
-  }
+  factory TaskComment.fromJson(Map<String, dynamic> json) => TaskComment(
+    id: json['id']?.toString() ?? '',
+    taskId: json['task_id']?.toString() ?? '',
+    content: json['content']?.toString() ?? '',
+    authorAccountId: json['author_account_id']?.toString(),
+    createdAt: parseInstant(json['created_at']),
+    updatedAt: parseInstant(json['updated_at']),
+  );
 }
 
 class WorkTaskDraft {
@@ -4110,6 +4702,8 @@ class WorkTaskDraft {
   final List<String> attachmentIds;
   final List<String>? tags;
   final DateTime? deadlineAt;
+
+  /// null = open; 0 completed, 1 skipped, 2 duplicated.
   final int? completeReason;
   final String? parentTaskId;
   final List<String> assigneeAccountIds;
@@ -4127,6 +4721,8 @@ class WorkTaskDraft {
     'tags': ?tags,
   };
 
+  /// The update body. `complete_reason` is always sent: the server reads an
+  /// omitted field as null, which would silently reopen a completed task.
   Map<String, dynamic> toUpdateJson() => {
     'name': name,
     'description': nonEmptyString(description),
@@ -4134,7 +4730,7 @@ class WorkTaskDraft {
     'attachment_ids': attachmentIds,
     'priority': priority,
     'deadline_at': deadlineAt?.toUtc().toIso8601String(),
-    'complete_reason': ?completeReason,
+    'complete_reason': completeReason,
     'tags': ?tags,
   };
 }
@@ -4398,7 +4994,7 @@ void invalidateSessionScope(WidgetRef ref) {
   ref.invalidate(bundledProOverviewProvider);
   ref.invalidate(workspacesProvider);
   ref.invalidate(selectedWorkspaceProvider);
-  ref.invalidate(broadsProvider);
+  ref.invalidate(ideaskTreeProvider);
   ref.invalidate(workspaceFilesProvider);
   ref.invalidate(workspaceFolderChildrenProvider);
   ref.invalidate(workspaceUnindexedFilesProvider);
@@ -4409,7 +5005,7 @@ void invalidateSessionScope(WidgetRef ref) {
 void invalidateWorkspaceScope(WidgetRef ref) {
   ref.invalidate(selectedWorkspaceProvider);
   ref.invalidate(bundledProOverviewProvider);
-  ref.invalidate(broadsProvider);
+  ref.invalidate(ideaskTreeProvider);
   ref.invalidate(workspaceFilesProvider);
   ref.invalidate(workspaceFolderChildrenProvider);
   ref.invalidate(workspaceUnindexedFilesProvider);
@@ -4430,32 +5026,67 @@ final workspacesProvider = FutureProvider<List<Workspace>>((ref) async {
   return ref.watch(wattEngineClientProvider).listWorkspaces();
 });
 
-final broadsProvider = FutureProvider<List<Broad>>((ref) async {
+/// Every folder, page and collection of the active workspace in one request.
+final ideaskTreeProvider = FutureProvider<List<IdeaskTreeNode>>((ref) async {
   final workspace = await ref.watch(selectedWorkspaceProvider.future);
   if (workspace == null) return const [];
-  final broads = await ref
-      .watch(wattEngineClientProvider)
-      .listBroads(workspaceId: workspace.id);
-  return broads
-      .where(
-        (broad) =>
-            broad.workspaceId == null || broad.workspaceId == workspace.id,
-      )
-      .toList();
+  return ref.watch(wattEngineClientProvider).listWorkspaceTree(workspace.id);
 });
 
-final tasksProvider = FutureProvider.family<List<WorkTask>, TaskListRequest>(
-  (ref, request) async => ref
-      .watch(wattEngineClientProvider)
-      .listTasks(request.broadId, filters: request.filters),
+/// One folder's direct contents.
+final ideaskFolderContentsProvider =
+    FutureProvider.autoDispose.family<IdeaskFolderContents, String>(
+      (ref, folderId) =>
+          ref.watch(wattEngineClientProvider).folderContents(folderId),
+    );
+
+/// One page's metadata, refreshed after every save.
+final ideaskPageProvider = FutureProvider.autoDispose.family<IdeaskPage, String>(
+  (ref, pageId) => ref.watch(wattEngineClientProvider).getPage(pageId),
 );
 
-/// Linked GitHub repositories for a board.
-final gitHubIntegrationProvider =
-    FutureProvider.family<List<GitHubIntegration>, String>(
-      (ref, broadId) async =>
-          ref.watch(wattEngineClientProvider).getGitHubIntegrations(broadId),
+/// One page's Markdown body.
+final ideaskPageBodyProvider =
+    FutureProvider.autoDispose.family<IdeaskPageBody, String>(
+      (ref, pageId) => ref.watch(wattEngineClientProvider).getPageBody(pageId),
     );
+
+/// One collection with its property schema and saved views.
+final ideaskCollectionProvider =
+    FutureProvider.autoDispose.family<IdeaskCollection, String>(
+      (ref, collectionId) =>
+          ref.watch(wattEngineClientProvider).getCollection(collectionId),
+    );
+
+/// A saved view's rows.
+final ideaskCollectionQueryProvider = FutureProvider.autoDispose
+    .family<IdeaskQueryResult, ({String collectionId, String? viewId})>(
+      (ref, request) => ref
+          .watch(wattEngineClientProvider)
+          .queryCollection(
+            collectionId: request.collectionId,
+            viewId: request.viewId,
+          ),
+    );
+
+/// Tasks for one workspace/folder scope.
+final tasksProvider = FutureProvider.family<List<WorkTask>, TaskListRequest>((
+  ref,
+  request,
+) {
+  final client = ref.watch(wattEngineClientProvider);
+  if (request.isFolderScope) {
+    return client.listFolderTasks(request.folderId!, filters: request.filters);
+  }
+  final workspaceId = request.workspaceId;
+  if (workspaceId == null || workspaceId.isEmpty) return const [];
+  return client.listTasks(
+    workspaceId: workspaceId,
+    filters: request.filters,
+    folderId: request.folderId,
+    unfiled: request.unfiled,
+  );
+});
 
 final taskCommentsProvider = FutureProvider.family<List<TaskComment>, String>(
   (ref, taskId) async =>
@@ -4745,12 +5376,12 @@ final mailNotificationSettingsProvider =
     );
 
 /// Workspace-owned custom domains, used to pick a domain for new aliases.
-final customDomainsProvider = FutureProvider.family<List<MailCustomDomain>, String>(
-  (ref, workspaceId) async =>
-      ref.watch(wattEngineClientProvider).listCustomDomains(
-        workspaceId: workspaceId,
-      ),
-);
+final customDomainsProvider =
+    FutureProvider.family<List<MailCustomDomain>, String>(
+      (ref, workspaceId) async => ref
+          .watch(wattEngineClientProvider)
+          .listCustomDomains(workspaceId: workspaceId),
+    );
 
 /// Logic layer for `.eml`/`.mbox` mail import: parsing, attachment upload to
 /// workspace Drive, chunking, and `POST /postal/import` calls. Consumed by

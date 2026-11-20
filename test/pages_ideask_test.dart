@@ -3,80 +3,88 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:solar_network_foundation/solar_network_foundation.dart';
 
 import 'package:solwatt/core/config.dart';
+import 'package:solwatt/ideask/ideask_page.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
+import 'package:solwatt/ideask/page_doc_page.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
-import 'package:solwatt/boards/boards_screen.dart';
-import 'package:solwatt/pages/pages_screen.dart';
 import 'package:solwatt/theme.dart';
-import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
-/// Answers the broad read and records the save, so the test sees the exact
-/// payload the page editor sends to Ideask.
-class _RecordingBroadClient extends WattEngineClient {
-  _RecordingBroadClient({required this.page})
+/// Answers the page read and records the writes, so the test sees the exact
+/// payload the editor sends to Ideask: metadata through `updatePage`, Markdown
+/// through `savePageBody`.
+class _RecordingPageClient extends WattEngineClient {
+  _RecordingPageClient({required this.page, required this.body})
     : super(SolarNetworkAuthenticator(const FlutterSecureStorage()));
 
-  final Broad page;
-  final List<({String id, String name, String? content})> updates = [];
+  final IdeaskPage page;
+  final IdeaskPageBody body;
+  final List<({String id, String? title})> pageUpdates = [];
+  final List<({String id, String contentMd})> bodySaves = [];
 
   @override
-  Future<Broad?> getBroad(String broadId) async => page;
+  Future<IdeaskPage> getPage(String pageId) async => page;
 
   @override
-  Future<Broad> updateBroad({
-    required String broadId,
-    required String name,
+  Future<IdeaskPageBody> getPageBody(String pageId) async => body;
+
+  @override
+  Future<IdeaskPage> updatePage({
+    required String pageId,
+    String? title,
     String? description,
-    String? content,
-    String? workspaceId,
-    String? parentId,
-    bool clearParent = false,
-    String? backgroundImageId,
-    bool updateBackgroundImage = false,
-    String? iconImageId,
-    bool updateIconImage = false,
+    String? iconId,
+    bool clearIcon = false,
+    String? coverId,
+    bool clearCover = false,
+    List<String>? tags,
+    Map<String, dynamic>? properties,
     int? visibility,
-    String? taskPrefix,
-    bool clearTaskPrefix = false,
   }) async {
-    updates.add((id: broadId, name: name, content: content));
-    return Broad(
-      id: broadId,
-      name: name,
-      content: content,
-      workspaceId: page.workspaceId,
-      kind: Broad.kindPage,
-    );
+    pageUpdates.add((id: pageId, title: title));
+    return page;
+  }
+
+  @override
+  Future<IdeaskPageBody> savePageBody(String pageId, String contentMd) async {
+    bodySaves.add((id: pageId, contentMd: contentMd));
+    return IdeaskPageBody(pageId: pageId, contentMd: contentMd);
   }
 }
 
-const _page = Broad(
+const _page = IdeaskPage(
   id: 'page-1',
-  name: 'Runbook',
-  content: '# Deploy\n\nShip it.',
-  workspaceId: 'ws-1',
-  kind: Broad.kindPage,
-);
-
-const _board = Broad(
-  id: 'board-1',
-  name: 'Roadmap',
+  title: 'Runbook',
   workspaceId: 'ws-1',
 );
 
-Future<ProviderContainer> _container(_RecordingBroadClient client) async {
+const _body = IdeaskPageBody(
+  pageId: 'page-1',
+  contentMd: '# Deploy\n\nShip it.',
+);
+
+Future<ProviderContainer> _container(_RecordingPageClient client) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
-      broadsProvider.overrideWith((ref) async => const [_page, _board]),
+      selectedWorkspaceProvider.overrideWith(
+        (ref) async => const Workspace(
+          id: 'ws-1',
+          slug: 'ws-1',
+          name: 'Test Workspace',
+          isBundled: false,
+        ),
+      ),
+      ideaskBrowserProvider.overrideWith(
+        (ref) async => const IdeaskBrowserState(pages: [_page]),
+      ),
       wattEngineClientProvider.overrideWithValue(client),
     ],
   );
@@ -84,7 +92,9 @@ Future<ProviderContainer> _container(_RecordingBroadClient client) async {
 
 /// The block types the page body currently holds.
 List<String> _documentTypes(WidgetTester tester) => tester
-    .widget<SolarBlockEditor>(find.byType(SolarBlockEditor, skipOffstage: false))
+    .widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
+    )
     .controller
     .editorState
     .document
@@ -103,21 +113,18 @@ Widget _app(ProviderContainer container, Widget child) =>
     );
 
 void main() {
-  test('broads split into pages and boards by kind', () async {
-    final container = await _container(_RecordingBroadClient(page: _page));
+  test('a page is addressable as a Pages workspace entity', () async {
+    final container = await _container(
+      _RecordingPageClient(page: _page, body: _body),
+    );
     addTearDown(container.dispose);
 
-    await container.read(broadsProvider.future);
-    final pages = container.read(pagesProvider).value ?? const <Broad>[];
-    final boards = container.read(taskBoardsProvider).value ?? const <Broad>[];
+    await container.read(ideaskBrowserProvider.future);
+    final entity = ideaskEntityRefForPage(_page);
 
-    expect(pages.map((broad) => broad.id), ['page-1']);
-    expect(boards.map((broad) => broad.id), ['board-1']);
-    // A page is still addressable as a workspace entity, under Pages.
-    expect(
-      broadToEntityRef(pages.single).domain,
-      WorkspaceDomain.pages,
-    );
+    expect(entity.id, 'page-1');
+    expect(entity.title, 'Runbook');
+    expect(entity.domain, WorkspaceDomain.pages);
   });
 
   testWidgets('the page editor saves its title and Markdown body', (
@@ -127,11 +134,11 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    final client = _RecordingBroadClient(page: _page);
+    final client = _RecordingPageClient(page: _page, body: _body);
     final container = await _container(client);
     addTearDown(container.dispose);
 
-    await tester.pumpWidget(_app(container, const BroadDocScreen(pageId: 'page-1')));
+    await tester.pumpWidget(_app(container, const DocPage(pageId: 'page-1')));
     await tester.pumpAndSettle();
 
     expect(find.text('Runbook'), findsWidgets);
@@ -155,49 +162,74 @@ void main() {
     await tester.pumpAndSettle();
     tester.testTextInput.enterText('Ship it twice.');
     await tester.pumpAndSettle();
-    expect(
-      editor.controller.markdown,
-      contains('Ship it twice.'),
-    );
+    expect(editor.controller.markdown, contains('Ship it twice.'));
+
     // ⌘S / Ctrl+S saves without leaving the editor.
     await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
     await tester.pumpAndSettle();
 
-    expect(client.updates, hasLength(1));
-    expect(client.updates.single.id, 'page-1');
-    expect(client.updates.single.name, 'Runbook');
-    expect(client.updates.single.content, contains('Ship it twice.'));
+    expect(client.bodySaves, hasLength(1));
+    expect(client.bodySaves.single.id, 'page-1');
+    expect(client.bodySaves.single.contentMd, contains('Ship it twice.'));
+    // The title was not edited, so no metadata write is issued.
+    expect(client.pageUpdates, isEmpty);
   });
 
-  testWidgets('the boards tab lists boards and pages in one grid', (
+  testWidgets('the Todo browser lists folders, collections and pages', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    final container = await _container(_RecordingBroadClient(page: _page));
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        selectedWorkspaceProvider.overrideWith(
+          (ref) async => const Workspace(
+            id: 'ws-1',
+            slug: 'ws-1',
+            name: 'Test Workspace',
+            isBundled: false,
+          ),
+        ),
+        ideaskBrowserProvider.overrideWith(
+          (ref) async => const IdeaskBrowserState(
+            folders: [
+              IdeaskFolder(id: 'folder-1', name: 'Roadmap', workspaceId: 'ws-1'),
+            ],
+            collections: [
+              IdeaskCollection(
+                id: 'collection-1',
+                name: 'Releases',
+                workspaceId: 'ws-1',
+              ),
+            ],
+            pages: [_page],
+          ),
+        ),
+        wattEngineClientProvider.overrideWithValue(
+          _RecordingPageClient(page: _page, body: _body),
+        ),
+      ],
+    );
     addTearDown(container.dispose);
 
     await tester.pumpWidget(
-      _app(
-        container,
-        AdaptiveWorkspaceShell(
-          isShown: true,
-          selectedIndex: 2,
-          onSelected: (_) {},
-          child: const BoardsListPage(),
-        ),
-      ),
+      _app(container, const IdeaskBrowserPage()),
     );
     await tester.pumpAndSettle();
 
-    // One list, two kinds: the page keeps its own glyph, the board its lanes.
-    expect(find.text('Runbook'), findsWidgets);
-    expect(find.text('Roadmap'), findsWidgets);
-    expect(find.byIcon(Symbols.article_rounded), findsWidgets);
-    expect(find.byIcon(Symbols.view_kanban_rounded), findsWidgets);
+    // One list, three kinds: each keeps its own glyph.
+    expect(find.text('Roadmap'), findsOneWidget);
+    expect(find.text('Releases'), findsOneWidget);
+    expect(find.text('Runbook'), findsOneWidget);
+    expect(find.byIcon(Symbols.folder), findsWidgets);
+    expect(find.byIcon(Symbols.table_chart), findsWidgets);
+    expect(find.byIcon(Symbols.article), findsWidgets);
   });
 }

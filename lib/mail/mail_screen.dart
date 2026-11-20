@@ -25,7 +25,7 @@ import 'package:solwatt/core/widgets/content/cloud_file_lightbox.dart';
 import 'package:solwatt/mail/email_contrast.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/ui/alert.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
@@ -2808,31 +2808,22 @@ class _EmailThreadTile extends StatelessWidget {
         if (direction == DismissDirection.startToEnd) {
           HapticFeedback.selectionClick();
           final container = ProviderScope.containerOf(context, listen: false);
-          // A page is a broad without tasks, so a task goes on a board.
-          final boards =
-              container.read(taskBoardsProvider).value ?? const <Broad>[];
-          final firstBoard = boards.firstOrNull;
-          if (firstBoard != null) {
+          // Tasks live in the workspace or in one of its folders. The sweep
+          // files into the unfiled task list, which is always available.
+          final workspaceId = container.read(ideaskWorkspaceIdProvider);
+          if (workspaceId != null) {
             try {
               final created = await container
-                  .read(wattEngineClientProvider)
+                  .read(ideaskActionsProvider)
                   .createTask(
-                    firstBoard.id,
-                    WorkTaskDraft(
+                    task: WorkTaskDraft(
                       name: 'Follow up: ${mailEntity.title}',
                       description: mailEntity.subtitle,
                     ),
                   );
-              container.invalidate(
-                tasksProvider(TaskListRequest(broadId: firstBoard.id)),
-              );
-              final taskEntity = WorkspaceEntityRef(
-                id: created.id,
-                domain: WorkspaceDomain.todo,
-                title: created.name,
-                subtitle: firstBoard.name,
-                status: 'Open',
-                metadata: {'broadId': firstBoard.id, 'taskId': created.id},
+              final taskEntity = ideaskEntityRefForTask(
+                created,
+                fallbackTitle: 'unfiledTasks'.tr(),
               );
               container
                   .read(backlinksProvider.notifier)

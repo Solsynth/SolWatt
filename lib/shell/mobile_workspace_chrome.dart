@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:solwatt/boards/create_broad_sheet.dart';
+import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/drive/favorites.dart';
 import 'package:solwatt/drive/usage.dart';
 import 'package:solwatt/drive/widgets/drive_pane_switch.dart';
@@ -203,7 +203,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: SolSpace.sm),
               child: Text(
-                'No favorites yet. Star files, pages, threads, or boards.',
+                'No favorites yet. Star files, pages, threads, or folders.',
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -362,11 +362,11 @@ class MobileFloatingActionPill extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Symbols.add_rounded),
-              title: const Text('New board or page'),
+              title: const Text('New folder, page or collection'),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.todo);
-                showCreateBroadSheet(context, ref);
+                showIdeaskCreateSheet(context, ref);
               },
             ),
             ListTile(
@@ -380,7 +380,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Symbols.check_box_rounded),
-              title: const Text('Open Todo Boards'),
+              title: const Text('Open Todo'),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onSelectLens(WorkspaceLens.todo);

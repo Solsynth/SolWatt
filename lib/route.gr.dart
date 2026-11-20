@@ -75,67 +75,85 @@ class AppShellRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
-/// [BoardsListPage]
-class BoardsListRoute extends PageRouteInfo<void> {
-  const BoardsListRoute({List<PageRouteInfo>? children})
-    : super(BoardsListRoute.name, initialChildren: children);
-
-  static const String name = 'BoardsListRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const BoardsListPage();
-    },
-  );
-}
-
-/// generated route for
-/// [BoardsPage]
-class BoardsRoute extends PageRouteInfo<void> {
-  const BoardsRoute({List<PageRouteInfo>? children})
-    : super(BoardsRoute.name, initialChildren: children);
-
-  static const String name = 'BoardsRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      return const BoardsPage();
-    },
-  );
-}
-
-/// generated route for
-/// [BroadDocScreen]
-class BroadDocRoute extends PageRouteInfo<BroadDocRouteArgs> {
-  BroadDocRoute({
+/// [CollectionPage]
+class CollectionRoute extends PageRouteInfo<CollectionRouteArgs> {
+  CollectionRoute({
     Key? key,
-    required String pageId,
+    required String collectionId,
     List<PageRouteInfo>? children,
   }) : super(
-         BroadDocRoute.name,
-         args: BroadDocRouteArgs(key: key, pageId: pageId),
-         rawPathParams: {'pageId': pageId},
+         CollectionRoute.name,
+         args: CollectionRouteArgs(key: key, collectionId: collectionId),
+         rawPathParams: {'collectionId': collectionId},
          initialChildren: children,
        );
 
-  static const String name = 'BroadDocRoute';
+  static const String name = 'CollectionRoute';
 
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
       final pathParams = data.inheritedPathParams;
-      final args = data.argsAs<BroadDocRouteArgs>(
-        orElse: () => BroadDocRouteArgs(pageId: pathParams.getString('pageId')),
+      final args = data.argsAs<CollectionRouteArgs>(
+        orElse: () => CollectionRouteArgs(
+          collectionId: pathParams.getString('collectionId'),
+        ),
       );
-      return BroadDocScreen(key: args.key, pageId: args.pageId);
+      return CollectionPage(key: args.key, collectionId: args.collectionId);
     },
   );
 }
 
-class BroadDocRouteArgs {
-  const BroadDocRouteArgs({this.key, required this.pageId});
+class CollectionRouteArgs {
+  const CollectionRouteArgs({this.key, required this.collectionId});
+
+  final Key? key;
+
+  final String collectionId;
+
+  @override
+  String toString() {
+    return 'CollectionRouteArgs{key: $key, collectionId: $collectionId}';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! CollectionRouteArgs) return false;
+    return key == other.key && collectionId == other.collectionId;
+  }
+
+  @override
+  int get hashCode => key.hashCode ^ collectionId.hashCode;
+}
+
+/// generated route for
+/// [DocPage]
+class DocRoute extends PageRouteInfo<DocRouteArgs> {
+  DocRoute({Key? key, required String pageId, List<PageRouteInfo>? children})
+    : super(
+        DocRoute.name,
+        args: DocRouteArgs(key: key, pageId: pageId),
+        rawPathParams: {'pageId': pageId},
+        initialChildren: children,
+      );
+
+  static const String name = 'DocRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      final pathParams = data.inheritedPathParams;
+      final args = data.argsAs<DocRouteArgs>(
+        orElse: () => DocRouteArgs(pageId: pathParams.getString('pageId')),
+      );
+      return DocPage(key: args.key, pageId: args.pageId);
+    },
+  );
+}
+
+class DocRouteArgs {
+  const DocRouteArgs({this.key, required this.pageId});
 
   final Key? key;
 
@@ -143,13 +161,13 @@ class BroadDocRouteArgs {
 
   @override
   String toString() {
-    return 'BroadDocRouteArgs{key: $key, pageId: $pageId}';
+    return 'DocRouteArgs{key: $key, pageId: $pageId}';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    if (other is! BroadDocRouteArgs) return false;
+    if (other is! DocRouteArgs) return false;
     return key == other.key && pageId == other.pageId;
   }
 
@@ -255,6 +273,38 @@ class GateRoute extends PageRouteInfo<void> {
     name,
     builder: (data) {
       return const GatePage();
+    },
+  );
+}
+
+/// generated route for
+/// [IdeaskBrowserPage]
+class IdeaskBrowserRoute extends PageRouteInfo<void> {
+  const IdeaskBrowserRoute({List<PageRouteInfo>? children})
+    : super(IdeaskBrowserRoute.name, initialChildren: children);
+
+  static const String name = 'IdeaskBrowserRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const IdeaskBrowserPage();
+    },
+  );
+}
+
+/// generated route for
+/// [IdeaskLensPage]
+class IdeaskLensRoute extends PageRouteInfo<void> {
+  const IdeaskLensRoute({List<PageRouteInfo>? children})
+    : super(IdeaskLensRoute.name, initialChildren: children);
+
+  static const String name = 'IdeaskLensRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const IdeaskLensPage();
     },
   );
 }
@@ -462,55 +512,70 @@ class ProfileRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
-/// [TaskBoardPage]
-class TaskBoardRoute extends PageRouteInfo<TaskBoardRouteArgs> {
-  TaskBoardRoute({
+/// [TaskListPage]
+class TaskListRoute extends PageRouteInfo<TaskListRouteArgs> {
+  TaskListRoute({
     Key? key,
-    required String broadId,
+    String? folderId,
+    bool unfiled = false,
     List<PageRouteInfo>? children,
   }) : super(
-         TaskBoardRoute.name,
-         args: TaskBoardRouteArgs(key: key, broadId: broadId),
-         rawPathParams: {'broadId': broadId},
+         TaskListRoute.name,
+         args: TaskListRouteArgs(
+           key: key,
+           folderId: folderId,
+           unfiled: unfiled,
+         ),
+         rawQueryParams: {'folderId': folderId, 'unfiled': unfiled},
          initialChildren: children,
        );
 
-  static const String name = 'TaskBoardRoute';
+  static const String name = 'TaskListRoute';
 
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
-      final pathParams = data.inheritedPathParams;
-      final args = data.argsAs<TaskBoardRouteArgs>(
-        orElse: () =>
-            TaskBoardRouteArgs(broadId: pathParams.getString('broadId')),
+      final queryParams = data.queryParams;
+      final args = data.argsAs<TaskListRouteArgs>(
+        orElse: () => TaskListRouteArgs(
+          folderId: queryParams.optString('folderId'),
+          unfiled: queryParams.getBool('unfiled', false),
+        ),
       );
-      return TaskBoardPage(key: args.key, broadId: args.broadId);
+      return TaskListPage(
+        key: args.key,
+        folderId: args.folderId,
+        unfiled: args.unfiled,
+      );
     },
   );
 }
 
-class TaskBoardRouteArgs {
-  const TaskBoardRouteArgs({this.key, required this.broadId});
+class TaskListRouteArgs {
+  const TaskListRouteArgs({this.key, this.folderId, this.unfiled = false});
 
   final Key? key;
 
-  final String broadId;
+  final String? folderId;
+
+  final bool unfiled;
 
   @override
   String toString() {
-    return 'TaskBoardRouteArgs{key: $key, broadId: $broadId}';
+    return 'TaskListRouteArgs{key: $key, folderId: $folderId, unfiled: $unfiled}';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    if (other is! TaskBoardRouteArgs) return false;
-    return key == other.key && broadId == other.broadId;
+    if (other is! TaskListRouteArgs) return false;
+    return key == other.key &&
+        folderId == other.folderId &&
+        unfiled == other.unfiled;
   }
 
   @override
-  int get hashCode => key.hashCode ^ broadId.hashCode;
+  int get hashCode => key.hashCode ^ folderId.hashCode ^ unfiled.hashCode;
 }
 
 /// generated route for

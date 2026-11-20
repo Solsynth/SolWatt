@@ -9,7 +9,7 @@ import 'package:solwatt/drive/widgets/drive_pane_switch.dart';
 import 'package:solwatt/drive/widgets/file_list_view.dart' show FileListMode;
 import 'package:solwatt/drive/widgets/storage_meter.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/pages/pages_provider.dart';
+import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
@@ -18,7 +18,7 @@ import 'package:solwatt/workspace/workspace_state.dart';
 /// Zone 2: Contextual Sidebar (240px on Desktop, modal left Drawer on Tablet).
 ///
 /// Renders:
-/// 1. `Favorites` — one shared list across mail, boards, pages and drive
+/// 1. `Favorites` — one shared list across mail, folders, pages and drive
 ///    files. Drive bookmarks live on the filesystem service, so they follow the
 ///    reader between devices; the rest are local workspace references.
 /// 2. The active [WorkspaceLens]'s own tree. For Drive that tree is the drop
@@ -176,7 +176,7 @@ class ContextualSidebar extends ConsumerWidget {
         );
 
       case WorkspaceLens.todo:
-        return _BroadTree(
+        return _IdeaskTree(
           onOpenEntity: onOpenEntity,
           onCloseDrawer: onCloseDrawer,
         );
@@ -402,28 +402,44 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// The Ideask tree: boards and pages side by side, because they are the same
-/// rows on the service. New pages are created from the board list's create
-/// action, so this column only routes.
-class _BroadTree extends ConsumerWidget {
+/// The Ideask tree, top level: folders, top-level pages and collections, the
+/// same rows the Todo lens browses. Selecting one routes through the lens.
+class _IdeaskTree extends ConsumerWidget {
   final ValueChanged<WorkspaceEntityRef>? onOpenEntity;
   final VoidCallback? onCloseDrawer;
 
-  const _BroadTree({this.onOpenEntity, this.onCloseDrawer});
+  const _IdeaskTree({this.onOpenEntity, this.onCloseDrawer});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final boards = ref.watch(broadsProvider);
-    final favorites = ref.watch(favoritesProvider);
+    final workspaceId = ref.watch(ideaskWorkspaceIdProvider);
+    if (workspaceId == null) {
+      return Padding(
+        padding: const EdgeInsets.all(SolSpace.sm),
+        child: Text(
+          'Select a workspace to see its folders.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      );
+    }
+    final folderId = switch (ref.watch(ideaskSelectionProvider)) {
+      IdeaskFolderSelection(:final folderId) => folderId,
+      _ => null,
+    };
+    final contents = folderId == null
+        ? ref.watch(ideaskBrowserProvider)
+        : ref.watch(ideaskFolderContentsProvider(folderId));
 
-    return boards.when(
+    return contents.when(
       // A still placeholder: the tree resolves once per workspace, and an
       // indeterminate bar would animate for the whole wait.
       loading: () => Padding(
         padding: const EdgeInsets.all(SolSpace.sm),
         child: Text(
-          'Loading boards…',
+          'Loading folders…',
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -432,18 +448,27 @@ class _BroadTree extends ConsumerWidget {
       error: (error, _) => Padding(
         padding: const EdgeInsets.all(SolSpace.sm),
         child: Text(
-          'Could not load boards.',
+          'Could not load the tree.',
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ),
-      data: (broads) {
-        if (broads.isEmpty) {
+      data: (state) {
+        final folders = state is IdeaskBrowserState
+            ? state.folders
+            : (state as IdeaskFolderContents).folders;
+        final pages = state is IdeaskBrowserState
+            ? state.pages
+            : (state as IdeaskFolderContents).pages;
+        final collections = state is IdeaskBrowserState
+            ? state.collections
+            : (state as IdeaskFolderContents).collections;
+        if (folders.isEmpty && pages.isEmpty && collections.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(SolSpace.sm),
             child: Text(
-              'No boards or pages yet.',
+              'No folders or pages here yet.',
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -451,19 +476,36 @@ class _BroadTree extends ConsumerWidget {
           );
         }
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final broad in broads)
-              _BroadTreeRow(
-                broad: broad,
-                selected: false,
-                favorite: favorites.any(
-                  (item) =>
-                      item.domain ==
-                          (broad.isPage
-                              ? WorkspaceDomain.pages
-                              : WorkspaceDomain.todo) &&
-                      item.id == broad.id,
-                ),
+            if (folderId != null)
+              WorkspaceListRow(
+                compact: true,
+                leading: const Icon(Symbols.arrow_upward, size: 16),
+                title: const Text('Up one level'),
+                onTap: () {
+                  onCloseDrawer?.call();
+                  ref.read(ideaskSelectionProvider.notifier).openRoot();
+                },
+              ),
+            for (final folder in folders)
+              _IdeaskTreeRow(
+                entity: ideaskEntityRefForFolder(folder),
+                icon: Symbols.folder_rounded,
+                onOpenEntity: onOpenEntity,
+                onCloseDrawer: onCloseDrawer,
+              ),
+            for (final collection in collections)
+              _IdeaskTreeRow(
+                entity: ideaskEntityRefForCollection(collection),
+                icon: Symbols.table_chart_rounded,
+                onOpenEntity: onOpenEntity,
+                onCloseDrawer: onCloseDrawer,
+              ),
+            for (final page in pages)
+              _IdeaskTreeRow(
+                entity: ideaskEntityRefForPage(page),
+                icon: Symbols.article_rounded,
                 onOpenEntity: onOpenEntity,
                 onCloseDrawer: onCloseDrawer,
               ),
@@ -474,36 +516,29 @@ class _BroadTree extends ConsumerWidget {
   }
 }
 
-class _BroadTreeRow extends ConsumerWidget {
-  final Broad broad;
-  final bool selected;
-  final bool favorite;
+class _IdeaskTreeRow extends ConsumerWidget {
+  final WorkspaceEntityRef entity;
+  final IconData icon;
   final ValueChanged<WorkspaceEntityRef>? onOpenEntity;
   final VoidCallback? onCloseDrawer;
 
-  const _BroadTreeRow({
-    required this.broad,
-    required this.selected,
-    required this.favorite,
+  const _IdeaskTreeRow({
+    required this.entity,
+    required this.icon,
     this.onOpenEntity,
     this.onCloseDrawer,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final entity = broadToEntityRef(broad);
+    final favorites = ref.watch(favoritesProvider);
+    final favorite = favorites.any(
+      (item) => item.domain == entity.domain && item.id == entity.id,
+    );
     return WorkspaceListRow(
       compact: true,
-      selected: selected,
-      leading: Icon(
-        broad.isPage ? Symbols.article_rounded : Symbols.view_kanban_rounded,
-        size: 16,
-      ),
-      title: Text(
-        broad.name.isEmpty
-            ? (broad.isPage ? 'Untitled page' : 'Untitled board')
-            : broad.name,
-      ),
+      leading: Icon(icon, size: 16),
+      title: Text(entity.title),
       onTap: () {
         onCloseDrawer?.call();
         if (onOpenEntity != null) {
