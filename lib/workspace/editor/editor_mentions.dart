@@ -148,8 +148,10 @@ class EditorMentions {
         color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(SolRadius.sm),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 260),
-          child: ListView.builder(
+          constraints: const BoxConstraints(maxHeight: 260, minWidth: 220),
+          child: _items.isEmpty
+              ? _buildEmpty(context, scheme)
+              : ListView.builder(
             padding: const EdgeInsets.all(SolSpace.xs),
             shrinkWrap: true,
             itemCount: _items.length,
@@ -207,6 +209,36 @@ class EditorMentions {
     );
   }
 
+  /// The popup's own "nothing matched" row: the same icon-and-label shape as
+  /// a mention row, in the muted colour, so a query with no hits reads as an
+  /// answer instead of an empty box.
+  Widget _buildEmpty(BuildContext context, ColorScheme scheme) {
+    final muted = scheme.onSurfaceVariant.withValues(alpha: 0.7);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: SolSpace.md,
+        vertical: SolSpace.sm + 4,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.search_off_rounded, size: 18, color: muted),
+          const SizedBox(width: SolSpace.sm),
+          Flexible(
+            child: Text(
+              'No matching pages, tasks, mail or files',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: muted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Replaces the active token with the picked entity's keyword.
   void _select(EditorMention item) {
     final token = _tokenAtCaret();
@@ -227,9 +259,16 @@ class EditorMentions {
   }
 
   /// Consumes arrows/Enter/Escape while the popup is open.
+  ///
+  /// An empty result keeps only Escape: there is nothing to move through, and
+  /// Enter must fall through so the writer can start a new line instead of
+  /// being trapped in an empty popup.
   KeyEventResult? handleKey(KeyEvent event) {
-    if (_entry == null || _items.isEmpty || event is! KeyDownEvent) {
-      return null;
+    if (_entry == null || event is! KeyDownEvent) return null;
+    if (_items.isEmpty) {
+      if (event.logicalKey != LogicalKeyboardKey.escape) return null;
+      close();
+      return KeyEventResult.handled;
     }
     switch (event.logicalKey) {
       case LogicalKeyboardKey.arrowDown:
