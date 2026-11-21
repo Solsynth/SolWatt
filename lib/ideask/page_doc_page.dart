@@ -15,6 +15,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/ideask/ideask_providers.dart';
+import 'package:solwatt/ideask/page_markdown.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
@@ -58,7 +59,10 @@ class _DocPageState extends ConsumerState<DocPage> {
   );
   EditorMentions? _mentions;
   String _savedTitle = '';
-  String _savedContent = '';
+
+  /// The frontmatter block, kept out of the editor but saved back verbatim.
+  String _frontmatter = '';
+  String _savedBody = '';
   bool _loaded = false;
   bool _saving = false;
   bool _preview = false;
@@ -93,15 +97,17 @@ class _DocPageState extends ConsumerState<DocPage> {
   bool get _dirty =>
       _loaded &&
       (_title.text.trim() != _savedTitle.trim() ||
-          _body.markdown != _savedContent);
+          _body.markdown != _savedBody);
 
   void _adopt(IdeaskPage page, IdeaskPageBody body) {
     if (_loaded) return;
     _loaded = true;
     _savedTitle = page.title;
-    _savedContent = body.contentMd;
+    final content = splitPageFrontmatter(body.contentMd);
+    _frontmatter = content.frontmatter;
+    _savedBody = content.body;
     _title.text = _savedTitle;
-    _body.setMarkdown(_savedContent);
+    _body.setMarkdown(_savedBody);
   }
 
   Future<void> _save(IdeaskPage page) async {
@@ -112,15 +118,28 @@ class _DocPageState extends ConsumerState<DocPage> {
       final title = _title.text.trim();
       if (title.isNotEmpty && title != page.title) {
         await actions.updatePage(pageId: _pageId, title: title);
+        // The service rewrites the frontmatter block from the page columns,
+        // so adopt it: saving the editor's body with the old block would put
+        // the previous title back.
+        final rewritten = await actions.getPageBody(_pageId);
+        final split = splitPageFrontmatter(rewritten.contentMd);
+        if (split.hasFrontmatter) _frontmatter = split.frontmatter;
       }
       final body = await actions.savePageBody(
         pageId: _pageId,
-        contentMd: _body.markdown,
+        contentMd: composePageMarkdown(
+          PageMarkdown(frontmatter: _frontmatter, body: _body.markdown),
+        ),
       );
       if (!mounted) return;
+      // Keep the server's frontmatter if it re-derived one, but baseline the
+      // body on what this editor produced so a normalization round-trip does
+      // not leave the page looking dirty.
+      final saved = splitPageFrontmatter(body.contentMd);
       setState(() {
         _savedTitle = title;
-        _savedContent = body.contentMd;
+        if (saved.hasFrontmatter) _frontmatter = saved.frontmatter;
+        _savedBody = _body.markdown;
       });
       ref.invalidate(ideaskPageProvider(_pageId));
       showSnackBar('pageSaved'.tr());
@@ -285,10 +304,20 @@ class _DocPageState extends ConsumerState<DocPage> {
                             controller: _title,
                             style: Theme.of(context).textTheme.headlineMedium
                                 ?.copyWith(fontWeight: FontWeight.w800),
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
+                            // The title reads as the editor's first heading, not
+                            // as a form field: no fill, border or padding from
+                            // the app's input theme.
+                            decoration: InputDecoration.collapsed(
                               hintText: 'untitledPage'.tr(),
-                              contentPadding: EdgeInsets.zero,
+                              hintStyle: Theme.of(context)
+                                  .textTheme
+                                  .headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: scheme.onSurfaceVariant.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                  ),
                             ),
                           ),
                         ),

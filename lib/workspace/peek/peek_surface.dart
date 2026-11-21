@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
+import 'package:solwatt/ideask/page_markdown.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
@@ -141,13 +142,18 @@ class _PeekBody extends ConsumerWidget {
     final pageBody = entity.domain == WorkspaceDomain.pages
         ? ref.watch(ideaskPageBodyProvider(entity.id)).value
         : null;
+    // Frontmatter is metadata, not prose: the preview starts at the body.
+    final pageContent = pageBody == null
+        ? ''
+        : splitPageFrontmatter(pageBody.contentMd).body.trim();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         EntityCard(
           entity: entity,
-          onToggleComplete: entity.domain == WorkspaceDomain.todo &&
+          onToggleComplete:
+              entity.domain == WorkspaceDomain.todo &&
                   entity.metadata[IdeaskKind.task] == true
               ? () async {
                   final nextCompleted = !entity.isCompleted;
@@ -199,9 +205,9 @@ class _PeekBody extends ConsumerWidget {
                     ),
                   )
                 : MarkdownTextContent(
-                    content: (pageBody?.contentMd ?? '').trim().isEmpty
+                    content: pageContent.isEmpty
                         ? 'pageIsEmpty'.tr()
-                        : pageBody!.contentMd.trim(),
+                        : pageContent,
                   ),
           ),
         ] else if (entity.subtitle != null && entity.subtitle!.isNotEmpty) ...[

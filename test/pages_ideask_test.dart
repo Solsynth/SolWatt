@@ -11,8 +11,10 @@ import 'package:solwatt/core/config.dart';
 import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/ideask/page_doc_page.dart';
+import 'package:solwatt/ideask/page_markdown.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/markdown.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
 /// Answers the page read and records the writes, so the test sees the exact
@@ -23,7 +25,7 @@ class _RecordingPageClient extends WattEngineClient {
     : super(SolarNetworkAuthenticator(const FlutterSecureStorage()));
 
   final IdeaskPage page;
-  final IdeaskPageBody body;
+  IdeaskPageBody body;
   final List<({String id, String? title})> pageUpdates = [];
   final List<({String id, String contentMd})> bodySaves = [];
 
@@ -47,14 +49,32 @@ class _RecordingPageClient extends WattEngineClient {
     int? visibility,
   }) async {
     pageUpdates.add((id: pageId, title: title));
+    // The service rewrites the stored block when a page column changes.
+    if (title != null) body = _withFrontmatterTitle(body, title);
     return page;
   }
 
   @override
   Future<IdeaskPageBody> savePageBody(String pageId, String contentMd) async {
     bodySaves.add((id: pageId, contentMd: contentMd));
-    return IdeaskPageBody(pageId: pageId, contentMd: contentMd);
+    body = IdeaskPageBody(pageId: pageId, contentMd: contentMd);
+    return body;
   }
+}
+
+/// Rewrites the `title` key of a page body the way LightBeam's
+/// `rewriteFrontmatter` does, leaving the prose after the block untouched.
+IdeaskPageBody _withFrontmatterTitle(IdeaskPageBody body, String title) {
+  final split = splitPageFrontmatter(body.contentMd);
+  if (!split.hasFrontmatter) return body;
+  final titleLine = RegExp(r'^title:.*$', multiLine: true);
+  final frontmatter = titleLine.hasMatch(split.frontmatter)
+      ? split.frontmatter.replaceFirst(titleLine, 'title: $title')
+      : split.frontmatter.replaceFirst('---\n', '---\ntitle: $title\n');
+  return IdeaskPageBody(
+    pageId: body.pageId,
+    contentMd: '$frontmatter${split.body}',
+  );
 }
 
 const _page = IdeaskPage(
@@ -66,6 +86,12 @@ const _page = IdeaskPage(
 const _body = IdeaskPageBody(
   pageId: 'page-1',
   contentMd: '# Deploy\n\nShip it.',
+);
+
+const _frontmatteredBody = IdeaskPageBody(
+  pageId: 'page-1',
+  contentMd:
+      '---\ntitle: Runbook\ntags: [ops, deploy]\n---\n# Deploy\n\nShip it.',
 );
 
 Future<ProviderContainer> _container(_RecordingPageClient client) async {
@@ -175,6 +201,103 @@ void main() {
     expect(client.bodySaves.single.contentMd, contains('Ship it twice.'));
     // The title was not edited, so no metadata write is issued.
     expect(client.pageUpdates, isEmpty);
+  });
+
+  testWidgets('frontmatter stays out of rendering and saves back verbatim', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final client = _RecordingPageClient(page: _page, body: _frontmatteredBody);
+    final container = await _container(client);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, const DocPage(pageId: 'page-1')));
+    await tester.pumpAndSettle();
+
+    // The editor opens on the prose: no divider or YAML heading above it.
+    expect(_documentTypes(tester), ['heading', 'paragraph']);
+    final editor = tester.widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
+    );
+    expect(editor.controller.markdown, isNot(contains('title: Runbook')));
+    expect(editor.controller.markdown, contains('# Deploy'));
+
+    // Save re-attaches the raw block ahead of the prose.
+    await tester.tap(find.byType(SolarBlockEditor));
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+
+    expect(
+      client.bodySaves.single.contentMd,
+      '---\ntitle: Runbook\ntags: [ops, deploy]\n---\n# Deploy\n\nShip it.',
+    );
+
+    // Preview skips the block as well.
+    await tester.tap(find.byIcon(Symbols.visibility));
+    await tester.pumpAndSettle();
+    final preview = tester.widget<MarkdownTextContent>(
+      find.byType(MarkdownTextContent, skipOffstage: false),
+    );
+    expect(preview.content, isNot(contains('title: Runbook')));
+    expect(preview.content, contains('# Deploy'));
+  });
+
+  testWidgets('a renamed page keeps its new title in the saved frontmatter', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final client = _RecordingPageClient(page: _page, body: _frontmatteredBody);
+    final container = await _container(client);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, const DocPage(pageId: 'page-1')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Runbook 2');
+    await tester.tap(find.byType(SolarBlockEditor));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+
+    expect(client.pageUpdates.single.title, 'Runbook 2');
+    // The body save must not put the old title back into the block.
+    expect(
+      client.bodySaves.single.contentMd,
+      '---\ntitle: Runbook 2\ntags: [ops, deploy]\n---\n# Deploy\n\nShip it.',
+    );
+  });
+
+  testWidgets('the page title is undecorated like the editor', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _container(
+      _RecordingPageClient(page: _page, body: _body),
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, const DocPage(pageId: 'page-1')));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(
+      find.byType(TextField, skipOffstage: false),
+    );
+    expect(field.decoration?.filled, isFalse);
+    expect(field.decoration?.border, InputBorder.none);
+    expect(field.decoration?.contentPadding, EdgeInsets.zero);
   });
 
   testWidgets('the Todo browser lists folders, collections and pages', (

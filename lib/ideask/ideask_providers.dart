@@ -372,6 +372,11 @@ class IdeaskActions {
     return body;
   }
 
+  /// Re-reads the stored body, e.g. after a title write rewrote its
+  /// frontmatter block.
+  Future<IdeaskPageBody> getPageBody(String pageId) =>
+      _client.getPageBody(pageId);
+
   Future<void> deletePage(String pageId) async {
     await _client.deletePage(pageId);
     _ref.invalidate(ideaskPageProvider(pageId));
