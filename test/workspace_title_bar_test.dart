@@ -484,15 +484,16 @@ void main() {
       greaterThan(0),
     );
 
-    // Phone: the strip owns the status-bar inset (with no extra top margin),
-    // and the lens switcher sits under it rather than beside it.
+    // Phone: the lens switcher leads the strip itself, so the shell has one
+    // top band instead of a strip with a lens header under it.
     await pumpAt(const Size(390, 844));
     final phoneBar = tester.getRect(find.byType(WorkspaceTitleBar));
     expect(phoneBar.top, 0);
-    expect(phoneBar.height, 0);
+    expect(phoneBar.height, 40);
     expect(phoneBar.width, 390);
-    final switcher = tester.getRect(find.byType(MobileContextHeader));
-    expect(switcher.top, 0);
+    final switcher = tester.getRect(find.byType(MobileLensSwitcher));
+    expect(switcher.top, greaterThanOrEqualTo(phoneBar.top));
+    expect(switcher.bottom, lessThanOrEqualTo(phoneBar.bottom));
   });
 
   testWidgets('the title bar keeps its place with documents open', (
@@ -680,7 +681,10 @@ void main() {
     }
     // The rails still name their shortcuts.
     expect(find.byTooltip('Omnibox — Cmd K or Ctrl K'), findsOneWidget);
-    expect(find.byTooltip('Todo — drop mail to create a task'), findsOneWidget);
+    expect(
+      find.byTooltip('Ideask — drop mail to create a task'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the tab label follows the document title as it changes', (

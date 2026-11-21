@@ -14,6 +14,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:island_editor/island_editor.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
 
+import 'package:solwatt/shared/widgets/text_editing_focus.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 
@@ -59,19 +60,21 @@ Future<String?> pickImageUrl(WidgetRef ref, {String? workspaceId}) async {
 
 /// The editor surface for SolWatt: the shared Solar block editor with the
 /// app's theme already applied by the controller.
-SolarBlockEditor solarBlockEditor(
+Widget solarBlockEditor(
   SolarEditorController controller, {
   bool editable = true,
   bool shrinkWrap = false,
   FocusNode? focusNode,
   KeyEventResult? Function(KeyEvent event)? onKeyEvent,
 }) {
-  return SolarBlockEditor(
-    controller: controller,
-    editable: editable,
-    shrinkWrap: shrinkWrap,
-    focusNode: focusNode,
-    onKeyEvent: onKeyEvent,
+  return TextEditingSurface(
+    child: SolarBlockEditor(
+      controller: controller,
+      editable: editable,
+      shrinkWrap: shrinkWrap,
+      focusNode: focusNode,
+      onKeyEvent: onKeyEvent,
+    ),
   );
 }
 

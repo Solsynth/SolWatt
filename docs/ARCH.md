@@ -419,6 +419,17 @@ directly, so the mail tab is conversation-first:
   because nothing behind it can bring the text back. `_dirty` — not "non-empty"
   — is what tells a written composer from an untouched one, so closing a reply
   that opened already addressed and quoting leaves no draft behind.
+- Drafts are writable, not a read-only folder. Opening a row whose newest
+  message is a draft routes to the composer instead of the reading pane
+  (`MailComposeRoute(draftId: …)`), seeded from the stored message: recipients
+  become chips, the subject is restored, attachments come back, and an HTML or
+  plain-text body loads into the block editor. A draft is never marked read on
+  open. ElecPostal exposes no update-draft endpoint, so a save or send writes a
+  new message and then purges the stored draft it supersedes (permanently, so no
+  stale copy lands in Trash); the replacement carries the draft's `thread_id`,
+  so a resumed reply stays in the conversation it answers. Closing the composer
+  without an edit keeps the original row, and discarding edits leaves it
+  untouched instead of creating a second draft.
 - Replies carry `reply_to_id`; ElecPostal resolves the parent's thread, which
   keeps the reply in the conversation. The composer is the shared block editor
   (`workspace/editor/solar_editor.dart` over `island_editor`), and mail is

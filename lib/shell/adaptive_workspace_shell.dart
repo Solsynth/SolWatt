@@ -15,6 +15,7 @@ import 'package:solwatt/shell/contextual_sidebar.dart';
 import 'package:solwatt/shell/mobile_workspace_chrome.dart';
 import 'package:solwatt/shell/workspace_title_bar.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
+import 'package:solwatt/shared/widgets/text_editing_focus.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
@@ -82,6 +83,43 @@ class _AdaptiveWorkspaceShellState
     extends ConsumerState<AdaptiveWorkspaceShell> {
   WorkspaceLens get _activeLens =>
       kShellLenses[widget.selectedIndex.clamp(0, kShellLenses.length - 1)];
+
+  /// The stack router of the active lens, watched so a push inside the lens — a
+  /// mail conversation, a task list, a settings child — rebuilds the shell.
+  /// The tabs router only notifies on tab switches, not on nested pushes, and
+  /// the footer omnibox has to know whether the canvas is still the lens' root.
+  StackRouter? _activeLensRouter;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Nullable because the shell is mounted on its own in widget tests, with
+    // no tabs router above it.
+    final tabs = TabsRouterScope.of(context, watch: true)?.controller;
+    final name = tabs?.currentChild?.name;
+    final router = name == null ? null : tabs!.innerRouterOf<StackRouter>(name);
+    if (router == _activeLensRouter) return;
+    _activeLensRouter?.removeListener(_onLensRouteChanged);
+    _activeLensRouter?.pagelessRoutesObserver.removeListener(
+      _onLensRouteChanged,
+    );
+    _activeLensRouter = router;
+    _activeLensRouter?.addListener(_onLensRouteChanged);
+    _activeLensRouter?.pagelessRoutesObserver.addListener(_onLensRouteChanged);
+  }
+
+  @override
+  void dispose() {
+    _activeLensRouter?.removeListener(_onLensRouteChanged);
+    _activeLensRouter?.pagelessRoutesObserver.removeListener(
+      _onLensRouteChanged,
+    );
+    super.dispose();
+  }
+
+  void _onLensRouteChanged() {
+    if (mounted) setState(() {});
+  }
 
   /// Sends the reader to [lens]. The rail addresses a place, not a document,
   /// so arriving at a lens costs no tab: the lens comes back on its root pane
@@ -316,6 +354,54 @@ class _AdaptiveWorkspaceShellState
     }
   }
 
+  /// Handles the shell's bare-key grammar — Space, E and T.
+  ///
+  /// These keys are also ordinary typing, so they are acted on only when the
+  /// focused widget is not taking text: a key handler above an editor halts
+  /// the event before the editor can insert the character. Modifier chords and
+  /// Escape stay global in the [CallbackShortcuts] above this handler.
+  KeyEventResult _handleBareKeys(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (isTextEditingFocused()) return KeyEventResult.ignored;
+
+    // Match the chords-only grammar the bindings used to enforce: a modifier
+    // makes the keystroke something else (⌘E, ⇧Space, …), not an entity verb.
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isMetaPressed ||
+        keyboard.isControlPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed) {
+      return KeyEventResult.ignored;
+    }
+
+    final target =
+        ref.read(focusedEntityProvider) ?? ref.read(peekProvider).current;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+        if (target == null && !ref.read(peekProvider).isOpen) {
+          return KeyEventResult.ignored;
+        }
+        _handleSpaceKey();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyE:
+        if (target == null || target.domain != WorkspaceDomain.todo) {
+          return KeyEventResult.ignored;
+        }
+        _handleCompleteOrArchiveKey();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyT:
+        if (target == null || target.domain != WorkspaceDomain.mail) {
+          return KeyEventResult.ignored;
+        }
+        _handleConvertFocusedMailKey();
+        return KeyEventResult.handled;
+      default:
+        return KeyEventResult.ignored;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
@@ -330,20 +416,26 @@ class _AdaptiveWorkspaceShellState
         !sidebarCollapsed &&
         _lensOwnsSidebar(_activeLens) &&
         !tabs.showsDocument;
+    // The floating omnibox belongs to the lens' root pane. A nested page — a
+    // mail conversation, a task list, a settings child — leads with Back and
+    // owns the screen, as does a document that claimed a tab in this lens, so
+    // the pill steps aside and the canvas gets the bottom inset back.
+    final nestedPage =
+        TabsRouterScope.of(context)?.controller.activeRouterCanPop() ?? false;
+    final showsLensDocument = tabs.activeTab?.lens == _activeLens;
+    final showFooterPill = !nestedPage && !showsLensDocument;
 
     return CallbackShortcuts(
       bindings: {
         SingleActivator(LogicalKeyboardKey.keyK, meta: isMac, control: !isMac):
             _openOmnibox,
-        const SingleActivator(LogicalKeyboardKey.space): _handleSpaceKey,
         const SingleActivator(LogicalKeyboardKey.escape): _handleEscapeKey,
-        const SingleActivator(LogicalKeyboardKey.keyE):
-            _handleCompleteOrArchiveKey,
-        const SingleActivator(LogicalKeyboardKey.keyT):
-            _handleConvertFocusedMailKey,
       },
       child: Focus(
         autofocus: true,
+        // The bare-key grammar sits below the chords: it must be able to
+        // ignore Space/E/T while a text input owns the keystroke.
+        onKeyEvent: _handleBareKeys,
         child: Scaffold(
           key: widget.isShown ? shellScaffoldKey : null,
           backgroundColor: viewport == _ViewportClass.mobile
@@ -435,27 +527,32 @@ class _AdaptiveWorkspaceShellState
               children: [
                 Column(
                   children: [
-                    // On a phone the strip is the only band at the top, so it
-                    // owns the status-bar inset as well.
+                    // On a phone the strip is the only band at the top: it owns
+                    // the status-bar inset and leads with the lens switcher, so
+                    // the lens header costs no second band.
                     WorkspaceTitleBar(
                       tabs: tabs,
                       onSelect: _selectTab,
                       onClose: _closeTab,
                       onSelectHome: () => _selectLens(_activeLens),
                       onOpenOmnibox: _openOmnibox,
+                      leading: MobileLensSwitcher(
+                        activeLens: _activeLens,
+                        onSelectLens: _selectLens,
+                      ),
                       compact: true,
-                    ),
-                    MobileContextHeader(
-                      activeLens: _activeLens,
-                      onSelectLens: _selectLens,
                     ),
                     Expanded(
                       child: Builder(
                         builder: (context) {
                           final mq = MediaQuery.of(context);
-                          final bottomViewReserve =
-                              mq.viewPadding.bottom +
-                              MobileFloatingActionPill.bottomClearance;
+                          // The pill's clearance is only reserved while the
+                          // pill is on screen: a nested page owns the bottom
+                          // inset, so its content may sit against the edge.
+                          final bottomViewReserve = showFooterPill
+                              ? mq.viewPadding.bottom +
+                                    MobileFloatingActionPill.bottomClearance
+                              : mq.viewPadding.bottom;
                           final bottomPaddingReserve = math.max(
                             mq.padding.bottom,
                             bottomViewReserve - mq.viewInsets.bottom,
@@ -476,10 +573,11 @@ class _AdaptiveWorkspaceShellState
                     ),
                   ],
                 ),
-                MobileFloatingActionPill(
-                  onOpenOmnibox: _openOmnibox,
-                  onSelectLens: _selectLens,
-                ),
+                if (showFooterPill)
+                  MobileFloatingActionPill(
+                    onOpenOmnibox: _openOmnibox,
+                    onSelectLens: _selectLens,
+                  ),
                 MobilePeekSheet(onOpenFullView: _switchToEntity),
               ],
             ),

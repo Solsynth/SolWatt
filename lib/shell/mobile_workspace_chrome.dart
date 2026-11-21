@@ -17,68 +17,55 @@ import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
 
-/// Mobile (< 600px) Top Context Header (52px) with Top-Left Lens & Favorites
-/// Switcher dropdown pill.
-class MobileContextHeader extends ConsumerWidget {
+/// The lens switcher pill a phone's title bar leads with: the active lens'
+/// name, with the workspace/favorites/lens sheet behind it.
+class MobileLensSwitcher extends ConsumerWidget {
   final WorkspaceLens activeLens;
-  final String? contextLabel;
   final ValueChanged<WorkspaceLens> onSelectLens;
 
-  const MobileContextHeader({
+  const MobileLensSwitcher({
     super.key,
     required this.activeLens,
-    this.contextLabel,
     required this.onSelectLens,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final label = contextLabel ?? activeLens.label;
 
-    // The workspace title bar above owns the status-bar strip, so this header
-    // starts below it at full height instead of claiming the inset twice.
-    return SafeArea(
-      top: false,
-      bottom: false,
-      child: WorkspaceCanvasHeader(
-        leading: InkWell(
-          key: const ValueKey('lens-switcher'),
-          borderRadius: SolRadius.pillRadius,
-          onTap: () => _showWorkspaceSwitcherSheet(context, ref),
-          child: PillSurface(
-            t: 0.85,
-            radius: SolRadius.pillRadius,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: SolSpace.md,
-              vertical: 6,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(activeLens.icon, size: 16, color: scheme.primary),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 4),
-                const Icon(Symbols.arrow_drop_down_rounded, size: 18),
-              ],
-            ),
-          ),
+    return InkWell(
+      key: const ValueKey('lens-switcher'),
+      borderRadius: SolRadius.pillRadius,
+      onTap: () => _showWorkspaceSwitcherSheet(context, ref),
+      child: PillSurface(
+        t: 0.85,
+        radius: SolRadius.pillRadius,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: SolSpace.md,
+          vertical: 6,
         ),
-        title: const SizedBox.shrink(),
-        actions: [
-          IconButton(
-            tooltip: 'workspaces'.tr(),
-            icon: const Icon(Symbols.workspaces_rounded, size: 20),
-            onPressed: () =>
-                context.router.push(const WorkspaceManagementRoute()),
-          ),
-        ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(activeLens.icon, size: 16, color: scheme.primary),
+            const SizedBox(width: 6),
+            // The strip keeps the tabs' room: a longer lens name truncates
+            // rather than pushing the open documents off screen.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 88),
+              child: Text(
+                activeLens.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Symbols.arrow_drop_down_rounded, size: 18),
+          ],
+        ),
       ),
     );
   }

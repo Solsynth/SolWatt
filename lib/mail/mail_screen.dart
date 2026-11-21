@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert' show HtmlEscape;
 
-import 'package:animations/animations.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_saver/file_saver.dart';
@@ -131,17 +130,22 @@ class MailComposePage extends ConsumerWidget {
     @QueryParam('replyTo') this.replyToId,
     @QueryParam('replyAll') this.replyAll = false,
     @QueryParam('forward') this.forwardId,
+    @QueryParam('draft') this.draftId,
   });
 
   final String? replyToId;
   final bool replyAll;
   final String? forwardId;
 
+  /// An existing draft to keep writing. The composer is seeded from it, and a
+  /// save replaces it rather than adding a second copy to Drafts.
+  final String? draftId;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mailboxes = ref.watch(mailboxesProvider);
     final mailHost = ref.watch(mailHostProvider).value;
-    final sourceEmail = replyToId ?? forwardId;
+    final sourceEmail = draftId ?? replyToId ?? forwardId;
     final source = sourceEmail == null
         ? null
         : ref.watch(emailProvider(sourceEmail));
@@ -155,7 +159,8 @@ class MailComposePage extends ConsumerWidget {
           ref,
           mailboxes,
           mailHost,
-          source: email,
+          source: draftId == null ? email : null,
+          editingDraft: draftId == null ? null : email,
           isReply: replyToId != null,
           replyAll: replyAll,
         ),
@@ -170,6 +175,7 @@ class MailComposePage extends ConsumerWidget {
     AsyncValue<List<MailMailbox>> mailboxes,
     String? mailHost, {
     MailEmail? source,
+    MailEmail? editingDraft,
     bool isReply = false,
     bool replyAll = false,
   }) {
@@ -189,7 +195,7 @@ class MailComposePage extends ConsumerWidget {
           );
         }
         final mailbox = items.firstWhere(
-          (item) => item.id == source?.mailboxId,
+          (item) => item.id == (editingDraft?.mailboxId ?? source?.mailboxId),
           orElse: () => items.firstWhere(
             (item) => item.isDefault,
             orElse: () => items.first,
@@ -206,6 +212,7 @@ class MailComposePage extends ConsumerWidget {
             replyingTo: isReply ? source : null,
             replyAll: replyAll,
             forwarding: isReply ? null : source,
+            editingDraft: editingDraft,
             onSubmitted: (draft) => _sendDraft(context, ref, draft),
             onClose: () => context.router.pop(),
           ),
@@ -228,36 +235,51 @@ class MailComposePage extends ConsumerWidget {
           message: error.toString(),
           onRetry: () {
             ref.invalidate(mailboxesProvider);
-            final source = replyToId ?? forwardId;
+            final source = draftId ?? replyToId ?? forwardId;
             if (source != null) ref.invalidate(emailProvider(source));
           },
         ),
       );
 
-  /// Sends or saves [draft] and reports whether the server took it. The sheet
+  /// Sends or saves [message] and reports whether the server took it. The sheet
   /// leaves on its own once this says yes.
+  ///
+  /// ElecPostal has no update-draft endpoint, so an edited draft is written as
+  /// a new message and the old row is removed once the server took the new
+  /// one. That is what keeps one draft from becoming two on every save.
   Future<bool> _sendDraft(
     BuildContext context,
     WidgetRef ref,
-    _MailDraft draft,
+    _MailDraft message,
   ) async {
     try {
-      await ref
-          .read(wattEngineClientProvider)
-          .sendEmail(
-            mailboxId: draft.mailboxId,
-            to: draft.to,
-            cc: draft.cc,
-            bcc: draft.bcc,
-            subject: draft.subject,
-            body: draft.body,
-            attachmentIds: draft.attachmentIds,
-            isDraft: draft.isDraft,
-            contentType: draft.contentType,
-            replyToId: draft.replyToId,
-          );
+      final client = ref.read(wattEngineClientProvider);
+      final email = await client.sendEmail(
+        mailboxId: message.mailboxId,
+        to: message.to,
+        cc: message.cc,
+        bcc: message.bcc,
+        subject: message.subject,
+        body: message.body,
+        attachmentIds: message.attachmentIds,
+        isDraft: message.isDraft,
+        contentType: message.contentType,
+        replyToId: message.replyToId,
+        threadId: message.threadId,
+      );
+      final replaced = message.draftId;
+      if (replaced != null && replaced != email.id) {
+        // The message already exists on the server; a failed clean-up must not
+        // report the save as failed and send the writer back to the composer.
+        // The superseded row is purged for good: a soft delete would leave a
+        // stale copy of the same draft in Trash, and the server only drops
+        // attachment bytes no other message still references.
+        try {
+          await client.deleteEmailPermanently(replaced);
+        } catch (_) {}
+      }
       invalidateMailSurfaces(ref);
-      showSnackBar(draft.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
+      showSnackBar(message.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
       return true;
     } catch (error) {
       showSnackBar(error.toString());
@@ -765,9 +787,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
                 _applyDiscoveryFilter(const _EmailDiscoveryFilter()),
             isScrolled: _isScrolled,
             onOpenSettings: () => _openSettings(context),
-            onEmptyTrash: folder == 'trash'
-                ? () => _emptyTrash(context)
-                : null,
+            onEmptyTrash: folder == 'trash' ? () => _emptyTrash(context) : null,
             onMarkAllRead: (wholeMailbox) =>
                 _markAllRead(context, wholeMailbox: wholeMailbox),
             onSelectThreads: _selecting ? null : _enterSelectionMode,
@@ -812,31 +832,31 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
               return false;
             },
             child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: _EmailThreadList(
-              key: ValueKey('$mailboxId/$folder'),
-              query: (
-                filter: _emailFilter(mailboxId: mailboxId, folder: folder),
-                take: _take,
+              duration: const Duration(milliseconds: 250),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: _EmailThreadList(
+                key: ValueKey('$mailboxId/$folder'),
+                query: (
+                  filter: _emailFilter(mailboxId: mailboxId, folder: folder),
+                  take: _take,
+                ),
+                mailHost: mailHost,
+                selectedThreadId: _selectedThreadId,
+                selecting: _selecting,
+                selectedThreadIds: _selection.keys.toSet(),
+                onToggleSelected: _toggleSelected,
+                onEnterSelection: _selectThread,
+                onOpen: (thread) => _openThread(context, thread),
+                onOpenFullScreen: (thread) =>
+                    _openThread(context, thread, fullScreen: true),
+                onToggleStar: _toggleThreadStar,
+                onToggleRead: _toggleThreadRead,
+                onDelete: (context, thread) => _deleteThread(context, thread),
+                onMove: (thread, folder) => _moveThread(thread, folder),
+                onRefresh: () => _refreshEmails(ref),
+                onLoadMore: _loadMoreThreads,
               ),
-              mailHost: mailHost,
-              selectedThreadId: _selectedThreadId,
-              selecting: _selecting,
-              selectedThreadIds: _selection.keys.toSet(),
-              onToggleSelected: _toggleSelected,
-              onEnterSelection: _selectThread,
-              onOpen: (thread) => _openThread(context, thread),
-              onOpenFullScreen: (thread) =>
-                  _openThread(context, thread, fullScreen: true),
-              onToggleStar: _toggleThreadStar,
-              onToggleRead: _toggleThreadRead,
-              onDelete: (context, thread) => _deleteThread(context, thread),
-              onMove: (thread, folder) => _moveThread(thread, folder),
-              onRefresh: () => _refreshEmails(ref),
-              onLoadMore: _loadMoreThreads,
-            ),
             ),
           ),
         ),
@@ -956,17 +976,25 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
     MailThread thread, {
     bool fullScreen = false,
   }) {
+    // A draft is not a conversation to read: opening it resumes the writing,
+    // with the composer seeded from the stored message, instead of showing a
+    // dead read-only copy in the detail pane.
+    if (thread.latestMessage.isDraft) {
+      _editDraft(context, thread.latestMessage);
+      return;
+    }
     // Reading a conversation opens it: the mark-read round trip does not touch
     // this list's own providers, so it cannot rebuild the app bar under the
     // open conversation.
     if (thread.unreadCount > 0) {
       unawaited(_markThreadRead(thread));
     }
-    // A phone animates the row itself into the conversation (the row wraps its
-    // tile in an [OpenContainer]), so nothing is pushed here.
-    if (!isWideScreen(context)) return;
-    setState(() => _selectedThreadId = thread.id);
     final route = MailDetailRoute(emailId: thread.latestMessage.id);
+    if (!isWideScreen(context)) {
+      context.router.push(route);
+      return;
+    }
+    setState(() => _selectedThreadId = thread.id);
     // A conversation that already owns a tab is a full screen, whether the
     // reader opens it in the list or from the bar: bring that tab forward
     // rather than reading the same conversation in a pane beside it.
@@ -1158,6 +1186,17 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   void _compose(BuildContext context, {MailEmail? replyingTo}) {
     final route = MailComposeRoute(replyToId: replyingTo?.id);
+    if (isWideScreen(context)) {
+      context.router.navigate(route);
+    } else {
+      context.router.push(route);
+    }
+  }
+
+  /// Resumes [draft] in the composer, on the pane beside the list on a wide
+  /// screen and as a pushed page on a phone, the same way a new message opens.
+  void _editDraft(BuildContext context, MailEmail draft) {
+    final route = MailComposeRoute(draftId: draft.id);
     if (isWideScreen(context)) {
       context.router.navigate(route);
     } else {
@@ -2597,45 +2636,19 @@ class _EmailThreadListState extends ConsumerState<_EmailThreadList> {
                 onMove: (folder) => widget.onMove(thread, folder),
               );
 
-              // A phone animates the row into the conversation with the same
-              // container transform the board gives a task; the wide layout keeps
-              // the list beside the detail pane and pushes into it instead.
-              if (widget.selecting || isWideScreen(context)) {
-                // A double click opens the conversation in a tab of its own; a
-                // single click keeps it in the reading pane. The detector sits
-                // behind the row rather than in the gesture arena, so the first
-                // click still opens the pane without a double-tap timeout.
-                if (!widget.selecting && isWideScreen(context)) {
-                  return DoubleClickDetector(
-                    onDoubleClick: () => widget.onOpenFullScreen(thread),
-                    child: tile(() => widget.onOpen(thread)),
-                  );
-                }
-                return tile(() => widget.onOpen(thread));
+              // A double click on wide screens opens the conversation in a tab
+              // of its own; a single click keeps it in the reading pane. On
+              // narrow screens, tapping pushes the nested detail page directly.
+              if (!widget.selecting && isWideScreen(context)) {
+                // The detector sits behind the row rather than in the gesture
+                // arena, so the first click still opens the pane without a
+                // double-tap timeout.
+                return DoubleClickDetector(
+                  onDoubleClick: () => widget.onOpenFullScreen(thread),
+                  child: tile(() => widget.onOpen(thread)),
+                );
               }
-              final scheme = Theme.of(context).colorScheme;
-              return OpenContainer(
-                transitionType: ContainerTransitionType.fadeThrough,
-                transitionDuration: const Duration(milliseconds: 300),
-                // The row paints no surface of its own: the closed container
-                // stays transparent and the conversation's surface carries the
-                // opened state, as the task overlay does on the board.
-                closedColor: Colors.transparent,
-                openColor: scheme.surface,
-                middleColor: scheme.surface,
-                closedBuilder: (_, open) => Material(
-                  // The row paints its own ink and selection on the nearest
-                  // Material; without this the container's coloured layer would
-                  // sit between them and the list's material.
-                  color: Colors.transparent,
-                  child: tile(() {
-                    widget.onOpen(thread);
-                    open();
-                  }),
-                ),
-                openBuilder: (_, _) =>
-                    MailDetailPage(emailId: thread.latestMessage.id),
-              );
+              return tile(() => widget.onOpen(thread));
             },
           ),
         ),
@@ -2779,10 +2792,24 @@ class _EmailThreadTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final latest = thread.latestMessage;
-    final fromAddress = latest.from?.fullAddress(mailHost) ?? '';
-    final fromName = latest.from?.displayName ?? '';
+    final isDraft = latest.isDraft;
+    // A draft is a message being written, not one that arrived: its row names
+    // who it is going to rather than the writer's own address, and it is never
+    // "unread" — nothing is waiting to be read.
+    final draftRecipient =
+        latest.to.firstOrNull ??
+        latest.cc.firstOrNull ??
+        latest.bcc.firstOrNull;
+    final fromAddress = isDraft
+        ? (draftRecipient?.fullAddress(mailHost) ??
+              latest.from?.fullAddress(mailHost) ??
+              '')
+        : (latest.from?.fullAddress(mailHost) ?? '');
+    final fromName = isDraft
+        ? (draftRecipient?.displayName ?? '')
+        : (latest.from?.displayName ?? '');
     final from = fromName.isNotEmpty ? fromName : fromAddress;
-    final unread = !thread.isRead;
+    final unread = !thread.isRead && !isDraft;
     final weight = unread ? FontWeight.w600 : FontWeight.normal;
     final timestamp = _mailTimestamp(thread.latestAt ?? latest.createdAt);
 
@@ -2908,15 +2935,18 @@ class _EmailThreadTile extends StatelessWidget {
                 _HoverActions(
                   enabled: isWideScreen(context),
                   actions: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: unread ? 'markRead'.tr() : 'markUnread'.tr(),
-                      icon: Icon(
-                        unread ? Symbols.drafts : Symbols.mark_email_unread,
-                        size: 20,
+                    // A draft has no read state to flip: the row's job is to
+                    // resume writing, which its tap already does.
+                    if (!isDraft)
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: unread ? 'markRead'.tr() : 'markUnread'.tr(),
+                        icon: Icon(
+                          unread ? Symbols.drafts : Symbols.mark_email_unread,
+                          size: 20,
+                        ),
+                        onPressed: onToggleRead,
                       ),
-                      onPressed: onToggleRead,
-                    ),
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       tooltip: 'delete'.tr(),
@@ -6340,6 +6370,8 @@ class _MailDraft {
     required this.body,
     this.attachmentIds = const [],
     this.replyToId,
+    this.threadId,
+    this.draftId,
     this.isDraft = false,
     this.contentType = 'text/plain',
   });
@@ -6352,6 +6384,15 @@ class _MailDraft {
   final String body;
   final List<String> attachmentIds;
   final String? replyToId;
+
+  /// Conversation the written message belongs to. Resuming a draft keeps it in
+  /// the thread the draft was already filed under — a reply draft stays in the
+  /// conversation it answers.
+  final String? threadId;
+
+  /// The stored draft this message was written from, if any. Saving creates a
+  /// replacement row, and this is the row it supersedes.
+  final String? draftId;
   final bool isDraft;
   final String contentType;
 }
@@ -6366,6 +6407,7 @@ class _ComposeSheet extends ConsumerStatefulWidget {
     this.replyingTo,
     this.replyAll = false,
     this.forwarding,
+    this.editingDraft,
   });
 
   final MailMailbox mailbox;
@@ -6380,6 +6422,10 @@ class _ComposeSheet extends ConsumerStatefulWidget {
   final bool replyAll;
   final MailEmail? forwarding;
 
+  /// A stored draft the writer is continuing, as opposed to a reply or a
+  /// forward. Its fields seed the composer and a save supersedes it.
+  final MailEmail? editingDraft;
+
   @override
   ConsumerState<_ComposeSheet> createState() => _ComposeSheetState();
 }
@@ -6390,6 +6436,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   final _ccController = TextEditingController();
   final _bccController = TextEditingController();
   final _subjectController = TextEditingController();
+
   /// The body is the block editor. Mail persists `text/html`, so the
   /// controller is HTML-mode: [SolarEditorController.htmlBody] is the body
   /// that goes to the server and [SolarEditorController.setHTML] loads one.
@@ -6429,6 +6476,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   /// What the sheet is doing, so the header names the action rather than the
   /// screen: a reply window titled "Compose" mislabels itself.
   String get _actionTitleKey {
+    if (widget.editingDraft != null) return 'editDraft';
     if (widget.forwarding != null) return 'forward';
     if (widget.replyingTo == null) return 'newMessage';
     return widget.replyAll ? 'replyAll' : 'reply';
@@ -6438,9 +6486,24 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   void initState() {
     super.initState();
     _mailboxId = widget.mailbox.id;
+    final editingDraft = widget.editingDraft;
     final replyingTo = widget.replyingTo;
     final forwarding = widget.forwarding;
-    if (replyingTo != null) {
+    if (editingDraft != null) {
+      final storedMailbox = widget.mailboxes
+          .where((mailbox) => mailbox.id == editingDraft.mailboxId)
+          .firstOrNull;
+      if (storedMailbox != null) _mailboxId = storedMailbox.id;
+      _to = editingDraft.to;
+      _cc = editingDraft.cc;
+      _bcc = editingDraft.bcc;
+      _showCcBcc = _cc.isNotEmpty || _bcc.isNotEmpty;
+      _subjectController.text = editingDraft.subject;
+      _body.setHTML(_draftBody(editingDraft));
+      _attachments.addAll(
+        editingDraft.attachments.map((file) => (id: file.id, name: file.name)),
+      );
+    } else if (replyingTo != null) {
       final from = replyingTo.from;
       if (from != null && from.address.trim().isNotEmpty) {
         _to = [
@@ -6501,6 +6564,17 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   void _markDirty() {
     if (_dirty) return;
     setState(() => _dirty = true);
+  }
+
+  /// A stored draft's body as the editor's HTML. Drafts written here are
+  /// already HTML; a plain-text one is escaped so its line breaks survive
+  /// instead of collapsing into a single paragraph.
+  String _draftBody(MailEmail draft) {
+    final looksLikeHtml =
+        draft.isHtml ||
+        RegExp(r'<[a-z!/][^>]*>', caseSensitive: false).hasMatch(draft.body);
+    if (looksLikeHtml) return draft.body;
+    return const HtmlEscape().convert(draft.body).replaceAll('\n', '<br>');
   }
 
   String _quoteBody(MailEmail email, {required bool forwarded}) {
@@ -6607,6 +6681,12 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         body: _body.htmlBody,
         attachmentIds: _attachments.map((a) => a.id).toList(growable: false),
         replyToId: widget.replyingTo?.id,
+        // Changing the From mailbox starts the message in that mailbox's own
+        // conversation space; the old draft's thread lives under the old one.
+        threadId: widget.editingDraft?.mailboxId == _mailboxId
+            ? widget.editingDraft?.threadId
+            : null,
+        draftId: widget.editingDraft?.id,
         isDraft: draft,
         contentType: 'text/html',
       ),

@@ -169,7 +169,7 @@ Future<void> pumpBoardsApp(
 /// Switches to the Todo lens: the slim rail on wide screens, the lens switcher
 /// sheet on a phone.
 Future<void> openBoardsTab(WidgetTester tester) async {
-  final railButton = find.byTooltip('Todo — drop mail to create a task');
+  final railButton = find.byTooltip('Ideask — drop mail to create a task');
   if (railButton.evaluate().isNotEmpty) {
     await tester.tap(railButton);
     await tester.pumpAndSettle();
@@ -179,7 +179,7 @@ Future<void> openBoardsTab(WidgetTester tester) async {
   // is a row.
   await tester.tap(find.byKey(const ValueKey('lens-switcher')));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Todo').last);
+  await tester.tap(find.text('Ideask').last);
   await tester.pumpAndSettle();
 }
 

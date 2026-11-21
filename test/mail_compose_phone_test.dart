@@ -127,7 +127,7 @@ void main() {
       'keyboard never covers the rail', (tester) async {
     await _pumpPhone(tester);
     // A phone's shell has no per-lens FAB: the floating pill's "New" opens the
-    // quick-create sheet, whose "Compose Email" pushes the composer route. The
+    // quick-create sheet, whose "Compose email" pushes the composer route. The
     // pill lives on the mail lens, so switch to it through the header first —
     // the route belongs to that tab's nested stack.
     // The header's pill names the active lens; open its switcher sheet and
@@ -145,7 +145,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('New'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Compose Email'));
+    await tester.tap(find.text('Compose email'));
     await tester.pumpAndSettle();
 
     final sheet = tester.getRect(

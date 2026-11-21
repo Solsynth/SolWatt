@@ -17,7 +17,9 @@ import 'package:solwatt/ui/cloud_files.dart';
 /// whole width on documents.
 ///
 /// With nothing open the strip is not chrome at all: it collapses to nothing
-/// so the canvas starts where the rail's top does.
+/// so the canvas starts where the rail's top does. A [leading] widget — the
+/// phone's lens switcher — keeps the bar up even with no documents, so narrow
+/// screens stack one band instead of two.
 class WorkspaceTitleBar extends ConsumerWidget {
   final WorkspaceTabState tabs;
   final ValueChanged<WorkspaceTab> onSelect;
@@ -25,7 +27,11 @@ class WorkspaceTitleBar extends ConsumerWidget {
   final VoidCallback? onSelectHome;
   final VoidCallback onOpenOmnibox;
 
-  /// Phones get a shorter bar: the lens switcher already sits below it.
+  /// Sits before the home chip: on a phone it is the lens switcher, merged
+  /// into the strip so the lens header no longer costs a band of its own.
+  final Widget? leading;
+
+  /// Phones get a shorter bar.
   final bool compact;
 
   const WorkspaceTitleBar({
@@ -35,6 +41,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
     required this.onClose,
     this.onSelectHome,
     required this.onOpenOmnibox,
+    this.leading,
     this.compact = false,
   });
 
@@ -48,9 +55,12 @@ class WorkspaceTitleBar extends ConsumerWidget {
     final topInset = MediaQuery.paddingOf(context).top;
     // Even collapsed the strip keeps one step of air on desktop/tablet so the
     // canvas never sits flush against the top edge of the body. On narrow
-    // screens (compact), MobileContextHeader sits directly below, so no extra
-    // top margin is added beyond the status-bar inset.
+    // screens (compact), the lens switcher leads the bar, so the bar is always
+    // up and the switcher claims the status-bar inset.
     final collapsedHeight = compact ? topInset : topInset + SolSpace.sm;
+    // With a leading widget the bar is the phone's only top band: it stays up
+    // even when no document owns the strip.
+    final showsBar = documents.isNotEmpty || leading != null;
 
     return Material(
       color: scheme.surfaceContainerLowest,
@@ -58,7 +68,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
         alignment: Alignment.topCenter,
-        child: documents.isEmpty
+        child: !showsBar
             ? SizedBox(height: collapsedHeight, width: double.infinity)
             : Column(
                 mainAxisSize: MainAxisSize.min,
@@ -70,45 +80,56 @@ class WorkspaceTitleBar extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const SizedBox(width: SolSpace.sm),
-                        _HomeTab(
-                          height: barHeight,
-                          selected: !tabs.showsDocument,
-                          onSelect: onSelectHome,
-                        ),
+                        if (leading != null) ...[
+                          leading!,
+                          const SizedBox(width: SolSpace.xs),
+                        ],
+                        if (documents.isNotEmpty)
+                          _HomeTab(
+                            height: barHeight,
+                            selected: !tabs.showsDocument,
+                            onSelect: onSelectHome,
+                          ),
                         Expanded(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.only(right: SolSpace.sm),
-                            // Chips take the width their titles need and no
-                            // more: the strip stays scannable instead of
-                            // dividing the bar into mostly empty slices.
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                for (final tab in documents)
-                                  _AnimatedTabSlot(
-                                    child: _TitleTab(
-                                      tab: tab,
-                                      height: barHeight,
-                                      selected: tabs.isActive(tab),
-                                      onSelect: () => onSelect(tab),
-                                      onClose: () => onClose(tab),
-                                    ),
+                          child: documents.isEmpty
+                              ? const SizedBox.shrink()
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.only(
+                                    right: SolSpace.sm,
                                   ),
-                              ],
+                                  // Chips take the width their titles need and
+                                  // no more: the strip stays scannable instead
+                                  // of dividing the bar into mostly empty
+                                  // slices.
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      for (final tab in documents)
+                                        _AnimatedTabSlot(
+                                          child: _TitleTab(
+                                            tab: tab,
+                                            height: barHeight,
+                                            selected: tabs.isActive(tab),
+                                            onSelect: () => onSelect(tab),
+                                            onClose: () => onClose(tab),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                        ),
+                        if (documents.isNotEmpty)
+                          IconButton(
+                            tooltip: 'closeAllTabs'.tr(),
+                            iconSize: 16,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => documents.forEach(onClose),
+                            icon: Icon(
+                              Symbols.clear_all_rounded,
+                              color: scheme.onSurfaceVariant,
                             ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'closeAllTabs'.tr(),
-                          iconSize: 16,
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => documents.forEach(onClose),
-                          icon: Icon(
-                            Symbols.clear_all_rounded,
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
                         IconButton(
                           tooltip: 'omniboxTooltip'.tr(),
                           iconSize: 17,

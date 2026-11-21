@@ -10,9 +10,11 @@ import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/shared/widgets/glass_effects.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
+import 'package:solwatt/shared/widgets/text_editing_focus.dart';
 import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
 import 'package:solwatt/shell/mobile_workspace_chrome.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/entity_card.dart';
 import 'package:solwatt/workspace/components/entity_pill.dart';
@@ -197,8 +199,9 @@ void main() {
       expect(find.byType(BottomNavigationBar), findsNothing);
       expect(find.byType(NavigationBar), findsNothing);
 
-      // Top Context Header (52px) + Floating Bottom Action Pill (PillSurface)
-      expect(find.byType(MobileContextHeader), findsOneWidget);
+      // Top bar: the lens switcher merged into the title strip, plus the
+      // Floating Bottom Action Pill (PillSurface).
+      expect(find.byType(MobileLensSwitcher), findsOneWidget);
       expect(find.byType(MobileFloatingActionPill), findsOneWidget);
       expect(find.byType(PillSurface), findsWidgets);
       expect(find.text('Search mail, tasks, pages, files…'), findsOneWidget);
@@ -253,6 +256,52 @@ void main() {
       final fabRect = tester.getRect(find.byType(FloatingActionButton));
       final pillRect = tester.getRect(find.byType(MobileFloatingActionPill));
       expect(fabRect.bottom, lessThanOrEqualTo(pillRect.top));
+    },
+  );
+
+  testWidgets(
+    'Mobile (<600px) hides the footer pill while a document owns the lens',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          AdaptiveWorkspaceShell(
+            isShown: true,
+            selectedIndex: 1, // Todo: the Ideask tree owns folders and pages
+            onSelected: (_) {},
+            child: const SizedBox.expand(),
+          ),
+          size: const Size(390, 844),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(MobileFloatingActionPill), findsOneWidget);
+
+      // A page is a pane of the Todo lens: opening it takes the canvas from
+      // the lens' root, so the footer omnibox steps aside.
+      container
+          .read(workspaceTabsProvider.notifier)
+          .claim(
+            domain: WorkspaceDomain.pages,
+            entityId: 'page-q3',
+            title: 'Q3 Roadmap',
+          );
+      await tester.pumpAndSettle();
+      expect(find.byType(MobileFloatingActionPill), findsNothing);
+
+      // Closing the document returns the lens to its root and the pill.
+      container
+          .read(workspaceTabsProvider.notifier)
+          .close(WorkspaceTab.keyFor(WorkspaceDomain.pages, 'page-q3'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MobileFloatingActionPill), findsOneWidget);
     },
   );
 
@@ -461,4 +510,67 @@ void main() {
       expect(container.read(focusedEntityProvider), isNull);
     },
   );
+
+  testWidgets('Keyboard grammar leaves text fields alone', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _makeContainer();
+    addTearDown(container.dispose);
+
+    container
+        .read(peekProvider.notifier)
+        .open(
+          const WorkspaceEntityRef(
+            id: 'task-1',
+            domain: WorkspaceDomain.todo,
+            title: 'Follow up Legal',
+            status: 'Open',
+          ),
+        );
+
+    await tester.pumpWidget(
+      _wrapApp(
+        container,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 0,
+          onSelected: (_) {},
+          child: const Material(child: TextField()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    // `E` completes a task and Space toggles Peek for the shell. In a text
+    // field they are just a letter and a space, and the shell must not halt
+    // the event before the field sees it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
+    await tester.pumpAndSettle();
+    expect(container.read(peekProvider).current?.isCompleted, isFalse);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(container.read(peekProvider).isOpen, isTrue);
+  });
+
+  testWidgets('TextEditingSurface marks non-EditableText editors', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: TextEditingSurface(
+          child: Focus(autofocus: true, child: SizedBox()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(isTextEditingFocused(), isTrue);
+  });
 }

@@ -117,7 +117,7 @@ Future<void> _pumpShell(
 }
 
 Future<void> _openTodoLens(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Todo — drop mail to create a task'));
+  await tester.tap(find.byTooltip('Ideask — drop mail to create a task'));
   await tester.pumpAndSettle();
 }
 

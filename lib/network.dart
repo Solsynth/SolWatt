@@ -1736,6 +1736,7 @@ class WattEngineClient {
     bool isDraft = false,
     String contentType = 'text/plain',
     String? replyToId,
+    String? threadId,
   }) async {
     final response = await _request<Map<String, dynamic>>(
       'POST',
@@ -1751,6 +1752,7 @@ class WattEngineClient {
         'is_draft': isDraft,
         'content_type': contentType,
         if (replyToId != null && replyToId.isNotEmpty) 'reply_to_id': replyToId,
+        if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
       },
     );
     return MailEmail.fromJson(response.data!);

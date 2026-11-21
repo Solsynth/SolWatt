@@ -35,7 +35,7 @@ void main() {
     expect(find.text('Up one level'), findsNothing);
 
     // Back to the root through the breadcrumb.
-    await tester.tap(find.text('Todo').first);
+    await tester.tap(find.text('Ideask').first);
     await tester.pumpAndSettle();
     expect(find.text('Chores'), findsWidgets);
 

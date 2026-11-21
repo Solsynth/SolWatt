@@ -269,6 +269,7 @@ class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
     String? replyToId,
     bool replyAll = false,
     String? forwardId,
+    String? draftId,
     List<PageRouteInfo>? children,
   }) : super(
          MailComposeRoute.name,
@@ -277,11 +278,13 @@ class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
            replyToId: replyToId,
            replyAll: replyAll,
            forwardId: forwardId,
+           draftId: draftId,
          ),
          rawQueryParams: {
            'replyTo': replyToId,
            'replyAll': replyAll,
            'forward': forwardId,
+           'draft': draftId,
          },
          initialChildren: children,
        );
@@ -297,6 +300,7 @@ class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
           replyToId: queryParams.optString('replyTo'),
           replyAll: queryParams.getBool('replyAll', false),
           forwardId: queryParams.optString('forward'),
+          draftId: queryParams.optString('draft'),
         ),
       );
       return MailComposePage(
@@ -304,6 +308,7 @@ class MailComposeRoute extends PageRouteInfo<MailComposeRouteArgs> {
         replyToId: args.replyToId,
         replyAll: args.replyAll,
         forwardId: args.forwardId,
+        draftId: args.draftId,
       );
     },
   );
@@ -315,6 +320,7 @@ class MailComposeRouteArgs {
     this.replyToId,
     this.replyAll = false,
     this.forwardId,
+    this.draftId,
   });
 
   final Key? key;
@@ -325,9 +331,11 @@ class MailComposeRouteArgs {
 
   final String? forwardId;
 
+  final String? draftId;
+
   @override
   String toString() {
-    return 'MailComposeRouteArgs{key: $key, replyToId: $replyToId, replyAll: $replyAll, forwardId: $forwardId}';
+    return 'MailComposeRouteArgs{key: $key, replyToId: $replyToId, replyAll: $replyAll, forwardId: $forwardId, draftId: $draftId}';
   }
 
   @override
@@ -337,7 +345,8 @@ class MailComposeRouteArgs {
     return key == other.key &&
         replyToId == other.replyToId &&
         replyAll == other.replyAll &&
-        forwardId == other.forwardId;
+        forwardId == other.forwardId &&
+        draftId == other.draftId;
   }
 
   @override
@@ -345,7 +354,8 @@ class MailComposeRouteArgs {
       key.hashCode ^
       replyToId.hashCode ^
       replyAll.hashCode ^
-      forwardId.hashCode;
+      forwardId.hashCode ^
+      draftId.hashCode;
 }
 
 /// generated route for

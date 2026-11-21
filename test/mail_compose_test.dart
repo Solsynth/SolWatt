@@ -79,6 +79,7 @@ class _FakeMailClient extends WattEngineClient {
     bool isDraft = false,
     String contentType = 'text/plain',
     String? replyToId,
+    String? threadId,
   }) async {
     sent.add((isDraft: isDraft, to: to, subject: subject, body: body));
     return _email;
