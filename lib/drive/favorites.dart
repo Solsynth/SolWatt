@@ -24,6 +24,22 @@ class DriveBrowseModeNotifier extends Notifier<FileListMode> {
   }
 }
 
+/// Bumped when the sidebar's "All files" row is tapped. The drive browser
+/// watches it and returns the cloud pane to the root, the way a files-app
+/// sidebar entry behaves; the pane choice itself lives in
+/// [driveBrowseModeProvider].
+final driveRootRequestProvider =
+    NotifierProvider<DriveRootRequestNotifier, int>(
+      DriveRootRequestNotifier.new,
+    );
+
+class DriveRootRequestNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}
+
 /// The workspace whose drive is on screen: null means the personal files root,
 /// which is what an individual workspace maps to.
 final activeDriveWorkspaceIdProvider = Provider<String?>((ref) {

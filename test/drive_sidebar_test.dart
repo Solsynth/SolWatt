@@ -10,6 +10,7 @@ import 'package:solwatt/drive/widgets/file_list_view.dart' show FileListMode;
 import 'package:solwatt/network.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solar_network_sdk/solar_network_sdk.dart';
 
@@ -109,6 +110,47 @@ void main() {
     await tester.tap(find.text('Assets'));
     await tester.pumpAndSettle();
     expect(container.read(driveBrowseModeProvider), FileListMode.unindexed);
+  });
+
+  testWidgets('All files tracks the pane and returns the browser to root', (
+    tester,
+  ) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    WorkspaceListRow allFilesRow() => tester.widget<WorkspaceListRow>(
+      find.ancestor(
+        of: find.text('All files'),
+        matching: find.byType(WorkspaceListRow),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _app(
+        container,
+        const ContextualSidebar(
+          activeLens: WorkspaceLens.drive,
+          onSelectLens: _ignore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The cloud pane is the default, so the root row is the selected one.
+    expect(allFilesRow().selected, isTrue);
+
+    await tester.tap(find.text('Assets'));
+    await tester.pumpAndSettle();
+    expect(allFilesRow().selected, isFalse);
+
+    expect(container.read(driveRootRequestProvider), 0);
+    await tester.tap(find.text('All files'));
+    await tester.pumpAndSettle();
+
+    // Tapping it both retargets the pane and asks the browser for its root.
+    expect(container.read(driveBrowseModeProvider), FileListMode.normal);
+    expect(container.read(driveRootRequestProvider), 1);
+    expect(allFilesRow().selected, isTrue);
   });
 
   testWidgets('server favorites render in the shared Favorites section', (

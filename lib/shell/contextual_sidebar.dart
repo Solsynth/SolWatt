@@ -186,6 +186,7 @@ class ContextualSidebar extends ConsumerWidget {
             .where((item) => item.domain == WorkspaceDomain.drive)
             .take(5)
             .toList(growable: false);
+        final driveMode = ref.watch(driveBrowseModeProvider);
         return Column(
           crossAxisAlignment: .stretch,
           children: [
@@ -194,10 +195,14 @@ class ContextualSidebar extends ConsumerWidget {
             _DriveDropRow(
               label: 'allFiles'.tr(),
               icon: Symbols.folder_rounded,
+              selected: driveMode == FileListMode.normal,
               onTap: () {
                 ref
                     .read(driveBrowseModeProvider.notifier)
                     .select(FileListMode.normal);
+                // "All files" is the cloud pane's root, so a tap from a nested
+                // folder brings the browser back to it.
+                ref.read(driveRootRequestProvider.notifier).request();
                 onCloseDrawer?.call();
               },
             ),
@@ -328,11 +333,13 @@ class _DriveDock extends ConsumerWidget {
 class _DriveDropRow extends ConsumerWidget {
   final String label;
   final IconData icon;
+  final bool selected;
   final VoidCallback onTap;
 
   const _DriveDropRow({
     required this.label,
     required this.icon,
+    this.selected = false,
     required this.onTap,
   });
 
@@ -341,6 +348,7 @@ class _DriveDropRow extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final row = WorkspaceListRow(
       compact: true,
+      selected: selected,
       leading: Icon(icon, size: 16),
       title: Text(label),
       onTap: onTap,

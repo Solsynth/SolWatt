@@ -249,6 +249,8 @@
   "newTab": "New tab",
   "root": "Root",
   "unindexedAssets": "Unindexed assets",
+  "unindexedFiles": "Service Attachments",
+  "cloudFiles": "Cloud",
   "listView": "List view",
   "gridView": "Grid view",
   "hideFilters": "Hide filters",

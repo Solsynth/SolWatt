@@ -418,6 +418,31 @@ class FileListScreen extends HookConsumerWidget {
       return null;
     }, [browseMode]);
 
+    // "All files" in the sidebar is the cloud pane's root. Reset the open
+    // browser there once a switch has left the reader in a nested folder.
+    final rootRequest = ref.watch(driveRootRequestProvider);
+    useEffect(() {
+      if (rootRequest == 0) return null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        final browser = tabs.value
+            .where(
+              (tab) =>
+                  tab.mode == FileListMode.normal &&
+                  tab.workspaceId == globalWorkspaceId,
+            )
+            .firstOrNull;
+        if (browser == null) return;
+        if (viewingFile.value != null) closeViewedFile();
+        activeTabId.value = browser.id;
+        pathStates[browser.id]?.value = '/';
+        poolStates[browser.id]?.value = null;
+        selectedFileIdsStates[browser.id]?.value = <String>{};
+        queryStates[browser.id]?.value = null;
+      });
+      return null;
+    }, [rootRequest]);
+
     // Notifiers should be read fresh each time to avoid disposal issues
 
     // Sidebar content widget

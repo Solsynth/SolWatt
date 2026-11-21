@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -27,16 +28,16 @@ class DrivePaneSwitch extends StatelessWidget {
         selectedForegroundColor: scheme.onSecondaryContainer,
         selectedBackgroundColor: scheme.secondaryContainer,
       ),
-      segments: const [
+      segments: [
         ButtonSegment(
           value: FileListMode.normal,
-          label: Text('Cloud'),
-          icon: Icon(Symbols.folder_rounded, size: 15),
+          label: Text('cloudFiles'.tr()),
+          icon: const Icon(Symbols.folder_rounded, size: 15),
         ),
         ButtonSegment(
           value: FileListMode.unindexed,
-          label: Text('Assets'),
-          icon: Icon(Symbols.inventory_2_rounded, size: 15),
+          label: Text('assets'.tr()),
+          icon: const Icon(Symbols.inventory_2_rounded, size: 15),
         ),
       ],
       selected: {mode},

@@ -249,6 +249,8 @@
   "newTab": "新建标签页",
   "root": "根目录",
   "unindexedAssets": "未索引资源",
+  "unindexedFiles": "服务附件",
+  "cloudFiles": "云盘",
   "listView": "列表视图",
   "gridView": "网格视图",
   "hideFilters": "隐藏筛选",
