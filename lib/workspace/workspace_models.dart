@@ -53,7 +53,6 @@ enum WorkspaceLens {
   mail,
   todo,
   drive,
-  flywheel,
   profile,
   settings;
 
@@ -62,7 +61,6 @@ enum WorkspaceLens {
     WorkspaceLens.mail => 'mail',
     WorkspaceLens.todo => 'todo',
     WorkspaceLens.drive => 'drive',
-    WorkspaceLens.flywheel => 'flywheel',
     WorkspaceLens.profile => 'profile',
     WorkspaceLens.settings => 'settings',
   };
@@ -73,7 +71,6 @@ enum WorkspaceLens {
     WorkspaceLens.mail => Symbols.mail_rounded,
     WorkspaceLens.todo => Symbols.check_box_rounded,
     WorkspaceLens.drive => Symbols.cloud_rounded,
-    WorkspaceLens.flywheel => Symbols.bolt_rounded,
     WorkspaceLens.profile => Symbols.person_rounded,
     WorkspaceLens.settings => Symbols.settings_rounded,
   };
@@ -90,7 +87,6 @@ enum WorkspaceLens {
     WorkspaceLens.mail => 'MailRoute',
     WorkspaceLens.todo => 'IdeaskLensRoute',
     WorkspaceLens.drive => 'FileListRoute',
-    WorkspaceLens.flywheel => 'FlywheelRoute',
     WorkspaceLens.profile => 'ProfileRoute',
     WorkspaceLens.settings => 'AppSettingsRoute',
   };

@@ -28,12 +28,13 @@ import 'package:solwatt/workspace/workspace_state.dart';
 
 import 'localization_harness.dart';
 
-Future<ProviderContainer> _makeContainer() async {
+Future<ProviderContainer> _makeContainer({bool ideaskVisible = false}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
+      if (ideaskVisible) ideaskEntryVisibleProvider.overrideWithValue(true),
       // Pages come from the Ideask tree now; these surfaces only need one
       // named page to search and mention.
       ideaskBrowserProvider.overrideWith(
@@ -434,10 +435,41 @@ void main() {
     },
   );
 
+  testWidgets('the rail leaves Ideask out while its entry is hidden', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _makeContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      _wrapApp(
+        container,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 0,
+          onSelected: (_) {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Mail and Drive keep their entries; the Ideask icon and its create action
+    // are gone while the tree is being reworked.
+    expect(find.byTooltip('Mail'), findsOneWidget);
+    expect(find.byTooltip('Drive'), findsOneWidget);
+    expect(find.byTooltip('Ideask — drop mail to create a task'), findsNothing);
+    expect(find.byTooltip('New folder, page or collection'), findsNothing);
+  });
+
   testWidgets('Federated Omnibox shows filter chips and Top Hits', (
     tester,
   ) async {
-    final container = await _makeContainer();
+    final container = await _makeContainer(ideaskVisible: true);
     addTearDown(container.dispose);
 
     await tester.pumpWidget(

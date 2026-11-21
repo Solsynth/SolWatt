@@ -10,9 +10,10 @@ import 'package:solwatt/theme.dart';
 
 /// Desktop window frame painted with the app's own chrome.
 ///
-/// The frame is a flat band in the theme's container tone, so it reads as the
-/// same material family as the app bars below it. Flutter still hides the
-/// native title bar (see `main`), so the whole frame is ours to paint.
+/// The frame is a flat band in the same tone as the shell's navigation rail,
+/// so the two read as one continuous spine down the window's edge. Flutter
+/// still hides the native title bar (see `main`), so the whole frame is ours
+/// to paint.
 ///
 /// macOS keeps the system traffic lights and their 32px band; Windows and
 /// Linux get the title and the window buttons on the right. On every other
@@ -76,7 +77,9 @@ class _AppWindowFrameState extends State<AppWindowFrame> with WindowListener {
     if (!widget.isDesktopPlatform) return widget.child;
 
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      // Match the shell's navigation rail so the titlebar and the rail share
+      // one surface tone instead of banding against each other.
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Column(
         children: [
           _buildTitleBar(context),

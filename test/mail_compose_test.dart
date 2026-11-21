@@ -135,8 +135,8 @@ Future<void> _pumpMailList(
         threadProvider.overrideWith((ref, id) async => [email]),
         emailProvider.overrideWith((ref, id) async => email),
         ideaskBrowserProvider.overrideWith(
-            (ref) async => const IdeaskBrowserState(),
-          ),
+          (ref) async => const IdeaskBrowserState(),
+        ),
         wattEngineClientProvider.overrideWith((ref) => client),
         mailAddressSuggestionsProvider.overrideWith((ref, request) async {
           if (request.query.toLowerCase() != 'alice') return const [];
@@ -219,7 +219,9 @@ const _body = ValueKey('compose-body');
 
 /// The text the editor paints, read from the document it is editing.
 String _bodyText(WidgetTester tester) => tester
-    .widget<SolarBlockEditor>(find.byType(SolarBlockEditor, skipOffstage: false))
+    .widget<SolarBlockEditor>(
+      find.byType(SolarBlockEditor, skipOffstage: false),
+    )
     .controller
     .editorState
     .document
@@ -386,18 +388,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('dave@example.com'), findsNothing);
 
-    // ---- The body is the hero, and the rail closes the flow ----
+    // ---- The body is the hero; the header carries the actions ----
     final bodyFinder = find.byKey(_body);
-    expect(tester.getSize(bodyFinder).height, greaterThan(240));
-    final bodyBottom = tester.getRect(bodyFinder).bottom;
-    final rail = tester.getRect(find.widgetWithText(FilledButton, 'Send'));
-    expect(rail.top, greaterThan(bodyBottom));
-    for (final tooltip in ['Formatting', 'Insert link', 'Add attachment']) {
-      expect(
-        tester.getRect(find.byTooltip(tooltip)).top,
-        greaterThan(bodyBottom),
-      );
-    }
+    final bodyRect = tester.getRect(bodyFinder);
+    expect(bodyRect.height, greaterThan(240));
+    final send = tester.getRect(find.widgetWithText(FilledButton, 'Send'));
+    expect(send.bottom, lessThan(bodyRect.top));
+    // The rail is gone: mailing actions live in the header, and attaching
+    // floats in the body card's bottom-right corner.
+    expect(find.byTooltip('Insert link'), findsNothing);
+    expect(find.byTooltip('Formatting'), findsNothing);
+    final attach = tester.getRect(find.byTooltip('Add attachment'));
+    expect(bodyRect.contains(attach.center), isTrue);
+    expect(attach.bottom, lessThanOrEqualTo(bodyRect.bottom));
+    expect(attach.right, lessThanOrEqualTo(bodyRect.right));
 
     // Body sits in a rounded card that highlights while focused.
     await tester.tap(bodyFinder);
@@ -410,29 +414,11 @@ void main() {
       BorderRadius.circular(SolRadius.lg),
     );
 
-    // Formatting lives behind Aa and still formats the selected line. The menu
-    // opens over the editor, so the selection it applies to has to survive the
-    // trip.
-    final editor = tester.widget<SolarBlockEditor>(
-      find.byType(SolarBlockEditor, skipOffstage: false),
-    );
+    // Something written is something to save, so the control comes back.
     await tester.tap(bodyFinder);
     await tester.pumpAndSettle();
     tester.testTextInput.enterText('Hello world');
     await tester.pumpAndSettle();
-    expect(editor.controller.editorState.selection, isNotNull);
-    await tester.tap(find.byTooltip('Formatting'));
-    await tester.pumpAndSettle();
-    expect(find.text('Heading 1'), findsOneWidget);
-    expect(find.text('Bold'), findsOneWidget);
-    await tester.tap(find.text('Heading 1'));
-    await tester.pumpAndSettle();
-    expect(
-      editor.controller.editorState.document.root.children.first.type,
-      'heading',
-    );
-
-    // Something written is something to save, so the control comes back.
     expect(_headerButton(tester, 'Save draft', composer).onPressed, isNotNull);
     expect(_closeTooltip(tester, composer), 'Close and save draft');
 
@@ -531,10 +517,7 @@ void main() {
       findsOneWidget,
     );
     final replyBody = find.byKey(_body);
-    expect(
-      _bodyText(tester),
-      contains('Hi from Alice'),
-    );
+    expect(_bodyText(tester), contains('Hi from Alice'));
     // The quoted image renders as an embed instead of failing the line that
     // holds it: the editor builds what it does not recognise.
     expect(tester.takeException(), isNull);
@@ -544,7 +527,12 @@ void main() {
     final replyEditor = tester.widget<SolarBlockEditor>(
       find.byType(SolarBlockEditor, skipOffstage: false),
     );
-    final quotedImage = replyEditor.controller.editorState.document.root.children
+    final quotedImage = replyEditor
+        .controller
+        .editorState
+        .document
+        .root
+        .children
         .firstWhere((node) => node.type == 'image');
     expect(quotedImage.attributes['url'], 'https://example.com/pic.png');
     expect(replyBody, findsOneWidget);

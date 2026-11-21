@@ -6,7 +6,6 @@ import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/ideask/task_list_page.dart';
 import 'package:solwatt/drive/files/file_detail.dart';
 import 'package:solwatt/drive/files/file_list.dart';
-import 'package:solwatt/flywheel/flywheel_page.dart';
 import 'package:solwatt/gate/gate_page.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/mail/mail_settings_page.dart';
@@ -63,7 +62,6 @@ class AppRouter extends RootStackRouter {
           ],
         ),
         AutoRoute(page: FileListRoute.page),
-        AutoRoute(page: FlywheelRoute.page),
         AutoRoute(page: ProfileRoute.page),
         // Settings is a top-level destination of its own. It used to be pushed
         // onto the profile tab, which buried an app-wide page inside the

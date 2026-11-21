@@ -101,8 +101,8 @@ Future<void> _pumpPhone(WidgetTester tester) async {
         threadProvider.overrideWith((ref, id) async => [_email]),
         emailProvider.overrideWith((ref, id) async => _email),
         ideaskBrowserProvider.overrideWith(
-            (ref) async => const IdeaskBrowserState(),
-          ),
+          (ref) async => const IdeaskBrowserState(),
+        ),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
       ],
@@ -124,7 +124,7 @@ Future<void> _pumpPhone(WidgetTester tester) async {
 
 void main() {
   testWidgets('compose on a phone: every action stays on screen, and the '
-      'keyboard never covers the rail', (tester) async {
+      'keyboard never covers the header', (tester) async {
     await _pumpPhone(tester);
     // A phone's shell has no per-lens FAB: the floating pill's "New" opens the
     // quick-create sheet, whose "Compose email" pushes the composer route. The
@@ -165,56 +165,53 @@ void main() {
     // one envelope frame, not a toolbar parked between them.
     expect(bodyRect.height, greaterThan(400));
 
-    // Every writing action fits the rail. As a ribbon of fourteen buttons they
-    // ran off the right edge — "Insert link" and "Add attachment" sat at x 443
-    // and x 483 of a 400pt window, reachable only by a scroll nothing
-    // advertised.
-    Rect inRail(Finder finder) {
+    // The rail is gone. Sending and discarding live in the header, and the
+    // attachment button floats in the body card's bottom-right corner.
+    Rect onScreen(Finder finder) {
       final rect = tester.getRect(finder);
       expect(rect.left, greaterThanOrEqualTo(sheet.left));
       expect(rect.right, lessThanOrEqualTo(sheet.right));
-      expect(rect.top, greaterThan(bodyRect.bottom));
       return rect;
     }
 
-    final send = inRail(find.widgetWithText(FilledButton, 'Send'));
-    final format = inRail(find.byTooltip('Formatting'));
-    final link = inRail(find.byTooltip('Insert link'));
-    final attach = inRail(find.byTooltip('Add attachment'));
-    final discard = inRail(find.byTooltip('Discard changes'));
-    // Reading order: send, then the writer's tools, then the way to throw the
-    // message away, at the far end.
-    expect(send.left, lessThan(format.left));
-    expect(format.left, lessThan(link.left));
-    expect(link.left, lessThan(attach.left));
-    expect(attach.right, lessThan(discard.left));
+    final send = onScreen(find.widgetWithText(FilledButton, 'Send'));
+    final discard = onScreen(find.byTooltip('Discard changes'));
+    expect(send.bottom, lessThanOrEqualTo(bodyRect.top));
+    expect(discard.bottom, lessThanOrEqualTo(bodyRect.top));
+    expect(find.byTooltip('Insert link'), findsNothing);
+    expect(find.byTooltip('Formatting'), findsNothing);
 
-    // A phone keyboard shrinks the shell instead of hiding the rail behind it,
-    // so the message can be sent without dismissing the keyboard first.
+    final attach = tester.getRect(find.byTooltip('Add attachment'));
+    expect(bodyRect.contains(attach.center), isTrue);
+    expect(attach.right, lessThanOrEqualTo(bodyRect.right));
+    expect(attach.bottom, lessThanOrEqualTo(bodyRect.bottom));
+
+    // A phone keyboard shrinks the shell instead of hiding the header, so the
+    // message can be sent without dismissing the keyboard first.
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     await tester.pumpAndSettle();
     final raised = tester.getRect(find.widgetWithText(FilledButton, 'Send'));
     expect(raised.bottom, lessThanOrEqualTo(500));
     expect(raised.height, send.height);
-    // The keyboard took the room from the body, not from the rail.
+    // The keyboard took the room from the body, not the header.
     final squeezed = tester.getRect(body).height;
     // ignore: avoid_print
     expect(squeezed, lessThan(bodyRect.height));
     // The keyboard leaves the body whatever the chrome does not take: the
-    // header, one envelope frame and the rail. A few lines is what a 400pt
-    // phone has left, and the rail must still be fully on screen.
+    // header and one envelope frame. A few lines is what a 400pt phone has
+    // left, and the header must still be fully on screen.
     expect(squeezed, greaterThan(100));
     expect(raised.bottom, lessThanOrEqualTo(500));
 
-    // A large text scale grows the rail with its buttons instead of clipping
-    // the label out of a fixed strip.
+    // A large text scale keeps the header's actions intact and on screen
+    // instead of clipping them out of a fixed strip.
     tester.view.viewInsets = const FakeViewPadding();
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     final scaled = tester.getRect(find.widgetWithText(FilledButton, 'Send'));
-    expect(scaled.height, greaterThan(send.height));
+    expect(scaled.height, greaterThanOrEqualTo(send.height));
     expect(scaled.bottom, lessThanOrEqualTo(800));
   });
 }

@@ -18,6 +18,7 @@ import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/workspace/workspace_state.dart';
 
 const _active = Workspace(id: 'ws-1', slug: 'ws-1', name: 'Test Workspace');
 
@@ -89,8 +90,11 @@ Future<void> _pumpShell(
           (ref) async => const <String, MailAddressSuggestion>{},
         ),
         ideaskBrowserProvider.overrideWith(
-            (ref) async => const IdeaskBrowserState(),
-          ),
+          (ref) async => const IdeaskBrowserState(),
+        ),
+        // This test switches lenses through the rail, so Ideask has to stay
+        // listed.
+        ideaskEntryVisibleProvider.overrideWithValue(true),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
       ],

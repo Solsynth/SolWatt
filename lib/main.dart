@@ -19,6 +19,7 @@ import 'package:solwatt/core/auth_wiring.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/drive_wiring.dart';
 import 'package:solwatt/firebase_options.dart';
+import 'package:solwatt/flywheel/flywheel_page.dart';
 import 'package:solwatt/mail/mail_screen.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/notifications/notifications.dart';
@@ -29,9 +30,11 @@ import 'package:solwatt/shell/adaptive_workspace_shell.dart';
 import 'package:solwatt/tasks/task_overlay.dart';
 import 'package:solwatt/shared/widgets/window_frame.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/account_avatar.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/websocket.dart';
+import 'package:solwatt/workspace/workspace_state.dart';
 import 'package:solwatt/workspaces/workspace_actions.dart';
 
 final globalOverlay = GlobalKey<OverlayState>();
@@ -292,7 +295,6 @@ class AppShellPage extends ConsumerWidget {
               MailRoute(),
               IdeaskLensRoute(),
               FileListRoute(),
-              FlywheelRoute(),
               ProfileRoute(),
               AppSettingsRoute(),
             ],
@@ -374,14 +376,26 @@ class _TabMemoryState extends ConsumerState<_TabMemory> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final saved = ref.read(lastTabIndexProvider);
-      final clamped = saved.clamp(0, kShellLenses.length - 1);
-      if (clamped != widget.tabs.activeIndex) {
-        widget.tabs.setActiveIndex(clamped);
+      final ideaskVisible = ref.read(ideaskEntryVisibleProvider);
+      var index = saved.clamp(0, kShellLenses.length - 1);
+      // A lens hidden from navigation must not be the tab the shell opens on.
+      if (!isLensVisibleInNavigation(
+        kShellLenses[index],
+        ideaskVisible: ideaskVisible,
+      )) {
+        final fallback = kShellLenses.indexWhere(
+          (lens) =>
+              isLensVisibleInNavigation(lens, ideaskVisible: ideaskVisible),
+        );
+        if (fallback >= 0) index = fallback;
+      }
+      if (index != widget.tabs.activeIndex) {
+        widget.tabs.setActiveIndex(index);
       }
       // A stale index (an app update dropped a tab) is written back so the
       // next launch does not need to clamp again.
-      if (clamped != saved) {
-        ref.read(lastTabIndexProvider.notifier).set(clamped);
+      if (index != saved) {
+        ref.read(lastTabIndexProvider.notifier).set(index);
       }
     });
   }
@@ -1391,8 +1405,6 @@ class ProfilePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userInfoProvider);
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
 
     return PageScaffold(
       title: 'profile'.tr(),
@@ -1437,19 +1449,10 @@ class ProfilePage extends ConsumerWidget {
                           horizontal: 16,
                           vertical: 8,
                         ),
-                        leading: CircleAvatar(
+                        leading: AccountAvatar(
+                          displayName: user.solWattDisplayName,
+                          avatarUrl: user.solWattAvatarUrl,
                           radius: 26,
-                          backgroundColor: scheme.primaryContainer,
-                          foregroundColor: scheme.onPrimaryContainer,
-                          foregroundImage: user.solWattAvatarUrl == null
-                              ? null
-                              : NetworkImage(user.solWattAvatarUrl!),
-                          child: Text(
-                            _initials(user.solWattDisplayName),
-                            style: text.titleMedium?.copyWith(
-                              color: scheme.onPrimaryContainer,
-                            ),
-                          ),
                         ),
                         title: Text(user.solWattDisplayName),
                         subtitle: Text('@${user.name}'),
@@ -1511,19 +1514,13 @@ class ProfilePage extends ConsumerWidget {
               },
             ),
           ),
+          // Flywheel is account activity, so it lives under Profile instead of
+          // taking a destination of its own in the rail.
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: FlywheelSection()),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ),
     );
   }
-}
-
-String _initials(String name) {
-  final parts = name
-      .split(RegExp(r'\s+'))
-      .where((part) => part.isNotEmpty)
-      .take(2)
-      .map((part) => part[0])
-      .join()
-      .toUpperCase();
-  return parts.isEmpty ? '?' : parts;
 }

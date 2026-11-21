@@ -466,7 +466,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Boards'), findsOneWidget);
     expect(find.text('Files'), findsOneWidget);
-    expect(find.text('Flywheel'), findsOneWidget);
     expect(find.text('Mail'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
@@ -495,15 +494,15 @@ void main() {
       findsOneWidget,
     );
     final tabBar = find.byType(NavigationBar);
-    // The bar carries the primary tabs only: Flywheel, Profile and Settings
-    // are drawer destinations on a phone.
+    // The bar carries the primary tabs only: Profile and Settings are drawer
+    // destinations on a phone.
     for (final tab in ['Mail', 'Boards', 'Files']) {
       expect(
         find.descendant(of: tabBar, matching: find.text(tab)),
         findsOneWidget,
       );
     }
-    for (final tab in ['Flywheel', 'Profile', 'Settings']) {
+    for (final tab in ['Profile', 'Settings']) {
       expect(
         find.descendant(of: tabBar, matching: find.text(tab)),
         findsNothing,
@@ -578,7 +577,7 @@ void main() {
     // The burger opens the drawer on desktop too.
     await tester.tap(find.byIcon(Symbols.menu));
     await tester.pumpAndSettle();
-    expect(find.text('Flywheel'), findsOneWidget);
+    expect(find.text('Profile'), findsOneWidget);
     await tester.tapAt(const Offset(1100, 400)); // close the drawer
     await tester.pumpAndSettle();
 
@@ -591,8 +590,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 60));
     expect(find.byType(NavigationRail), findsNWidgets(2));
     await tester.pumpAndSettle();
-    // Flywheel and Profile stay behind the burger; the rail only carries
-    // Mail, Boards and Files.
+    // Profile stays behind the burger; the rail only carries Mail, Boards and
+    // Files.
     for (final feature in ['Mail', 'Boards', 'Files']) {
       expect(
         find.descendant(of: rail, matching: find.text(feature)),
@@ -638,7 +637,7 @@ void main() {
 
     final darkScheme = createSolWattTheme(Brightness.dark).colorScheme;
     // The frame renders with Flutter's Material now; its chrome background
-    // must be the app's surface.
+    // must match the shell's navigation rail tone.
     final frameMaterial = tester.widget<Material>(
       find
           .descendant(
@@ -647,7 +646,7 @@ void main() {
           )
           .first,
     );
-    expect(frameMaterial.color, darkScheme.surface);
+    expect(frameMaterial.color, darkScheme.surfaceContainerLowest);
 
     // Title text is pinned to the dark theme's onSurface so it stays visible.
     final titleText = tester.widget<Text>(find.text('appName'.tr()));
@@ -670,7 +669,7 @@ void main() {
           )
           .first,
     );
-    expect(lightFrameMaterial.color, lightScheme.surface);
+    expect(lightFrameMaterial.color, lightScheme.surfaceContainerLowest);
     final lightTitleText = tester.widget<Text>(find.text('appName'.tr()));
     expect(lightTitleText.style?.color, lightScheme.onSurface);
 

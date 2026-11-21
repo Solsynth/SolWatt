@@ -8,6 +8,28 @@ import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 
 // ---------------------------------------------------------------------------
+// Navigation visibility
+// ---------------------------------------------------------------------------
+
+/// Whether the Ideask (Todo) lens advertises itself in workspace navigation.
+///
+/// Ideask is being reworked, so the rail, lens switcher, sidebar, search and
+/// create actions stop offering a way in. The lens and its routes stay
+/// mounted, so a document that already links to a page or a task still opens.
+/// Flip this to `true` to bring the entry back.
+final ideaskEntryVisibleProvider = Provider<bool>((ref) => false);
+
+/// Domains the Ideask tree serves: folders, collections, tasks and pages.
+bool isIdeaskDomain(WorkspaceDomain domain) =>
+    domain == WorkspaceDomain.todo || domain == WorkspaceDomain.pages;
+
+/// Whether [lens] belongs in the rail and the lens switcher.
+bool isLensVisibleInNavigation(
+  WorkspaceLens lens, {
+  required bool ideaskVisible,
+}) => ideaskVisible || lens != WorkspaceLens.todo;
+
+// ---------------------------------------------------------------------------
 // Peek Surface State (Non-Destructive Cross-Domain Inspection)
 // ---------------------------------------------------------------------------
 
@@ -153,7 +175,8 @@ class FavoritesNotifier extends Notifier<List<WorkspaceEntityRef>> {
     final prefs = ref.watch(sharedPreferencesProvider);
     // Older builds stored the same list under the pinned key; read it once so
     // an upgrade does not silently drop the reader's favorites.
-    final raw = prefs.getString(_kFavoritesKey) ?? prefs.getString(_kLegacyPinnedKey);
+    final raw =
+        prefs.getString(_kFavoritesKey) ?? prefs.getString(_kLegacyPinnedKey);
     if (raw == null || raw.isEmpty) {
       return _defaultFavorites;
     }

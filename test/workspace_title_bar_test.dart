@@ -23,7 +23,11 @@ Future<ProviderContainer> _container() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
-    overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      // The shell's rail tests expect every lens, including Ideask.
+      ideaskEntryVisibleProvider.overrideWithValue(true),
+    ],
   );
 }
 
@@ -200,11 +204,9 @@ void main() {
     final state = container.read(workspaceTabsProvider);
     expect(state.activeKey, isNull);
     expect(state.showsDocument, isFalse);
-    expect(
-      state.tabs.map((tab) => tab.key),
-      ['mail:thread-1'],
-      reason: 'the document keeps the tab the reader opened it in',
-    );
+    expect(state.tabs.map((tab) => tab.key), [
+      'mail:thread-1',
+    ], reason: 'the document keeps the tab the reader opened it in');
   });
 
   testWidgets('a conversation tab remembers the message it opens', (
@@ -406,10 +408,7 @@ void main() {
     expect(avatar, findsWidgets);
     expect(tester.getSize(avatar.first).width, lessThanOrEqualTo(32));
     expect(
-      find.descendant(
-        of: find.byType(WorkspaceTitleBar),
-        matching: avatar,
-      ),
+      find.descendant(of: find.byType(WorkspaceTitleBar), matching: avatar),
       findsNothing,
       reason: 'the workspace belongs to the rail',
     );
@@ -562,8 +561,8 @@ void main() {
     await pumpLens(0);
     expect(find.byType(ContextualSidebar), findsOneWidget);
 
-    // Flywheel, Profile and Settings only list the rail's own lenses.
-    for (final index in [3, 4, 5]) {
+    // Profile and Settings only list the rail's own lenses.
+    for (final index in [3, 4]) {
       await pumpLens(index);
       expect(
         find.byType(ContextualSidebar),
@@ -608,6 +607,60 @@ void main() {
     expect(find.text('Favorites'), findsOneWidget);
     expect(find.text('MAIL'), findsOneWidget);
     expect(find.textContaining('('), findsNothing);
+  });
+
+  testWidgets('the docked sidebar folds away instead of vanishing', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      _app(
+        container,
+        AdaptiveWorkspaceShell(
+          isShown: true,
+          selectedIndex: 0,
+          onSelected: (_) {},
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final dock = find.byKey(workspaceSidebarDockKey);
+    const openWidth = SolWorkspaceGeometry.sidebarWidth + SolSpace.sm;
+    expect(tester.getSize(dock).width, openWidth);
+
+    await tester.tap(find.byTooltip('Hide sidebar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Mid-fold the panel is still mounted and the dock is only part-way shut,
+    // so the canvas grows into the space rather than jumping into it.
+    expect(find.byType(ContextualSidebar), findsOneWidget);
+    final folding = tester.getSize(dock).width;
+    expect(folding, greaterThan(0));
+    expect(folding, lessThan(openWidth));
+
+    await tester.pumpAndSettle();
+    expect(find.byType(ContextualSidebar), findsNothing);
+    expect(tester.getSize(dock).width, 0);
+
+    await tester.tap(find.byTooltip('Show sidebar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ContextualSidebar), findsOneWidget);
+    final unfolding = tester.getSize(dock).width;
+    expect(unfolding, greaterThan(0));
+    expect(unfolding, lessThan(openWidth));
+
+    await tester.pumpAndSettle();
+    expect(tester.getSize(dock).width, openWidth);
   });
 
   testWidgets('sidebar padding leaves a real gutter', (tester) async {

@@ -64,6 +64,24 @@ abstract final class SolWorkspaceGeometry {
   static const double tabletBreakpoint = 600;
 }
 
+/// Motion tokens for the workspace's structural changes — panels opening and
+/// closing, the shell reflowing around them.
+///
+/// Docked panels are a layout change, not a decoration: they move fast, on an
+/// ease-out curve that lands early, so the canvas settles before the reader
+/// starts reading it again.
+abstract final class SolMotion {
+  /// Width of a docked panel opening or closing beside the rail.
+  static const Duration panel = Duration(milliseconds: 220);
+
+  /// A docked panel is heavy: it decelerates into place rather than bouncing.
+  static const Curve panelCurve = Cubic(0.2, 0, 0, 1);
+
+  /// How far the panel's content drifts while it unfolds, so the surface reads
+  /// as sliding out from under the rail instead of being unmasked.
+  static const double panelDrift = 12;
+}
+
 /// Corner-radius scale, in logical pixels.
 abstract final class SolRadius {
   static const double xs = 8;

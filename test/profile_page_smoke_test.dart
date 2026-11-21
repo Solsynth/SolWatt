@@ -31,6 +31,22 @@ class _TestRouter extends RootStackRouter {
   ];
 }
 
+class _ProfileClient extends WattEngineClient {
+  _ProfileClient(super.authenticator);
+
+  @override
+  Future<List<FlywheelOwnerApp>> listFlywheelApps(String workspaceId) async => [
+    FlywheelOwnerApp(
+      appId: 'dev.solsynth.maidkit',
+      retainedRevisionCount: 3,
+      blobCount: 2,
+      retainedRevisionCountTotal: 5,
+      retainedBytes: 2048,
+      lastUpdatedAt: DateTime(2026, 1, 1),
+    ),
+  ];
+}
+
 SnAccount _account() => SnAccount(
   id: 'u1',
   name: 'Test User',
@@ -75,7 +91,11 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
 
     final account = _account();
-    const active = Workspace(id: 'ws-active', slug: 'ws-active', name: 'Active');
+    const active = Workspace(
+      id: 'ws-active',
+      slug: 'ws-active',
+      name: 'Active',
+    );
     const inactive = Workspace(
       id: 'ws-inactive',
       slug: 'ws-inactive',
@@ -103,6 +123,9 @@ void main() {
                 .read(key: 'selected_workspace_id');
             return id == active.id ? active : null;
           }),
+          wattEngineClientProvider.overrideWith(
+            (ref) => _ProfileClient(ref.watch(authenticatorProvider)),
+          ),
         ],
         child: EasyLocalization(
           supportedLocales: const [Locale('en', 'US')],
@@ -134,6 +157,11 @@ void main() {
     // Profile card renders (title = nick, subtitle = @name).
     expect(find.text('tester'), findsWidgets);
     expect(find.textContaining('@Test User'), findsWidgets);
+
+    // Flywheel is a section of the profile page now: its retained apps sit
+    // below the workspace list instead of behind a rail destination.
+    expect(find.text('Flywheel'), findsOneWidget);
+    expect(find.text('MaidKit'), findsOneWidget);
 
     // Active workspace menu carries Leave workspace.
     await tester.tap(find.byIcon(Symbols.more_vert).first);

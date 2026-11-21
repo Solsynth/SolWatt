@@ -774,6 +774,7 @@
   "driveWorkspaceEmptyDescription": "Open a workspace to browse cloud files or service attachments. You can keep multiple tabs open side by side.",
   "driveWorkspaceEmptyTitle": "Welcome to Drive",
   "dropFilesHere": "Drop your files here",
+  "dropFilesHint": "Images go in the message; other files become attachments.",
   "emptyDirectoryHint": "Upload files or create subdirectories to populate this path.\nDirectories are created implicitly when you upload files to them.",
   "enterSelectionMode": "Enter Selection Mode",
   "errorLoadingQuota": "Error loading quota data",

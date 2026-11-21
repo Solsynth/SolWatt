@@ -57,11 +57,16 @@ class _FederatedOmniboxDialogState
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final showIdeask = ref.watch(ideaskEntryVisibleProvider);
+    final visibleDomains = [
+      for (final domain in WorkspaceDomain.values)
+        if (showIdeask || !isIdeaskDomain(domain)) domain,
+    ];
     final rawQuery = _controller.text.trim();
     var effectiveFilter = _filter;
     var cleanQuery = rawQuery;
 
-    for (final domain in WorkspaceDomain.values) {
+    for (final domain in visibleDomains) {
       if (cleanQuery.toLowerCase().contains(domain.filterChipLabel)) {
         effectiveFilter ??= domain;
         cleanQuery = cleanQuery
@@ -78,7 +83,7 @@ class _FederatedOmniboxDialogState
       cleanQuery,
       domainFilter: effectiveFilter,
       limitPerDomain: 6,
-    );
+    ).where((item) => showIdeask || !isIdeaskDomain(item.domain)).toList();
 
     final topHits = results.take(4).toList();
     final grouped = <WorkspaceDomain, List<WorkspaceEntityRef>>{};
@@ -143,7 +148,7 @@ class _FederatedOmniboxDialogState
                       onSelected: (_) => setState(() => _filter = null),
                     ),
                     const SizedBox(width: SolSpace.xs),
-                    for (final domain in WorkspaceDomain.values) ...[
+                    for (final domain in visibleDomains) ...[
                       FilterChip(
                         avatar: Icon(domain.icon, size: 15),
                         label: Text(domain.filterChipLabel),

@@ -774,6 +774,7 @@
   "driveWorkspaceEmptyDescription": "选择一个工作区开始浏览云盘文件或服务附件。你可以同时打开多个标签页。",
   "driveWorkspaceEmptyTitle": "欢迎使用云盘",
   "dropFilesHere": "将文件拖放到这里",
+  "dropFilesHint": "图片会插入正文，其他文件作为附件。",
   "emptyDirectoryHint": "上传文件或创建子目录以填充此路径。\n上传文件时将自动创建对应目录。",
   "enterSelectionMode": "进入选择模式",
   "errorLoadingQuota": "加载配额数据出错",

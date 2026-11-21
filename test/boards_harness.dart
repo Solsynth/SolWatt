@@ -21,6 +21,7 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/realtime/realtime.dart';
 import 'package:solwatt/websocket.dart';
 import 'package:solwatt/mail/mail_address_suggestion.dart';
+import 'package:solwatt/workspace/workspace_state.dart';
 
 const boardWorkspace = Workspace(
   id: 'ws-1',
@@ -128,9 +129,7 @@ Future<void> pumpBoardsApp(
         // Both folders start empty: the browser has nothing to fetch here.
         ideaskFolderContentsProvider.overrideWith(
           (ref, folderId) async => IdeaskFolderContents(
-            folder: folderId == roadmapFolder.id
-                ? roadmapFolder
-                : choresFolder,
+            folder: folderId == roadmapFolder.id ? roadmapFolder : choresFolder,
           ),
         ),
         tasksProvider.overrideWith((ref, request) async => boardTasks),
@@ -144,6 +143,9 @@ Future<void> pumpBoardsApp(
           ),
         ),
         taskCommentsProvider.overrideWith((ref, taskId) async => const []),
+        // These tests drive the Ideask browser, so its navigation entry stays
+        // on even though the shell hides it in production.
+        ideaskEntryVisibleProvider.overrideWithValue(true),
         realtimeBridgeProvider.overrideWith((ref) => RealtimeBridge(ref)),
         websocketStateProvider.overrideWith(WebSocketStateNotifier.new),
         if (client != null) wattEngineClientProvider.overrideWithValue(client),

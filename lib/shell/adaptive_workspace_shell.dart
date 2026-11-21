@@ -17,6 +17,7 @@ import 'package:solwatt/shell/workspace_title_bar.dart';
 import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/shared/widgets/text_editing_focus.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/account_avatar.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
 import 'package:solwatt/workspace/omnibox/federated_omnibox.dart';
@@ -29,7 +30,6 @@ const List<WorkspaceLens> kShellLenses = [
   WorkspaceLens.mail,
   WorkspaceLens.todo,
   WorkspaceLens.drive,
-  WorkspaceLens.flywheel,
   WorkspaceLens.profile,
   WorkspaceLens.settings,
 ];
@@ -51,9 +51,7 @@ _ViewportClass _classifyViewport(double width) {
 /// leaves that column to the canvas instead.
 bool _lensOwnsSidebar(WorkspaceLens lens) => switch (lens) {
   WorkspaceLens.mail || WorkspaceLens.todo || WorkspaceLens.drive => true,
-  WorkspaceLens.flywheel ||
-  WorkspaceLens.profile ||
-  WorkspaceLens.settings => false,
+  WorkspaceLens.profile || WorkspaceLens.settings => false,
 };
 
 /// Root Adaptive Spatial Shell adapting across Desktop (>1024px 4-zone split),
@@ -135,9 +133,10 @@ class _AdaptiveWorkspaceShellState
   }
 
   void _closeDriveDocuments() {
-    final driveTabs = ref.read(workspaceTabsProvider).tabs.where(
-      (tab) => tab.lens == WorkspaceLens.drive,
-    );
+    final driveTabs = ref
+        .read(workspaceTabsProvider)
+        .tabs
+        .where((tab) => tab.lens == WorkspaceLens.drive);
     for (final tab in driveTabs) {
       ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
     }
@@ -263,12 +262,14 @@ class _AdaptiveWorkspaceShellState
   /// The one create action: a folder, a page, a collection or a task. Which
   /// one is the reader's choice, not the lens' — the tree holds all four.
   Future<void> _openCreateSheet() async {
+    if (!ref.read(ideaskEntryVisibleProvider)) return;
     _selectLens(WorkspaceLens.todo);
     _nestedStack(WorkspaceLens.todo)?.popUntilRoot();
     await showIdeaskCreateSheet(context, ref);
   }
 
   Future<void> _handleConvertMailToTask(WorkspaceEntityRef mailEntity) async {
+    if (!ref.read(ideaskEntryVisibleProvider)) return;
     HapticFeedback.selectionClick();
     // Tasks live in the workspace or in one of its folders. A mail sweep
     // files into the unfiled task list, which always exists.
@@ -613,23 +614,20 @@ class _DesktopWorkspace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(
-        right: SolSpace.sm,
-        bottom: SolSpace.sm,
-      ),
+      padding: const EdgeInsets.only(right: SolSpace.sm, bottom: SolSpace.sm),
       child: Row(
         children: [
-          if (showSidebar) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(SolRadius.md),
-              child: ContextualSidebar(
-                activeLens: activeLens,
-                onSelectLens: onSelectLens,
-                onOpenEntity: onOpenEntity,
-              ),
+          _DockedSidebar(
+            key: workspaceSidebarDockKey,
+            expanded: showSidebar,
+            width: SolWorkspaceGeometry.sidebarWidth,
+            gutter: SolSpace.sm,
+            child: ContextualSidebar(
+              activeLens: activeLens,
+              onSelectLens: onSelectLens,
+              onOpenEntity: onOpenEntity,
             ),
-            const SizedBox(width: SolSpace.sm),
-          ],
+          ),
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(SolRadius.md),
@@ -639,6 +637,107 @@ class _DesktopWorkspace extends StatelessWidget {
           DesktopPeekPane(onOpenFullView: onOpenFullView),
         ],
       ),
+    );
+  }
+}
+
+/// The sidebar's dock. Its width is the panel's open/closed progress: zero when
+/// collapsed, the panel width plus its gutter when fully open.
+const Key workspaceSidebarDockKey = ValueKey('workspace-sidebar-dock');
+
+/// The contextual sidebar's dock, animated open and closed.
+///
+/// Collapsing the rail button is a layout change, not a page change: the panel
+/// unfolds from the rail while the canvas grows into the space it gives back.
+/// The panel keeps its full width throughout — the slot clips it and the
+/// content drifts a few pixels — so the rows slide out from under the rail
+/// instead of being squashed as the column narrows.
+class _DockedSidebar extends StatefulWidget {
+  final bool expanded;
+  final double width;
+  final double gutter;
+  final Widget child;
+
+  const _DockedSidebar({
+    super.key,
+    required this.expanded,
+    required this.width,
+    required this.gutter,
+    required this.child,
+  });
+
+  @override
+  State<_DockedSidebar> createState() => _DockedSidebarState();
+}
+
+class _DockedSidebarState extends State<_DockedSidebar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: SolMotion.panel,
+    value: widget.expanded ? 1 : 0,
+  );
+  late final CurvedAnimation _progress = CurvedAnimation(
+    parent: _controller,
+    curve: SolMotion.panelCurve,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reduce Motion turns the unfold into a cut: the panel is still there or
+    // not, it just stops moving.
+    _controller.duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : SolMotion.panel;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DockedSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.expanded == oldWidget.expanded) return;
+    if (widget.expanded) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _progress.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _progress,
+      builder: (context, child) {
+        final t = _progress.value;
+        // Fully collapsed panels leave the tree: nothing is left to focus,
+        // read or hit-test behind the rail.
+        if (t == 0) return const SizedBox.shrink();
+        return SizedBox(
+          width: (widget.width + widget.gutter) * t,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.centerLeft,
+              minWidth: widget.width,
+              maxWidth: widget.width,
+              child: Transform.translate(
+                offset: Offset(-SolMotion.panelDrift * (1 - t), 0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(SolRadius.md),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: widget.child,
     );
   }
 }
@@ -669,6 +768,8 @@ class _SlimLensRail extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final workspace = ref.watch(selectedWorkspaceProvider).value;
+    final account = ref.watch(userInfoProvider).value;
+    final showIdeask = ref.watch(ideaskEntryVisibleProvider);
     final name = workspace?.name.trim();
     final label = (name == null || name.isEmpty) ? 'SolWatt' : name;
 
@@ -716,24 +817,26 @@ class _SlimLensRail extends ConsumerWidget {
               onTap: () => onSelectLens(WorkspaceLens.mail),
             ),
             const SizedBox(height: SolSpace.xs),
-            // Dragging an email row onto the Todo rail icon converts it into
-            // a Task.
-            DragTarget<WorkspaceEntityRef>(
-              onWillAcceptWithDetails: (details) =>
-                  details.data.domain == WorkspaceDomain.mail,
-              onAcceptWithDetails: (details) =>
-                  onMailDroppedToTodo(details.data),
-              builder: (context, candidateData, rejectedData) {
-                final hovered = candidateData.isNotEmpty;
-                return _RailIconButton(
-                  icon: WorkspaceLens.todo.icon,
-                  tooltip: 'todoDropMailTooltip'.tr(),
-                  selected: activeLens == WorkspaceLens.todo || hovered,
-                  onTap: () => onSelectLens(WorkspaceLens.todo),
-                );
-              },
-            ),
-            const SizedBox(height: SolSpace.xs),
+            // Dragging an email row onto the Ideask rail icon converts it into
+            // a task. The drop target goes with the entry it belongs to.
+            if (showIdeask) ...[
+              DragTarget<WorkspaceEntityRef>(
+                onWillAcceptWithDetails: (details) =>
+                    details.data.domain == WorkspaceDomain.mail,
+                onAcceptWithDetails: (details) =>
+                    onMailDroppedToTodo(details.data),
+                builder: (context, candidateData, rejectedData) {
+                  final hovered = candidateData.isNotEmpty;
+                  return _RailIconButton(
+                    icon: WorkspaceLens.todo.icon,
+                    tooltip: 'todoDropMailTooltip'.tr(),
+                    selected: activeLens == WorkspaceLens.todo || hovered,
+                    onTap: () => onSelectLens(WorkspaceLens.todo),
+                  );
+                },
+              ),
+              const SizedBox(height: SolSpace.xs),
+            ],
             _RailIconButton(
               icon: WorkspaceLens.drive.icon,
               tooltip: WorkspaceLens.drive.label,
@@ -741,13 +844,15 @@ class _SlimLensRail extends ConsumerWidget {
               onTap: () => onSelectLens(WorkspaceLens.drive),
             ),
             const SizedBox(height: SolSpace.md),
-            _RailIconButton(
-              icon: Symbols.add_rounded,
-              tooltip: 'newFolderPageCollection'.tr(),
-              selected: false,
-              onTap: onOpenCreate,
-            ),
-            const SizedBox(height: SolSpace.xs),
+            if (showIdeask) ...[
+              _RailIconButton(
+                icon: Symbols.add_rounded,
+                tooltip: 'newFolderPageCollection'.tr(),
+                selected: false,
+                onTap: onOpenCreate,
+              ),
+              const SizedBox(height: SolSpace.xs),
+            ],
             _RailIconButton(
               icon: Symbols.search_rounded,
               tooltip: 'omniboxTooltip'.tr(),
@@ -767,16 +872,16 @@ class _SlimLensRail extends ConsumerWidget {
                 onTap: onToggleSidebar,
               ),
             _RailIconButton(
-              icon: WorkspaceLens.flywheel.icon,
-              tooltip: WorkspaceLens.flywheel.label,
-              selected: activeLens == WorkspaceLens.flywheel,
-              onTap: () => onSelectLens(WorkspaceLens.flywheel),
-            ),
-            _RailIconButton(
-              icon: WorkspaceLens.profile.icon,
               tooltip: WorkspaceLens.profile.label,
               selected: activeLens == WorkspaceLens.profile,
               onTap: () => onSelectLens(WorkspaceLens.profile),
+              // The account is a person, so the rail shows the person rather
+              // than a generic profile glyph.
+              child: AccountAvatar(
+                displayName: account?.solWattDisplayName,
+                avatarUrl: account?.solWattAvatarUrl,
+                radius: 13,
+              ),
             ),
             _RailIconButton(
               icon: WorkspaceLens.settings.icon,
@@ -793,17 +898,22 @@ class _SlimLensRail extends ConsumerWidget {
 }
 
 class _RailIconButton extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+
+  /// Custom leading content, used by the profile destination to show the
+  /// account avatar in place of an icon.
+  final Widget? child;
   final String tooltip;
   final bool selected;
   final VoidCallback onTap;
 
   const _RailIconButton({
-    required this.icon,
+    this.icon,
+    this.child,
     required this.tooltip,
     required this.selected,
     required this.onTap,
-  });
+  }) : assert(icon != null || child != null, 'icon or child is required');
 
   @override
   Widget build(BuildContext context) {
@@ -820,12 +930,16 @@ class _RailIconButton extends StatelessWidget {
             color: selected ? scheme.secondaryContainer : Colors.transparent,
             borderRadius: BorderRadius.circular(SolRadius.sm),
           ),
-          child: Icon(
-            icon,
-            size: 20,
-            color: selected
-                ? scheme.onSecondaryContainer
-                : scheme.onSurfaceVariant,
+          child: Center(
+            child:
+                child ??
+                Icon(
+                  icon,
+                  size: 20,
+                  color: selected
+                      ? scheme.onSecondaryContainer
+                      : scheme.onSurfaceVariant,
+                ),
           ),
         ),
       ),

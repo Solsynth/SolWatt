@@ -1,4 +1,3 @@
-import 'package:auto_route/auto_route.dart';
 import 'package:dio/dio.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -28,161 +27,227 @@ class _FlywheelProduct {
 /// product table is the single source of truth for these names.
 String flywheelAppName(String appId) => _flywheelProducts[appId]?.name ?? appId;
 
-@RoutePage()
-class FlywheelPage extends ConsumerWidget {
-  const FlywheelPage({super.key});
+/// Retained apps for [workspaceId]. The profile page and the workspace console
+/// read the same provider, so a refresh in one place is visible everywhere.
+final flywheelAppsProvider = FutureProvider.autoDispose
+    .family<List<FlywheelOwnerApp>, String>(
+      (ref, workspaceId) =>
+          ref.watch(wattEngineClientProvider).listFlywheelApps(workspaceId),
+    );
+
+/// Workspace Flywheel usage, embedded in the profile page.
+///
+/// Flywheel is account activity, not a destination of its own: it lives under
+/// Profile next to the workspace list instead of taking a rail slot.
+class FlywheelSection extends ConsumerWidget {
+  const FlywheelSection({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final workspace = ref.watch(selectedWorkspaceProvider);
     return workspace.when(
-      loading: () =>
-          PageScaffold(title: 'flywheel'.tr(), child: const PageLoading()),
-      error: (error, _) => PageScaffold(
-        title: 'flywheel'.tr(),
-        child: PageError(message: wattApiErrorMessage(error)),
+      loading: () => const _FlywheelFrame(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ),
+      error: (error, _) => _FlywheelFrame(
+        child: _FlywheelNotice(
+          icon: Symbols.error,
+          title: 'flywheelLoadFailed'.tr(),
+          message: wattApiErrorMessage(error),
+        ),
       ),
       data: (value) => value == null
-          ? PageScaffold(
-              title: 'flywheel'.tr(),
-              child: EmptyState(
+          ? _FlywheelFrame(
+              child: _FlywheelNotice(
                 icon: Symbols.workspaces,
                 title: 'selectWorkspaceTitle'.tr(),
               ),
             )
-          : _FlywheelWorkspacePage(workspaceId: value.id),
+          : _FlywheelWorkspaceSection(workspaceId: value.id),
     );
   }
 }
 
-class _FlywheelWorkspacePage extends ConsumerStatefulWidget {
-  const _FlywheelWorkspacePage({required this.workspaceId});
+/// Section heading for states that cannot offer a refresh yet.
+class _FlywheelFrame extends StatelessWidget {
+  const _FlywheelFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [const _FlywheelHeader(), child],
+  );
+}
+
+class _FlywheelHeader extends StatelessWidget {
+  const _FlywheelHeader({this.trailing});
+
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(title: 'flywheel'.tr(), trailing: trailing),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            'flywheelSubtitle'.tr(),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FlywheelWorkspaceSection extends ConsumerWidget {
+  const _FlywheelWorkspaceSection({required this.workspaceId});
+
   final String workspaceId;
 
   @override
-  ConsumerState<_FlywheelWorkspacePage> createState() =>
-      _FlywheelWorkspacePageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final apps = ref.watch(flywheelAppsProvider(workspaceId));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _FlywheelHeader(
+          trailing: IconButton(
+            tooltip: 'refresh'.tr(),
+            onPressed: () => ref.invalidate(flywheelAppsProvider(workspaceId)),
+            icon: const Icon(Symbols.refresh, size: 20),
+          ),
+        ),
+        apps.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (error, _) {
+            final denied =
+                error is DioException && error.response?.statusCode == 403;
+            return _FlywheelNotice(
+              icon: denied ? Symbols.lock : Symbols.error,
+              title: denied
+                  ? 'flywheelOwnerRequired'.tr()
+                  : 'flywheelLoadFailed'.tr(),
+              message: denied
+                  ? 'flywheelOwnerRequiredDetail'.tr()
+                  : wattApiErrorMessage(error),
+              action: OutlinedButton.icon(
+                onPressed: () =>
+                    ref.invalidate(flywheelAppsProvider(workspaceId)),
+                icon: const Icon(Symbols.refresh),
+                label: Text('retry'.tr()),
+              ),
+            );
+          },
+          data: (apps) => apps.isEmpty
+              ? _FlywheelNotice(
+                  icon: Symbols.sync,
+                  title: 'flywheelNoSaves'.tr(),
+                  message: 'flywheelNoSavesHint'.tr(),
+                )
+              : _FlywheelAppList(workspaceId: workspaceId, apps: apps),
+        ),
+      ],
+    );
+  }
 }
 
-class _FlywheelWorkspacePageState
-    extends ConsumerState<_FlywheelWorkspacePage> {
-  late Future<List<FlywheelOwnerApp>> _apps;
+/// Compact empty/error/loading state that fits the profile page's scroll view.
+class _FlywheelNotice extends StatelessWidget {
+  const _FlywheelNotice({
+    required this.icon,
+    required this.title,
+    this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? message;
+  final Widget? action;
 
   @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  void _reload() => _apps = ref
-      .read(wattEngineClientProvider)
-      .listFlywheelApps(widget.workspaceId);
-
-  Future<void> _openApp(FlywheelOwnerApp app) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      isScrollControlled: true,
-      builder: (_) =>
-          FlywheelAppSheet(workspaceId: widget.workspaceId, app: app),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Icon(icon, size: 28, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 8),
+            Text(title, textAlign: TextAlign.center, style: text.titleSmall),
+            if (message case final String message) ...[
+              const SizedBox(height: 4),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+            if (action case final Widget action) ...[
+              const SizedBox(height: 12),
+              action,
+            ],
+          ],
+        ),
+      ),
     );
-    if (mounted) {
-      setState(_reload);
+  }
+}
+
+class _FlywheelAppList extends ConsumerWidget {
+  const _FlywheelAppList({required this.workspaceId, required this.apps});
+
+  final String workspaceId;
+  final List<FlywheelOwnerApp> apps;
+
+  Future<void> _open(
+    BuildContext context,
+    WidgetRef ref,
+    FlywheelOwnerApp app,
+  ) async {
+    await showFlywheelApp(context, workspaceId: workspaceId, app: app);
+    if (context.mounted) {
+      ref.invalidate(flywheelAppsProvider(workspaceId));
     }
   }
 
   @override
-  Widget build(BuildContext context) => PageScaffold(
-    title: 'flywheel'.tr(),
-    subtitle: 'flywheelSubtitle'.tr(),
-    action: IconButton.filledTonal(
-      tooltip: 'refresh'.tr(),
-      onPressed: () => setState(_reload),
-      icon: const Icon(Symbols.refresh),
-    ),
-    child: FutureBuilder<List<FlywheelOwnerApp>>(
-      future: _apps,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const PageLoading();
-        }
-        if (snapshot.hasError) {
-          final denied =
-              snapshot.error is DioException &&
-              (snapshot.error as DioException).response?.statusCode == 403;
-          return EmptyState(
-            icon: denied ? Symbols.lock : Symbols.error,
-            title: denied
-                ? 'flywheelOwnerRequired'.tr()
-                : 'flywheelLoadFailed'.tr(),
-            message: denied
-                ? 'flywheelOwnerRequiredDetail'.tr()
-                : wattApiErrorMessage(snapshot.error!),
-            action: OutlinedButton.icon(
-              onPressed: () => setState(_reload),
-              icon: const Icon(Symbols.refresh),
-              label: Text('retry'.tr()),
-            ),
-          );
-        }
-        final apps = snapshot.data ?? const [];
-        if (apps.isEmpty) {
-          return EmptyState(
-            icon: Symbols.sync,
-            title: 'flywheelNoSaves'.tr(),
-            message: 'flywheelNoSavesHint'.tr(),
-          );
-        }
-        final wide = MediaQuery.sizeOf(context).width >= 900;
-        if (wide) {
-          return GridView.builder(
-            padding: const EdgeInsets.only(bottom: 16),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 320,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.55,
-            ),
-            itemCount: apps.length,
-            itemBuilder: (context, index) => _FlywheelAppCard(
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var index = 0; index < apps.length; index++) ...[
+            if (index > 0) const Divider(height: 1),
+            _FlywheelAppTile(
               app: apps[index],
-              onOpen: () => _openApp(apps[index]),
+              onOpen: () => _open(context, ref, apps[index]),
             ),
-          );
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.only(bottom: 16),
-          itemCount: apps.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final app = apps[index];
-            final product = _flywheelProducts[app.appId];
-            return Card(
-              child: ListTile(
-                leading: _FlywheelProductIcon(product: product),
-                title: Text(product?.name ?? app.appId),
-                subtitle: Text(
-                  'flywheelSavesSummaryRetained'.tr(
-                    namedArgs: {
-                      'saves': '${app.blobCount}',
-                      'revisions': '${app.retainedRevisionCountTotal}',
-                      'size': _bytes(app.retainedBytes),
-                    },
-                  ),
-                ),
-                trailing: const Icon(Symbols.chevron_right),
-                onTap: () => _openApp(app),
-              ),
-            );
-          },
-        );
-      },
-    ),
-  );
+          ],
+        ],
+      ),
+    );
+  }
 }
 
-class _FlywheelAppCard extends StatelessWidget {
-  const _FlywheelAppCard({required this.app, required this.onOpen});
+class _FlywheelAppTile extends StatelessWidget {
+  const _FlywheelAppTile({required this.app, required this.onOpen});
 
   final FlywheelOwnerApp app;
   final VoidCallback onOpen;
@@ -190,83 +255,35 @@ class _FlywheelAppCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final product = _flywheelProducts[app.appId];
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  _FlywheelProductIcon(product: product, size: 40),
-                  const Spacer(),
-                  Icon(
-                    Symbols.arrow_outward,
-                    size: 18,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                product?.name ?? app.appId,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: text.titleMedium,
-              ),
-              if (product != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  app.appId,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const Spacer(),
-              Text(
-                'flywheelSavesSummary'.tr(
-                  namedArgs: {
-                    'saves': '${app.blobCount}',
-                    'revisions': '${app.retainedRevisionCountTotal}',
-                  },
-                ),
-                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                _bytes(app.retainedBytes),
-                style: text.labelMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
+    return ListTile(
+      leading: _FlywheelProductIcon(product: product),
+      title: Text(product?.name ?? app.appId),
+      subtitle: Text(
+        'flywheelSavesSummaryRetained'.tr(
+          namedArgs: {
+            'saves': '${app.blobCount}',
+            'revisions': '${app.retainedRevisionCountTotal}',
+            'size': _bytes(app.retainedBytes),
+          },
         ),
       ),
+      trailing: const Icon(Symbols.chevron_right),
+      onTap: onOpen,
     );
   }
 }
 
 class _FlywheelProductIcon extends StatelessWidget {
-  const _FlywheelProductIcon({required this.product, this.size = 40});
+  const _FlywheelProductIcon({required this.product});
 
   final _FlywheelProduct? product;
-  final double size;
+  static const size = 40.0;
 
   @override
   Widget build(BuildContext context) {
     final iconAsset = product?.iconAsset;
     if (iconAsset == null) {
-      return Icon(Symbols.sync, size: size);
+      return const Icon(Symbols.sync, size: size);
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
@@ -293,7 +310,11 @@ Future<void> showFlywheelApp(
 );
 
 class FlywheelAppSheet extends ConsumerStatefulWidget {
-  const FlywheelAppSheet({super.key, required this.workspaceId, required this.app});
+  const FlywheelAppSheet({
+    super.key,
+    required this.workspaceId,
+    required this.app,
+  });
   final String workspaceId;
   final FlywheelOwnerApp app;
 

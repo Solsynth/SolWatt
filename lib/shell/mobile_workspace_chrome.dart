@@ -13,6 +13,7 @@ import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/pill_surface.dart';
 import 'package:solwatt/theme.dart';
+import 'package:solwatt/ui/account_avatar.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
 import 'package:solwatt/workspace/workspace_state.dart';
@@ -99,15 +100,20 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final showIdeask = ref.watch(ideaskEntryVisibleProvider);
     final localFavorites = ref.watch(favoritesProvider);
     final driveFavorites =
         ref.watch(driveFavoriteEntitiesProvider).value ?? const [];
     final favorites = [
       ...localFavorites.where((item) => item.domain != WorkspaceDomain.drive),
       ...driveFavorites,
+    ].where((item) => showIdeask || !isIdeaskDomain(item.domain)).toList();
+    final recent = [
+      for (final item in ref.watch(recentEntitiesProvider))
+        if (showIdeask || !isIdeaskDomain(item.domain)) item,
     ];
-    final recent = ref.watch(recentEntitiesProvider);
     final workspace = ref.watch(selectedWorkspaceProvider).value;
+    final account = ref.watch(userInfoProvider).value;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -208,7 +214,7 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           const SizedBox(height: SolSpace.xs),
           for (final lens in [
             WorkspaceLens.mail,
-            WorkspaceLens.todo,
+            if (showIdeask) WorkspaceLens.todo,
             WorkspaceLens.drive,
           ])
             WorkspaceListRow(
@@ -223,13 +229,18 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
           ],
           const SizedBox(height: SolSpace.lg),
           for (final lens in [
-            WorkspaceLens.flywheel,
             WorkspaceLens.profile,
             WorkspaceLens.settings,
           ])
             WorkspaceListRow(
               selected: activeLens == lens,
-              leading: Icon(lens.icon, size: 20),
+              leading: lens == WorkspaceLens.profile
+                  ? AccountAvatar(
+                      displayName: account?.solWattDisplayName,
+                      avatarUrl: account?.solWattAvatarUrl,
+                      radius: 10,
+                    )
+                  : Icon(lens.icon, size: 20),
               title: Text(lens.label),
               onTap: () => onSelectLens(lens),
             ),
@@ -330,6 +341,7 @@ class MobileFloatingActionPill extends ConsumerWidget {
   }
 
   void _showQuickCreateSheet(BuildContext context, WidgetRef ref) {
+    final showIdeask = ref.read(ideaskEntryVisibleProvider);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -337,15 +349,16 @@ class MobileFloatingActionPill extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Symbols.add_rounded),
-              title: Text('newFolderPageCollection'.tr()),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onSelectLens(WorkspaceLens.todo);
-                showIdeaskCreateSheet(context, ref);
-              },
-            ),
+            if (showIdeask)
+              ListTile(
+                leading: const Icon(Symbols.add_rounded),
+                title: Text('newFolderPageCollection'.tr()),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  onSelectLens(WorkspaceLens.todo);
+                  showIdeaskCreateSheet(context, ref);
+                },
+              ),
             ListTile(
               leading: const Icon(Symbols.mail_rounded),
               title: Text('composeEmail'.tr()),
@@ -355,14 +368,15 @@ class MobileFloatingActionPill extends ConsumerWidget {
                 context.router.push(MailComposeRoute());
               },
             ),
-            ListTile(
-              leading: const Icon(Symbols.check_box_rounded),
-              title: Text('openTodo'.tr()),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onSelectLens(WorkspaceLens.todo);
-              },
-            ),
+            if (showIdeask)
+              ListTile(
+                leading: const Icon(Symbols.check_box_rounded),
+                title: Text('openTodo'.tr()),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  onSelectLens(WorkspaceLens.todo);
+                },
+              ),
             ListTile(
               leading: const Icon(Symbols.cloud_upload_rounded),
               title: Text('openDrive'.tr()),

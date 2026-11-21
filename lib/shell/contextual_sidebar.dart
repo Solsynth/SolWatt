@@ -26,9 +26,8 @@ import 'package:solwatt/workspace/workspace_state.dart';
 /// 2. The active [WorkspaceLens]'s own tree. For Drive that tree is the drop
 ///    target that saves mail attachments and the recent files; the pane switch
 ///    and the storage meter dock to the column's bottom edge instead, where
-///    they stay reachable. Lenses without a tree of their own (Flywheel,
-///    Profile, Settings) hide this column entirely — it would only repeat the
-///    rail.
+///    they stay reachable. Lenses without a tree of their own (Profile,
+///    Settings) hide this column entirely — it would only repeat the rail.
 class ContextualSidebar extends ConsumerWidget {
   final WorkspaceLens activeLens;
   final ValueChanged<WorkspaceLens> onSelectLens;
@@ -46,6 +45,7 @@ class ContextualSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final showIdeask = ref.watch(ideaskEntryVisibleProvider);
     final localFavorites = ref.watch(favoritesProvider);
     final driveFavorites =
         ref.watch(driveFavoriteEntitiesProvider).value ?? const [];
@@ -55,7 +55,9 @@ class ContextualSidebar extends ConsumerWidget {
     final localOnly = localFavorites
         .where((item) => item.domain != WorkspaceDomain.drive)
         .toList(growable: false);
-    final favorites = [...localOnly, ...driveFavorites];
+    final favorites = [...localOnly, ...driveFavorites]
+        .where((item) => showIdeask || !isIdeaskDomain(item.domain))
+        .toList(growable: false);
 
     return Container(
       width: SolWorkspaceGeometry.sidebarWidth,
@@ -95,8 +97,7 @@ class ContextualSidebar extends ConsumerWidget {
                   ),
                   _SectionLabel(
                     label:
-                        activeLens == WorkspaceLens.flywheel ||
-                            activeLens == WorkspaceLens.profile ||
+                        activeLens == WorkspaceLens.profile ||
                             activeLens == WorkspaceLens.settings
                         ? 'browse'.tr().toUpperCase()
                         : activeLens.label.toUpperCase(),
@@ -121,6 +122,7 @@ class ContextualSidebar extends ConsumerWidget {
     WidgetRef ref,
     ColorScheme scheme,
   ) {
+    final showIdeask = ref.watch(ideaskEntryVisibleProvider);
     switch (activeLens) {
       case WorkspaceLens.mail:
         final selectedFolder = ref.watch(selectedFolderProvider);
@@ -198,15 +200,17 @@ class ContextualSidebar extends ConsumerWidget {
             ],
           ],
         );
-      case WorkspaceLens.flywheel:
       case WorkspaceLens.profile:
       case WorkspaceLens.settings:
-        final recent = ref.watch(recentEntitiesProvider);
+        final recent = [
+          for (final item in ref.watch(recentEntitiesProvider))
+            if (showIdeask || !isIdeaskDomain(item.domain)) item,
+        ];
         return Column(
           children: [
             for (final lens in [
               WorkspaceLens.mail,
-              WorkspaceLens.todo,
+              if (showIdeask) WorkspaceLens.todo,
               WorkspaceLens.drive,
             ])
               WorkspaceListRow(
@@ -500,10 +504,7 @@ class _MailAccountSwitcherHeader extends ConsumerWidget {
 
           final current =
               items.where((m) => m.id == selectedId).firstOrNull ??
-              items.firstWhere(
-                (m) => m.isDefault,
-                orElse: () => items.first,
-              );
+              items.firstWhere((m) => m.isDefault, orElse: () => items.first);
           final label = current.fullAddress(mailHost);
 
           return PopupMenuButton<String>(
@@ -634,9 +635,7 @@ class _FavoritesSectionState extends ConsumerState<_FavoritesSection> {
             child: Row(
               children: [
                 Icon(
-                  expanded
-                      ? Symbols.arrow_drop_down
-                      : Symbols.arrow_right,
+                  expanded ? Symbols.arrow_drop_down : Symbols.arrow_right,
                   size: 16,
                   color: scheme.onSurfaceVariant,
                 ),
@@ -687,9 +686,7 @@ class _FavoritesSectionState extends ConsumerState<_FavoritesSection> {
                 'noFavoritesShort'.tr(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: text.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             )
           else

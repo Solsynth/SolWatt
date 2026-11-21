@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert' show HtmlEscape;
 
 import 'package:auto_route/auto_route.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/gestures.dart';
@@ -2794,6 +2796,10 @@ class _EmailThreadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final ideaskVisible = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(ideaskEntryVisibleProvider);
     final latest = thread.latestMessage;
     final isDraft = latest.isDraft;
     // A draft is a message being written, not one that arrived: its row names
@@ -3029,10 +3035,16 @@ class _EmailThreadTile extends StatelessWidget {
     if (selecting || isWideScreen(context)) return row;
     return Dismissible(
       key: ValueKey('swipe-${thread.id}'),
+      // The task sweep belongs to Ideask; with that entry hidden the row keeps
+      // only the delete gesture.
+      direction: ideaskVisible
+          ? DismissDirection.horizontal
+          : DismissDirection.endToStart,
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
-          HapticFeedback.selectionClick();
           final container = ProviderScope.containerOf(context, listen: false);
+          if (!container.read(ideaskEntryVisibleProvider)) return false;
+          HapticFeedback.selectionClick();
           // Tasks live in the workspace or in one of its folders. The sweep
           // files into the unfiled task list, which is always available.
           final workspaceId = container.read(ideaskWorkspaceIdProvider);
@@ -6463,6 +6475,7 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   List<MailRecipient> _bcc = [];
   var _showCcBcc = false;
   var _pickingAttachment = false;
+  var _draggingFiles = false;
 
   /// Whether the writer has changed anything. A reply opens with the sender
   /// already addressed and the quote in the body, so "non-empty" is not the
@@ -6653,6 +6666,70 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     }
   }
 
+  /// Takes files dropped on the body: images become blocks in the message,
+  /// everything else becomes an attachment.
+  ///
+  /// Both kinds upload to the workspace Drive first — mail bodies reference
+  /// files by URL, and an attachment needs an id the server can resolve.
+  Future<void> _acceptDroppedFiles(List<XFile> files) async {
+    if (files.isEmpty || _pickingAttachment) return;
+    setState(() => _pickingAttachment = true);
+    try {
+      final mailboxWorkspace = widget.mailbox.workspaceId?.trim();
+      final workspaceId =
+          mailboxWorkspace != null && mailboxWorkspace.isNotEmpty
+          ? mailboxWorkspace
+          : (await ref.read(selectedWorkspaceProvider.future))?.id;
+      if (workspaceId == null || workspaceId.isEmpty) {
+        showSnackBar('selectWorkspaceForDrive'.tr());
+        return;
+      }
+      final client = ref.read(wattEngineClientProvider);
+      final uploaded = <SnCloudFile>[];
+      for (final file in files) {
+        try {
+          final bytes = await file.readAsBytes();
+          if (bytes.isEmpty) continue;
+          uploaded.add(
+            await client.uploadCloudFile(
+              bytes: bytes,
+              fileName: file.name,
+              workspaceId: workspaceId,
+            ),
+          );
+        } catch (error) {
+          showSnackBar('failedToUploadFile'.tr(args: [error.toString()]));
+        }
+      }
+      if (!mounted || uploaded.isEmpty) return;
+
+      final images = uploaded.where(isImageFile).toList(growable: false);
+      final attachments = uploaded
+          .where((file) => !isImageFile(file))
+          .toList(growable: false);
+      setState(() {
+        _dirty = true;
+        _attachments.addAll(
+          attachments.map((file) => (id: file.id, name: file.name)),
+        );
+      });
+      for (final image in images) {
+        await _insertBodyImage(_cloudFileUri(image, workspaceId).toString());
+      }
+    } finally {
+      if (mounted) setState(() => _pickingAttachment = false);
+    }
+  }
+
+  /// Appends an image block to the body, where a drop landed.
+  Future<void> _insertBodyImage(String url) async {
+    final state = _body.editorState;
+    final transaction = state.transaction
+      ..insertNode([state.document.root.children.length], imageNode(url: url))
+      ..afterSelection = null;
+    await state.apply(transaction);
+  }
+
   /// The chips committed in [field] plus an address still being typed there,
   /// so a send never silently drops it.
   List<MailRecipient> _recipients(
@@ -6737,91 +6814,6 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     widget.onClose();
   }
 
-  Future<void> _insertLink() async {
-    final url = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final controller = TextEditingController();
-        return AlertDialog(
-          title: Text('insertLink'.tr()),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.url,
-            decoration: InputDecoration(
-              hintText: 'https://example.com',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(SolRadius.md),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text('close'.tr()),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(controller.text.trim()),
-              child: Text('apply'.tr()),
-            ),
-          ],
-        );
-      },
-    );
-    if (url == null || url.isEmpty) return;
-    final selection = _body.editorState.selection;
-    if (selection == null || selection.isCollapsed) return;
-    await _body.editorState.formatDelta(selection, {
-      IslandRichTextKeys.href: url,
-    });
-  }
-
-  /// Turns the block under the caret into [type], or into a heading when
-  /// [level] is set. Picking the type the block already has returns it to a
-  /// paragraph, so the menu acts as a switch like the editor's own toolbar.
-  void _formatBodyBlock({int? level, String? type}) {
-    final state = _body.editorState;
-    final selection = state.selection;
-    if (selection == null) {
-      // The formatting menu takes focus, and the editor clears its selection
-      // when it loses focus; put the caret back at the end of the last block
-      // so the menu's choice applies to the line the writer was in.
-      final last = state.document.root.children.lastOrNull;
-      final delta = last?.delta;
-      if (last == null || delta == null) return;
-      state.selection = Selection.collapsed(
-        Position(path: last.path, offset: delta.length),
-      );
-      _formatBodyBlock(level: level, type: type);
-      return;
-    }
-    final node = state.getNodeAtPath(selection.start.path);
-    if (node == null) return;
-
-    final isHeading = type == null && node.type == 'heading';
-    final sameHeading = isHeading && node.attributes['level'] == level;
-    final sameBlock = type != null && node.type == type;
-    final nextType = type ?? (sameHeading ? 'paragraph' : 'heading');
-    if (type == null && sameHeading || sameBlock && type == 'paragraph') {
-      // Already what the menu asked for: nothing to rewrite.
-      return;
-    }
-    final delta = (node.delta ?? Delta()).toJson();
-    state.formatNode(
-      selection,
-      (current) => current.copyWith(
-        type: nextType,
-        attributes: {
-          if (nextType == 'heading' && level != null) 'level': level,
-          'delta': delta,
-          'bgColor': current.attributes['bgColor'],
-          'textDirection': current.attributes['textDirection'],
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -6867,17 +6859,20 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header: what the sheet is doing, and how to leave it. It stands
-              // in for an app bar, so it takes the status bar into its own
-              // height and the sheet's surface behind it paints the strip.
-              // Sending is the last thing the writer does, so it lives at the
-              // bottom of the body instead of up here beside the title.
+              // Header: what the sheet is doing, and what can be done with it.
+              // It stands in for an app bar, so it takes the status bar into its
+              // own height and the sheet's surface behind it paints the strip.
+              // The sheet has no bottom rail: sending, saving and discarding
+              // live up here, and attaching floats over the body itself.
               SafeArea(
                 bottom: false,
-                child: SizedBox(
-                  height: 56,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 56),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     child: Row(
                       children: [
                         IconButton(
@@ -6897,11 +6892,45 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                           ),
                         ),
                         IconButton(
+                          tooltip: 'discardChanges'.tr(),
+                          onPressed: _submitting ? null : _discard,
+                          icon: const Icon(Symbols.delete),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
+                          ),
+                        ),
+                        IconButton(
                           tooltip: 'saveDraft'.tr(),
                           // Nothing written means nothing to save: an empty
                           // compose would only add a blank row to Drafts.
-                          onPressed: _dirty ? () => _leave(draft: true) : null,
+                          onPressed: _dirty && !_submitting
+                              ? () => _leave(draft: true)
+                              : null,
                           icon: const Icon(Symbols.bookmark_add),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: 'sendShortcut'.tr(),
+                          child: FilledButton.icon(
+                            onPressed: _submitting ? null : () => _leave(),
+                            icon: const Icon(Symbols.send, size: 18),
+                            label: Text('send'.tr()),
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -7021,35 +7050,117 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                 ),
               ),
               // Body fills the remaining height, inside a rounded card that
-              // subtly highlights while focused.
+              // subtly highlights while focused. Dropping files here adds them
+              // to the message, and the attachment button floats in the card's
+              // bottom-right corner instead of taking a row of its own.
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  child: AnimatedBuilder(
-                    animation: _bodyFocusNode,
-                    builder: (context, child) {
-                      final focused = _bodyFocusNode.hasFocus;
-                      return AnimatedContainer(
-                        key: const ValueKey('compose-body-card'),
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(SolRadius.lg),
-                          border: Border.all(
-                            color: focused
-                                ? scheme.primary
-                                : scheme.outlineVariant,
-                            width: focused ? 1.5 : 1,
-                          ),
-                        ),
-                        child: child,
-                      );
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: DropTarget(
+                    onDragEntered: (_) => setState(() => _draggingFiles = true),
+                    onDragExited: (_) => setState(() => _draggingFiles = false),
+                    onDragDone: (details) {
+                      setState(() => _draggingFiles = false);
+                      _acceptDroppedFiles(details.files);
                     },
-                    child: _ComposeBlockBody(
-                      controller: _body,
-                      focusNode: _bodyFocusNode,
-                      onKeyEvent: (event) => _mentions?.handleKey(event),
+                    child: AnimatedBuilder(
+                      animation: _bodyFocusNode,
+                      builder: (context, child) {
+                        final focused = _bodyFocusNode.hasFocus;
+                        return AnimatedContainer(
+                          key: const ValueKey('compose-body-card'),
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeOutCubic,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(SolRadius.lg),
+                            border: Border.all(
+                              color: focused
+                                  ? scheme.primary
+                                  : scheme.outlineVariant,
+                              width: focused ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(child: child!),
+                              if (_draggingFiles)
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: ColoredBox(
+                                      color: scheme.primaryContainer.withValues(
+                                        alpha: 0.94,
+                                      ),
+                                      child: Center(
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Symbols.upload_file,
+                                                size: 40,
+                                                color: scheme.primary,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'dropFilesHere'.tr(),
+                                                style: textTheme.titleMedium
+                                                    ?.copyWith(
+                                                      color: scheme
+                                                          .onPrimaryContainer,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'dropFilesHint'.tr(),
+                                                textAlign: TextAlign.center,
+                                                style: textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      color: scheme
+                                                          .onPrimaryContainer,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Positioned(
+                                right: 8,
+                                bottom: 8,
+                                child: IconButton.filledTonal(
+                                  tooltip: 'addAttachment'.tr(),
+                                  onPressed: _pickingAttachment
+                                      ? null
+                                      : _pickAttachment,
+                                  icon: const Icon(
+                                    Symbols.attach_file,
+                                    size: 20,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(40, 40),
+                                    maximumSize: const Size(40, 40),
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      child: _ComposeBlockBody(
+                        controller: _body,
+                        focusNode: _bodyFocusNode,
+                        onKeyEvent: (event) => _mentions?.handleKey(event),
+                      ),
                     ),
                   ),
                 ),
@@ -7092,193 +7203,9 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
                   ),
                 ),
               ],
-              // Send is the last thing the writer does, so it closes the
-              // surface at the bottom — next to the caret, not up in the
-              // title bar — with everything that is not writing beside it.
-              _ComposeActionRail(
-                onSend: () => _leave(),
-                onDiscard: _discard,
-                onLink: _insertLink,
-                onAttach: _pickingAttachment ? null : _pickAttachment,
-                formatting: [
-                  (
-                    icon: Symbols.format_bold,
-                    label: 'bold'.tr(),
-                    apply: () => _body.editorState.toggleAttribute(
-                      IslandRichTextKeys.bold,
-                    ),
-                  ),
-                  (
-                    icon: Symbols.format_italic,
-                    label: 'italic'.tr(),
-                    apply: () => _body.editorState.toggleAttribute(
-                      IslandRichTextKeys.italic,
-                    ),
-                  ),
-                  (
-                    icon: Symbols.format_underlined,
-                    label: 'underline'.tr(),
-                    apply: () => _body.editorState.toggleAttribute(
-                      IslandRichTextKeys.underline,
-                    ),
-                  ),
-                  (
-                    icon: Symbols.format_strikethrough,
-                    label: 'strikethrough'.tr(),
-                    apply: () => _body.editorState.toggleAttribute(
-                      IslandRichTextKeys.strikethrough,
-                    ),
-                  ),
-                  (
-                    icon: Symbols.format_h1,
-                    label: 'heading1'.tr(),
-                    apply: () => _formatBodyBlock(level: 1),
-                  ),
-                  (
-                    icon: Symbols.format_h2,
-                    label: 'heading2'.tr(),
-                    apply: () => _formatBodyBlock(level: 2),
-                  ),
-                  (
-                    icon: Symbols.format_h3,
-                    label: 'heading3'.tr(),
-                    apply: () => _formatBodyBlock(level: 3),
-                  ),
-                  (
-                    icon: Symbols.format_list_bulleted,
-                    label: 'bulletList'.tr(),
-                    apply: () => _formatBodyBlock(type: 'bulleted_list'),
-                  ),
-                  (
-                    icon: Symbols.format_list_numbered,
-                    label: 'numberedList'.tr(),
-                    apply: () => _formatBodyBlock(type: 'numbered_list'),
-                  ),
-                  (
-                    icon: Symbols.format_quote,
-                    label: 'quote'.tr(),
-                    apply: () => _formatBodyBlock(type: 'quote'),
-                  ),
-                  (
-                    icon: Symbols.code,
-                    label: 'codeBlock'.tr(),
-                    apply: () => _body.editorState.toggleAttribute(
-                      IslandRichTextKeys.code,
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// The composer's bottom rail: the actions that end a message.
-///
-/// Send leads it because sending is what the surface is for, and the caret
-/// finishes at the bottom of the body rather than at the top of the sheet.
-/// Formatting, linking and attaching sit beside it — the writer's tools, on the
-/// row where the writing happens.
-///
-/// The styles fold into the Aa menu rather than lining up as a ribbon: fourteen
-/// buttons spent more width than a phone's composer has, which pushed "Insert
-/// link" and "Add attachment" past the right edge of a 400pt screen, behind a
-/// horizontal scroll nothing advertised. A menu also has room to name each
-/// style, where "H1"/"H2"/"H3" as bare text buttons named nothing.
-class _ComposeActionRail extends StatelessWidget {
-  const _ComposeActionRail({
-    required this.onSend,
-    required this.onDiscard,
-    required this.onLink,
-    required this.onAttach,
-    required this.formatting,
-  });
-
-  final VoidCallback onSend;
-  final VoidCallback onDiscard;
-  final VoidCallback onLink;
-
-  /// Null while a picker is already open.
-  final VoidCallback? onAttach;
-
-  /// Inline styles and block presets, in menu order.
-  final List<({IconData icon, String label, VoidCallback apply})> formatting;
-
-  /// Where the menu parts: inline styles, block presets, then lists and code.
-  static const _menuGroups = {4, 7};
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    Widget iconButton(IconData icon, String tooltip, VoidCallback? onPressed) =>
-        IconButton(
-          tooltip: tooltip,
-          onPressed: onPressed,
-          icon: Icon(icon, size: 20),
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-        );
-
-    return Container(
-      // Tall enough for the app's Send button, and free to grow with it: a
-      // fixed height would clip the label at a large text scale.
-      constraints: const BoxConstraints(minHeight: 52),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: scheme.outlineVariant)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          Tooltip(
-            message: 'sendShortcut'.tr(),
-            child: FilledButton.icon(
-              onPressed: onSend,
-              icon: const Icon(Symbols.send, size: 18),
-              label: Text('send'.tr()),
-            ),
-          ),
-          const SizedBox(width: 4),
-          PopupMenuButton<int>(
-            tooltip: 'formatting'.tr(),
-            onSelected: (index) => formatting[index].apply(),
-            itemBuilder: (context) => [
-              for (var index = 0; index < formatting.length; index++) ...[
-                if (_menuGroups.contains(index)) const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: index,
-                  child: Row(
-                    children: [
-                      Icon(
-                        formatting[index].icon,
-                        size: 20,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(formatting[index].label),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-            child: SizedBox(
-              width: 40,
-              height: 40,
-              child: Center(child: Text('Aa', style: text.titleSmall)),
-            ),
-          ),
-          const SizedBox(width: 4),
-          iconButton(Symbols.link, 'insertLink'.tr(), onLink),
-          iconButton(Symbols.attach_file, 'addAttachment'.tr(), onAttach),
-          const Spacer(),
-          // The other way out, and the only one that throws the message away:
-          // the close button above keeps it.
-          iconButton(Symbols.delete, 'discardChanges'.tr(), onDiscard),
-        ],
       ),
     );
   }
@@ -7741,13 +7668,14 @@ class _ComposeBlockBodyState extends State<_ComposeBlockBody> {
   Widget build(BuildContext context) {
     // The card's padding is the editor's own margin: expanding it here
     // (`shrinkWrap: false`) lets the editor fill the card, so the writing area
-    // is the card minus nothing at all.
+    // is the card minus the breathing room around the prose.
     return KeyedSubtree(
       key: const ValueKey('compose-body'),
       child: Padding(
-        // Horizontal only: the card is the writing area, and vertical padding
-        // would take lines off a phone with the keyboard up.
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        // Horizontal room keeps a line from running edge to edge; the bottom
+        // inset is the band the floating attach button sits in, so no line
+        // disappears underneath it.
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 48),
         child: solarBlockEditor(
           widget.controller,
           focusNode: widget.focusNode,
