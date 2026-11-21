@@ -282,7 +282,10 @@ class MailComposePage extends ConsumerWidget {
       showSnackBar(message.isDraft ? 'draftSaved'.tr() : 'emailSent'.tr());
       return true;
     } catch (error) {
-      showSnackBar(error.toString());
+      // The service explains a refused send in `{"error": ...}` (for example
+      // a draft the API will not store); the Dio message alone only names the
+      // status code.
+      showSnackBar(wattApiErrorMessage(error));
       return false;
     }
   }
