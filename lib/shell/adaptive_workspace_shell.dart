@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:auto_route/auto_route.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
@@ -391,6 +393,7 @@ class _AdaptiveWorkspaceShellState
                         tabs: tabs,
                         onSelect: _selectTab,
                         onClose: _closeTab,
+                        onSelectHome: () => _selectLens(_activeLens),
                         onOpenOmnibox: _openOmnibox,
                       ),
                       Expanded(
@@ -438,6 +441,7 @@ class _AdaptiveWorkspaceShellState
                       tabs: tabs,
                       onSelect: _selectTab,
                       onClose: _closeTab,
+                      onSelectHome: () => _selectLens(_activeLens),
                       onOpenOmnibox: _openOmnibox,
                       compact: true,
                     ),
@@ -445,7 +449,31 @@ class _AdaptiveWorkspaceShellState
                       activeLens: _activeLens,
                       onSelectLens: _selectLens,
                     ),
-                    Expanded(child: widget.child),
+                    Expanded(
+                      child: Builder(
+                        builder: (context) {
+                          final mq = MediaQuery.of(context);
+                          final bottomViewReserve =
+                              mq.viewPadding.bottom +
+                              MobileFloatingActionPill.bottomClearance;
+                          final bottomPaddingReserve = math.max(
+                            mq.padding.bottom,
+                            bottomViewReserve - mq.viewInsets.bottom,
+                          );
+                          return MediaQuery(
+                            data: mq.copyWith(
+                              padding: mq.padding.copyWith(
+                                bottom: bottomPaddingReserve,
+                              ),
+                              viewPadding: mq.viewPadding.copyWith(
+                                bottom: bottomViewReserve,
+                              ),
+                            ),
+                            child: widget.child,
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ),
                 MobileFloatingActionPill(

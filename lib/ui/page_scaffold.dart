@@ -3,6 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:island_ui_foundation/island_ui_foundation.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:solwatt/theme.dart';
 
 /// Global key of the shell's root scaffold, used by pages that bring their own
 /// chrome (the drive file list's app bar) to open the navigation drawer.
@@ -81,11 +82,17 @@ class PageScaffold extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final trailing = <Widget>[?action, ...actions];
+    final leading = appBarDrawerButton(context);
 
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        leading: appBarDrawerButton(context),
+        leading: leading,
+        // Without a leading button on wide screens, AppBar uses titleSpacing
+        // as the left gutter; bump it by 8px over the theme default (12px).
+        titleSpacing: isWideScreen(context) && leading == null
+            ? SolSpace.xl
+            : null,
         // A subtitle needs a second line, which the default toolbar cannot
         // hold.
         toolbarHeight: subtitle == null ? null : 68,

@@ -289,6 +289,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   int _take = kThreadPageSize;
   final _searchController = TextEditingController();
   Timer? _searchDebounce;
+  bool _isScrolled = false;
 
   /// Conversations ticked for a bulk action, held as whole threads so an
   /// action can reach every message of each one without re-fetching the page.
@@ -501,10 +502,13 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
   Widget build(BuildContext context) {
     ref.listen(selectedFolderProvider, (previous, next) {
       if (previous == next || !mounted) return;
+      _isScrolled = false;
       _resetList();
+      ref.invalidate(threadsProvider);
     });
-    ref.listen(selectedFolderProvider, (previous, next) {
+    ref.listen(selectedMailboxIdProvider, (previous, next) {
       if (previous == next || !mounted) return;
+      _isScrolled = false;
       _resetList();
       ref.invalidate(threadsProvider);
     });
@@ -725,14 +729,16 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
 
   /// The list's one query control: search text and discovery filters in a
   /// single bar, so the chrome carries no separate search and filter buttons.
-  Widget _buildSearchFilterBar({InputBorder? border}) => _MailSearchFilterBar(
-    controller: _searchController,
-    onChanged: _onSearchChanged,
-    activeFilters: _activeMailFilters,
-    onClearAll: () => _applyDiscoveryFilter(const _EmailDiscoveryFilter()),
-    onOpenFilters: () => _showEmailFilters(context),
-    border: border,
-  );
+  Widget _buildSearchFilterBar({InputBorder? border, bool compact = false}) =>
+      _MailSearchFilterBar(
+        controller: _searchController,
+        onChanged: _onSearchChanged,
+        activeFilters: _activeMailFilters,
+        onClearAll: () => _applyDiscoveryFilter(const _EmailDiscoveryFilter()),
+        onOpenFilters: () => _showEmailFilters(context),
+        border: border,
+        compact: compact,
+      );
 
   Widget _buildEmailList(
     String? mailHost, {
@@ -751,36 +757,22 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
           );
     final list = Column(
       children: [
-        if (wide) ...[
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHigh,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Column(
-                children: [
-                  _MailListHeader(
-                    mailboxSelector: mailboxSelector,
-                    onOpenSettings: () => _openSettings(context),
-                    onEmptyTrash: folder == 'trash'
-                        ? () => _emptyTrash(context)
-                        : null,
-                    onMarkAllRead: (wholeMailbox) =>
-                        _markAllRead(context, wholeMailbox: wholeMailbox),
-                    onSelectThreads: _selecting ? null : _enterSelectionMode,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: _buildSearchFilterBar(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(SolRadius.md),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ] else ...[
+        if (wide)
+          _MailListHeader(
+            searchBar: _buildSearchFilterBar(compact: true),
+            activeFilters: _activeMailFilters,
+            onClearAllFilters: () =>
+                _applyDiscoveryFilter(const _EmailDiscoveryFilter()),
+            isScrolled: _isScrolled,
+            onOpenSettings: () => _openSettings(context),
+            onEmptyTrash: folder == 'trash'
+                ? () => _emptyTrash(context)
+                : null,
+            onMarkAllRead: (wholeMailbox) =>
+                _markAllRead(context, wholeMailbox: wholeMailbox),
+            onSelectThreads: _selecting ? null : _enterSelectionMode,
+          )
+        else ...[
           // A phone hangs the same bar off the app bar: search and filtering
           // stay one control there too, instead of two app-bar buttons.
           Material(
@@ -807,7 +799,19 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
           // Crossfade between lists when the rail (or bottom bar) switches
           // mailbox or folder, so the reload doesn't blink from a stale list
           // to a spinner.
-          child: AnimatedSwitcher(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              if (notification.depth == 0 &&
+                  (notification is ScrollUpdateNotification ||
+                      notification is ScrollEndNotification)) {
+                final scrolled = notification.metrics.pixels > 0;
+                if (scrolled != _isScrolled) {
+                  setState(() => _isScrolled = scrolled);
+                }
+              }
+              return false;
+            },
+            child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
@@ -832,6 +836,7 @@ class _MailListWidgetState extends ConsumerState<_MailListWidget> {
               onMove: (thread, folder) => _moveThread(thread, folder),
               onRefresh: () => _refreshEmails(ref),
               onLoadMore: _loadMoreThreads,
+            ),
             ),
           ),
         ),
@@ -1553,14 +1558,20 @@ bool _messageLivesInTrash(WidgetRef ref, MailEmail email) {
 
 class _MailListHeader extends StatelessWidget {
   const _MailListHeader({
-    required this.mailboxSelector,
+    required this.searchBar,
+    required this.activeFilters,
+    required this.onClearAllFilters,
+    required this.isScrolled,
     required this.onOpenSettings,
     required this.onMarkAllRead,
     this.onEmptyTrash,
     this.onSelectThreads,
   });
 
-  final Widget mailboxSelector;
+  final Widget searchBar;
+  final List<_ActiveMailFilter> activeFilters;
+  final VoidCallback onClearAllFilters;
+  final bool isScrolled;
   final VoidCallback onOpenSettings;
 
   /// Sweeps unread mail: `false` for the open folder, `true` for every folder
@@ -1577,30 +1588,126 @@ class _MailListHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-      child: Row(
-        children: [
-          Expanded(child: mailboxSelector),
-          const SizedBox(width: 4),
-          if (onEmptyTrash != null)
-            IconButton(
-              tooltip: 'emptyTrash'.tr(),
-              onPressed: onEmptyTrash,
-              icon: const Icon(Symbols.delete_sweep, size: 20),
-            ),
-          _MarkAllReadButton(onSelected: onMarkAllRead),
-          if (onSelectThreads != null)
-            IconButton(
-              tooltip: 'enterSelectionMode'.tr(),
-              onPressed: onSelectThreads,
-              icon: const Icon(Symbols.select_check_box, size: 20),
-            ),
-          IconButton(
-            tooltip: 'mailSettings'.tr(),
-            onPressed: onOpenSettings,
-            icon: const Icon(Symbols.settings, size: 20),
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: isScrolled
+                ? scheme.outlineVariant.withValues(alpha: 0.55)
+                : Colors.transparent,
+            width: 1,
           ),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(child: searchBar),
+                  const SizedBox(width: 6),
+                  if (onSelectThreads != null)
+                    IconButton(
+                      tooltip: 'enterSelectionMode'.tr(),
+                      onPressed: onSelectThreads,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      icon: const Icon(Symbols.select_check_box, size: 19),
+                    ),
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: PopupMenuButton<String>(
+                      tooltip: 'moreActions'.tr(),
+                      padding: EdgeInsets.zero,
+                      iconSize: 19,
+                      icon: const Icon(Symbols.more_vert, size: 19),
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'markFolderRead':
+                            onMarkAllRead(false);
+                          case 'markMailboxRead':
+                            onMarkAllRead(true);
+                          case 'emptyTrash':
+                            onEmptyTrash?.call();
+                          case 'settings':
+                            onOpenSettings();
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(
+                          value: 'markFolderRead',
+                          child: Row(
+                            children: [
+                              const Icon(Symbols.mark_email_read, size: 18),
+                              const SizedBox(width: 10),
+                              Text('markFolderRead'.tr()),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'markMailboxRead',
+                          child: Row(
+                            children: [
+                              const Icon(Symbols.done_all, size: 18),
+                              const SizedBox(width: 10),
+                              Text('markMailboxRead'.tr()),
+                            ],
+                          ),
+                        ),
+                        if (onEmptyTrash != null)
+                          PopupMenuItem(
+                            value: 'emptyTrash',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Symbols.delete_sweep,
+                                  size: 18,
+                                  color: scheme.error,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'emptyTrash'.tr(),
+                                  style: TextStyle(color: scheme.error),
+                                ),
+                              ],
+                            ),
+                          ),
+                        const PopupMenuDivider(),
+                        PopupMenuItem(
+                          value: 'settings',
+                          child: Row(
+                            children: [
+                              const Icon(Symbols.settings, size: 18),
+                              const SizedBox(width: 10),
+                              Text('mailSettings'.tr()),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (activeFilters.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _MailFilterChips(
+                activeFilters: activeFilters,
+                onClearAll: onClearAllFilters,
+              ),
+            ),
         ],
       ),
     );
@@ -1619,6 +1726,7 @@ class _MailSearchFilterBar extends StatelessWidget {
     required this.onClearAll,
     required this.onOpenFilters,
     this.border,
+    this.compact = false,
   });
 
   /// Key the list's own tests reach the field by, whatever fills the chrome.
@@ -1636,8 +1744,72 @@ class _MailSearchFilterBar extends StatelessWidget {
   /// Wide headers box the field; a phone leaves it bare against the app bar.
   final InputBorder? border;
 
+  /// Compact 35px pill for the 48px wide toolbar; chips render below the row.
+  final bool compact;
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    if (compact) {
+      return SizedBox(
+        height: 35,
+        child: TextField(
+          key: fieldKey,
+          controller: controller,
+          onChanged: onChanged,
+          textInputAction: TextInputAction.search,
+          style: text.bodyMedium,
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+            hintText: 'searchEmailsHint'.tr(),
+            hintStyle: text.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+            prefixIcon: const Icon(Symbols.search, size: 18),
+            prefixIconConstraints: const BoxConstraints(
+              minWidth: 34,
+              minHeight: 34,
+            ),
+            suffixIcon: IconButton(
+              tooltip: 'emailFilters'.tr(),
+              onPressed: onOpenFilters,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+              icon: Badge(
+                isLabelVisible: activeFilters.isNotEmpty,
+                child: const Icon(Symbols.filter_alt, size: 18),
+              ),
+            ),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 34,
+              minHeight: 32,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(999),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(999),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(999),
+              borderSide: BorderSide(
+                color: scheme.primary.withValues(alpha: 0.6),
+                width: 1,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1663,27 +1835,45 @@ class _MailSearchFilterBar extends StatelessWidget {
         ),
         if (activeFilters.isNotEmpty) ...[
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              for (final filter in activeFilters)
-                InputChip(
-                  label: Text(filter.label),
-                  onDeleted: filter.onRemove,
-                  deleteButtonTooltipMessage: 'clear'.tr(),
-                  visualDensity: VisualDensity.compact,
-                ),
-              if (activeFilters.length > 1)
-                ActionChip(
-                  label: Text('clearFilters'.tr()),
-                  onPressed: onClearAll,
-                  visualDensity: VisualDensity.compact,
-                ),
-            ],
+          _MailFilterChips(
+            activeFilters: activeFilters,
+            onClearAll: onClearAll,
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _MailFilterChips extends StatelessWidget {
+  const _MailFilterChips({
+    required this.activeFilters,
+    required this.onClearAll,
+  });
+
+  final List<_ActiveMailFilter> activeFilters;
+  final VoidCallback onClearAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final filter in activeFilters)
+          InputChip(
+            label: Text(filter.label),
+            onDeleted: filter.onRemove,
+            deleteButtonTooltipMessage: 'clear'.tr(),
+            visualDensity: VisualDensity.compact,
+          ),
+        if (activeFilters.length > 1)
+          ActionChip(
+            label: Text('clearFilters'.tr()),
+            onPressed: onClearAll,
+            visualDensity: VisualDensity.compact,
+          ),
       ],
     );
   }
@@ -2624,7 +2814,9 @@ class _EmailThreadTile extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(SolRadius.lg),
           ),
-          contentPadding: const EdgeInsets.fromLTRB(12, 2, 8, 4),
+          contentPadding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
+          minVerticalPadding: 4,
+          visualDensity: const VisualDensity(vertical: -2),
           leading: selecting
               ? Checkbox(
                   value: checked,
@@ -2682,7 +2874,7 @@ class _EmailThreadTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       thread.displaySubject,
                       maxLines: 1,
@@ -2695,7 +2887,7 @@ class _EmailThreadTile extends StatelessWidget {
                     if (latest.previewText.isNotEmpty)
                       Text(
                         latest.previewText,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.bodySmall?.copyWith(
                           color: scheme.onSurfaceVariant,

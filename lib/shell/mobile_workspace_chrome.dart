@@ -255,6 +255,10 @@ class _WorkspaceSwitcherSheet extends ConsumerWidget {
 /// Mobile (< 600px) Floating Bottom Action Pill (Omnibox 75% + Create 25%)
 /// positioned 16px above the bottom safe area using Solian's [PillSurface].
 class MobileFloatingActionPill extends ConsumerWidget {
+  /// Vertical space from the bottom safe area to the top edge of the pill
+  /// (`16px` bottom margin + `56px` pill height).
+  static const double bottomClearance = 72;
+
   final VoidCallback onOpenOmnibox;
   final ValueChanged<WorkspaceLens> onSelectLens;
 

@@ -11,6 +11,7 @@ import 'package:solwatt/drive/widgets/file_list_view.dart' show FileListMode;
 import 'package:solwatt/drive/widgets/storage_meter.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
+import 'package:solwatt/mail/mail_screen.dart' show createMailboxAction;
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/workspace/components/workspace_header.dart';
 import 'package:solwatt/workspace/workspace_models.dart';
@@ -62,6 +63,8 @@ class ContextualSidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (activeLens == WorkspaceLens.mail)
+            const _MailAccountSwitcherHeader(),
           Expanded(
             child: SingleChildScrollView(
               // The column is a panel, not a bare list: it keeps a real gutter
@@ -76,51 +79,20 @@ class ContextualSidebar extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _SectionLabel(label: 'favorites'.tr()),
-                  if (favorites.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: SolSpace.xs,
-                        vertical: SolSpace.xs,
-                      ),
-                      child: Text(
-                        'noFavoritesHint'.tr(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  else
-                    for (final item in favorites)
-                      WorkspaceListRow(
-                        compact: true,
-                        leading: Icon(
-                          item.domain.icon,
-                          size: 16,
-                          color: scheme.primary,
-                        ),
-                        title: Text(item.title),
-                        subtitle:
-                            item.domain == WorkspaceDomain.drive &&
-                                (item.subtitle?.isNotEmpty ?? false)
-                            ? Text(item.subtitle!)
-                            : null,
-                        trailing: IconButton(
-                          icon: const Icon(Symbols.star_rounded, size: 15),
-                          tooltip: 'removeFromFavorites'.tr(),
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => toggleFavoriteEntity(ref, item),
-                        ),
-                        onTap: () {
-                          onCloseDrawer?.call();
-                          if (onOpenEntity != null) {
-                            onOpenEntity!(item);
-                          } else {
-                            ref.read(peekProvider.notifier).open(item);
-                          }
-                        },
-                      ),
-                  const SizedBox(height: SolSpace.lg),
+                  _FavoritesSection(
+                    favorites: favorites,
+                    onOpenEntity: (item) {
+                      onCloseDrawer?.call();
+                      if (onOpenEntity != null) {
+                        onOpenEntity!(item);
+                      } else {
+                        ref.read(peekProvider.notifier).open(item);
+                      }
+                    },
+                  ),
+                  SizedBox(
+                    height: favorites.isEmpty ? SolSpace.sm : SolSpace.md,
+                  ),
                   _SectionLabel(
                     label:
                         activeLens == WorkspaceLens.flywheel ||
@@ -408,6 +380,343 @@ class _SectionLabel extends StatelessWidget {
           letterSpacing: 0.7,
         ),
       ),
+    );
+  }
+}
+
+/// 48px top account switcher for the Mail sidebar, aligned with the 48px
+/// toolbar in the mail list. Holds mailbox switching and `+ 添加邮箱`.
+class _MailAccountSwitcherHeader extends ConsumerWidget {
+  const _MailAccountSwitcherHeader();
+
+  static const _addMailboxValue = '__add_mailbox__';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final mailboxesAsync = ref.watch(mailboxesProvider);
+    final mailHost = ref.watch(mailHostProvider).value;
+    final selectedId = ref.watch(selectedMailboxIdProvider);
+
+    final border = Border(
+      bottom: BorderSide(
+        color: scheme.outlineVariant.withValues(alpha: 0.45),
+        width: 1,
+      ),
+    );
+
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(border: border),
+      padding: const EdgeInsets.symmetric(horizontal: SolSpace.sm),
+      child: mailboxesAsync.when(
+        loading: () => Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: SolSpace.xs,
+            vertical: 6,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Symbols.mail_rounded,
+                size: 16,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: SolSpace.xs),
+              Expanded(
+                child: Text(
+                  'mailbox'.tr(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: SolSpace.xs),
+              Icon(
+                Symbols.expand_more,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+        error: (_, _) => InkWell(
+          borderRadius: BorderRadius.circular(SolRadius.sm),
+          onTap: () => ref.invalidate(mailboxesProvider),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: SolSpace.xs,
+              vertical: 6,
+            ),
+            child: Row(
+              children: [
+                Icon(Symbols.refresh, size: 16, color: scheme.error),
+                const SizedBox(width: SolSpace.xs),
+                Expanded(
+                  child: Text(
+                    'retry'.tr(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.labelLarge?.copyWith(color: scheme.error),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        data: (items) {
+          if (items.isEmpty) {
+            return InkWell(
+              borderRadius: BorderRadius.circular(SolRadius.sm),
+              onTap: () => createMailboxAction(context, ref),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: SolSpace.xs,
+                  vertical: 6,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Symbols.add, size: 16, color: scheme.primary),
+                    const SizedBox(width: SolSpace.xs),
+                    Expanded(
+                      child: Text(
+                        'addMailbox'.tr(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.labelLarge?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          final current =
+              items.where((m) => m.id == selectedId).firstOrNull ??
+              items.firstWhere(
+                (m) => m.isDefault,
+                orElse: () => items.first,
+              );
+          final label = current.fullAddress(mailHost);
+
+          return PopupMenuButton<String>(
+            tooltip: label,
+            offset: const Offset(0, 44),
+            onSelected: (value) {
+              if (value == _addMailboxValue) {
+                createMailboxAction(context, ref);
+              } else {
+                ref.read(selectedMailboxIdProvider.notifier).select(value);
+              }
+            },
+            itemBuilder: (context) => [
+              for (final mailbox in items)
+                PopupMenuItem<String>(
+                  value: mailbox.id,
+                  child: Row(
+                    children: [
+                      Icon(
+                        mailbox.id == current.id
+                            ? Symbols.check
+                            : Symbols.mail_rounded,
+                        size: 16,
+                        color: mailbox.id == current.id
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: SolSpace.sm),
+                      Expanded(
+                        child: Text(
+                          mailbox.fullAddress(mailHost),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: mailbox.id == current.id
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                value: _addMailboxValue,
+                child: Row(
+                  children: [
+                    Icon(Symbols.add, size: 16, color: scheme.primary),
+                    const SizedBox(width: SolSpace.sm),
+                    Text(
+                      'addMailbox'.tr(),
+                      style: TextStyle(color: scheme.primary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: SolSpace.xs,
+                vertical: 6,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: SolSpace.xs),
+                  Icon(
+                    Symbols.expand_more,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Collapsible Favorites section. When empty, collapses to a single muted
+/// header line (`▸ 收藏 (0) · 暂无收藏`) instead of a 3-line explanation.
+class _FavoritesSection extends ConsumerStatefulWidget {
+  final List<WorkspaceEntityRef> favorites;
+  final ValueChanged<WorkspaceEntityRef> onOpenEntity;
+
+  const _FavoritesSection({
+    required this.favorites,
+    required this.onOpenEntity,
+  });
+
+  @override
+  ConsumerState<_FavoritesSection> createState() => _FavoritesSectionState();
+}
+
+class _FavoritesSectionState extends ConsumerState<_FavoritesSection> {
+  bool? _expandedOverride;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final empty = widget.favorites.isEmpty;
+    final expanded = _expandedOverride ?? !empty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(SolRadius.sm),
+          onTap: () => setState(() => _expandedOverride = !expanded),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: SolSpace.xs,
+              vertical: SolSpace.xs,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  expanded
+                      ? Symbols.arrow_drop_down
+                      : Symbols.arrow_right,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 2),
+                Text(
+                  'favorites'.tr(),
+                  style: text.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                if (!empty) ...[
+                  const SizedBox(width: SolSpace.xs),
+                  Text(
+                    '${widget.favorites.length}',
+                    style: text.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (empty && !expanded) ...[
+                  const SizedBox(width: SolSpace.xs),
+                  Expanded(
+                    child: Text(
+                      'noFavoritesShort'.tr(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (expanded) ...[
+          if (empty)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: SolSpace.xs,
+                vertical: SolSpace.xs,
+              ),
+              child: Text(
+                'noFavoritesShort'.tr(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            for (final item in widget.favorites)
+              WorkspaceListRow(
+                compact: true,
+                leading: Icon(
+                  item.domain.icon,
+                  size: 16,
+                  color: scheme.primary,
+                ),
+                title: Text(item.title),
+                subtitle:
+                    item.domain == WorkspaceDomain.drive &&
+                        (item.subtitle?.isNotEmpty ?? false)
+                    ? Text(item.subtitle!)
+                    : null,
+                trailing: IconButton(
+                  icon: const Icon(Symbols.star_rounded, size: 15),
+                  tooltip: 'removeFromFavorites'.tr(),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => toggleFavoriteEntity(ref, item),
+                ),
+                onTap: () => widget.onOpenEntity(item),
+              ),
+        ],
+      ],
     );
   }
 }

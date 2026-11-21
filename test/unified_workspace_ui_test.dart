@@ -220,6 +220,42 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Mobile (<600px) reserves bottom pill clearance so child FABs sit above MobileFloatingActionPill',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final container = await _makeContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        _wrapApp(
+          container,
+          AdaptiveWorkspaceShell(
+            isShown: true,
+            selectedIndex: 0,
+            onSelected: (_) {},
+            child: Scaffold(
+              body: const SizedBox.expand(),
+              floatingActionButton: FloatingActionButton(
+                onPressed: () {},
+                child: const Icon(Icons.add),
+              ),
+            ),
+          ),
+          size: const Size(390, 844),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fabRect = tester.getRect(find.byType(FloatingActionButton));
+      final pillRect = tester.getRect(find.byType(MobileFloatingActionPill));
+      expect(fabRect.bottom, lessThanOrEqualTo(pillRect.top));
+    },
+  );
+
   testWidgets('EntityCard renders Mail Attachment with 1-tap Save to Drive', (
     tester,
   ) async {

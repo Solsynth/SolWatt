@@ -484,14 +484,15 @@ void main() {
       greaterThan(0),
     );
 
-    // Phone: the strip owns the status-bar inset, and the lens switcher sits
-    // under it rather than beside it.
+    // Phone: the strip owns the status-bar inset (with no extra top margin),
+    // and the lens switcher sits under it rather than beside it.
     await pumpAt(const Size(390, 844));
     final phoneBar = tester.getRect(find.byType(WorkspaceTitleBar));
     expect(phoneBar.top, 0);
+    expect(phoneBar.height, 0);
     expect(phoneBar.width, 390);
     final switcher = tester.getRect(find.byType(MobileContextHeader));
-    expect(switcher.top, greaterThanOrEqualTo(phoneBar.bottom));
+    expect(switcher.top, 0);
   });
 
   testWidgets('the title bar keeps its place with documents open', (
@@ -732,4 +733,67 @@ void main() {
     expect(tabs.single.title, 'Second draft');
     expect(find.byIcon(Symbols.article_rounded), findsWidgets);
   });
+
+  testWidgets(
+    'home icon appears when tabbar is shown and selects non-tabbed contents',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final container = await _container();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          container,
+          AdaptiveWorkspaceShell(
+            isShown: true,
+            selectedIndex: 1,
+            onSelected: (_) {},
+            child: const SizedBox.expand(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Collapsed strip: no home icon.
+      expect(find.byIcon(Symbols.home_rounded), findsNothing);
+
+      // Opening a tab shows the strip along with the home icon.
+      container
+          .read(workspaceTabsProvider.notifier)
+          .claim(
+            domain: WorkspaceDomain.pages,
+            entityId: 'page-1',
+            title: 'Runbook',
+          );
+      await tester.pumpAndSettle();
+
+      final homeIcon = find.descendant(
+        of: find.byType(WorkspaceTitleBar),
+        matching: find.byIcon(Symbols.home_rounded),
+      );
+      expect(homeIcon, findsOneWidget);
+
+      Material homeChipMaterial() => tester.widget<Material>(
+        find.ancestor(of: homeIcon, matching: find.byType(Material)).first,
+      );
+
+      // A document tab is active, so the home chip is unselected.
+      expect(homeChipMaterial().color, Colors.transparent);
+
+      // Tapping home returns to non-tabbed contents while keeping the tab open.
+      await tester.tap(homeIcon);
+      await tester.pumpAndSettle();
+
+      final state = container.read(workspaceTabsProvider);
+      expect(state.tabs, hasLength(1));
+      expect(state.activeKey, isNull);
+      expect(
+        homeChipMaterial().color,
+        Theme.of(tester.element(homeIcon)).colorScheme.surface,
+      );
+    },
+  );
 }

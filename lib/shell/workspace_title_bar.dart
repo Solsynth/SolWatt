@@ -22,6 +22,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
   final WorkspaceTabState tabs;
   final ValueChanged<WorkspaceTab> onSelect;
   final ValueChanged<WorkspaceTab> onClose;
+  final VoidCallback? onSelectHome;
   final VoidCallback onOpenOmnibox;
 
   /// Phones get a shorter bar: the lens switcher already sits below it.
@@ -32,6 +33,7 @@ class WorkspaceTitleBar extends ConsumerWidget {
     required this.tabs,
     required this.onSelect,
     required this.onClose,
+    this.onSelectHome,
     required this.onOpenOmnibox,
     this.compact = false,
   });
@@ -44,9 +46,11 @@ class WorkspaceTitleBar extends ConsumerWidget {
     // A phone's status bar belongs to the topmost band, so an empty strip
     // still reserves that inset even though it draws nothing.
     final topInset = MediaQuery.paddingOf(context).top;
-    // Even collapsed the strip keeps one step of air: the canvas never sits
-    // flush against the top edge of the body.
-    final collapsedHeight = topInset + SolSpace.sm;
+    // Even collapsed the strip keeps one step of air on desktop/tablet so the
+    // canvas never sits flush against the top edge of the body. On narrow
+    // screens (compact), MobileContextHeader sits directly below, so no extra
+    // top margin is added beyond the status-bar inset.
+    final collapsedHeight = compact ? topInset : topInset + SolSpace.sm;
 
     return Material(
       color: scheme.surfaceContainerLowest,
@@ -65,12 +69,16 @@ class WorkspaceTitleBar extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        const SizedBox(width: SolSpace.sm),
+                        _HomeTab(
+                          height: barHeight,
+                          selected: !tabs.showsDocument,
+                          onSelect: onSelectHome,
+                        ),
                         Expanded(
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: SolSpace.sm,
-                            ),
+                            padding: const EdgeInsets.only(right: SolSpace.sm),
                             // Chips take the width their titles need and no
                             // more: the strip stays scannable instead of
                             // dividing the bar into mostly empty slices.
@@ -241,6 +249,57 @@ class _AnimatedTabSlot extends StatelessWidget {
         ),
       ),
       child: child,
+    );
+  }
+}
+
+/// Pinned home tab representing the active lens's non-tabbed root contents
+/// whenever the document strip is shown.
+class _HomeTab extends StatelessWidget {
+  final double height;
+  final bool selected;
+  final VoidCallback? onSelect;
+
+  const _HomeTab({
+    required this.height,
+    required this.selected,
+    this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final radius = BorderRadius.circular(SolRadius.xs);
+
+    return SizedBox(
+      height: height,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: Tooltip(
+          message: 'home'.tr(),
+          child: Material(
+            type: MaterialType.canvas,
+            color: selected ? scheme.surface : Colors.transparent,
+            borderRadius: radius,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onSelect,
+              borderRadius: radius,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: SolSpace.sm + 2),
+                child: Center(
+                  child: Icon(
+                    Symbols.home_rounded,
+                    size: 16,
+                    fill: selected ? 1 : 0,
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -18,6 +18,7 @@ import 'package:solwatt/drive/screens/file_list.dart';
 import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:solwatt/core/config.dart';
 import 'package:solwatt/core/network.dart';
+import 'package:solwatt/core/services/responsive.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/shared/widgets/app_scaffold.dart';
@@ -773,6 +774,7 @@ class FileListScreen extends HookConsumerWidget {
 
     final mainContent = AppScaffold(
       appBar: AppBar(
+        titleSpacing: isWideScreen(context) ? SolSpace.xl : null,
         title: SearchBar(
           controller: searchController,
           constraints: const BoxConstraints(maxWidth: 400, minHeight: 32),
@@ -896,7 +898,8 @@ class FileListScreen extends HookConsumerWidget {
           modeValue == FileListMode.normal &&
               activeTab != null &&
               currentPath != null &&
-              selectedPool != null
+              selectedPool != null &&
+              !isSelectionModeValue
           ? FloatingActionButton(
               onPressed: () => _showActionBottomSheet(
                 context,
