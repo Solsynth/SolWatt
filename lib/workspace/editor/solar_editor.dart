@@ -17,6 +17,7 @@ import 'package:solar_network_foundation/solar_network_foundation.dart';
 import 'package:solwatt/shared/widgets/text_editing_focus.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
+import 'package:solwatt/workspace/editor/html_tables.dart';
 
 /// Builds a controller with the host's image seams wired.
 ///
@@ -28,7 +29,7 @@ SolarEditorController createSolarEditor({
   Map<String, BlockComponentBuilder> blockComponentBuilders = const {},
   bool Function()? onEscape,
 }) {
-  return SolarEditorController(
+  return _SolWattSolarEditorController(
     initialMarkdown: initialMarkdown,
     config: SolarEditorConfig(
       placeholder: placeholder,
@@ -40,6 +41,21 @@ SolarEditorController createSolarEditor({
       imageUrlResolver: _resolveImage,
     ),
   );
+}
+
+/// The shared controller, with incoming HTML tables made rectangular first.
+///
+/// Mail tables routinely mix `<thead>` and `<tbody>` or leave a short row.
+/// The shared HTML decoder reads row positions per section and expects every
+/// cell coordinate to exist, so handing it such a table makes the markdown
+/// encoder dereference a missing cell. Normalizing only the table markup keeps
+/// every other part of the message — inline colours, `<code>`, soft breaks —
+/// on the [SolarEditorController.setHTML] path.
+class _SolWattSolarEditorController extends SolarEditorController {
+  _SolWattSolarEditorController({super.initialMarkdown, super.config});
+
+  @override
+  void setHTML(String html) => super.setHTML(normalizeHtmlTables(html));
 }
 
 /// Picks an image, uploads it to the workspace Drive and returns the URL the
