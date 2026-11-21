@@ -14,23 +14,51 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/ideask/task_surfaces.dart';
 import 'package:solwatt/drive/favorites.dart' show isFavoriteEntity;
+import 'package:solwatt/ideask/page_doc_page.dart';
 import 'package:solwatt/network.dart';
 import 'package:solwatt/route.dart';
 import 'package:solwatt/shared/widgets/alert.dart';
+import 'package:solwatt/shell/workspace_tabs.dart';
 import 'package:solwatt/theme.dart';
 import 'package:solwatt/ui/cloud_files.dart';
 import 'package:solwatt/ui/name_sheet.dart';
 import 'package:solwatt/ui/page_scaffold.dart';
+import 'package:solwatt/workspace/workspace_models.dart';
 
-/// The Todo lens' route: a nested stack whose root is the browser, so a page,
-/// a task list or a collection can be pushed above it without covering the
-/// app shell.
+/// The Todo lens: the browser, or the page the strip brought forward.
+///
+/// A page is a document of the strip, not a route: the title bar names every
+/// open page, and the canvas shows the active one. Task lists and collections
+/// are still pushed on the lens' nested stack, so Back walks the way the
+/// reader walked and the app shell stays put.
+///
+/// The stack stays mounted beneath the page, offstage: a task list or a
+/// collection the reader pushed is where closing the page's tab returns them.
 @RoutePage()
-class IdeaskLensPage extends StatelessWidget {
+class IdeaskLensPage extends ConsumerWidget {
   const IdeaskLensPage({super.key});
 
   @override
-  Widget build(BuildContext context) => const AutoRouter();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pageId = ref.watch(
+      workspaceTabsProvider.select(
+        (tabs) => tabs.activeTab?.domain == WorkspaceDomain.pages
+            ? tabs.activeTab!.entityId
+            : null,
+      ),
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Offstage(offstage: pageId != null, child: const AutoRouter()),
+        if (pageId != null)
+          // Keyed by the page: a tab switch is another page, so the editor
+          // loads the one the strip selected instead of keeping the one the
+          // reader left.
+          DocPage(key: ValueKey(pageId), pageId: pageId),
+      ],
+    );
+  }
 }
 
 /// The Ideask browser. Everything the workspace holds is one tree; the browser
@@ -179,7 +207,7 @@ class _IdeaskRow extends ConsumerWidget {
       return;
     }
     if (entry.page case final page?) {
-      await context.router.push(DocRoute(pageId: page.id));
+      openPage(ref, pageId: page.id, title: page.displayTitle);
     }
   }
 
@@ -428,7 +456,8 @@ class _CollectionViewState extends ConsumerState<CollectionView> {
                             overflow: TextOverflow.ellipsis,
                           ),
                     trailing: const Icon(Symbols.chevron_right, size: 18),
-                    onTap: () => context.router.push(DocRoute(pageId: row.id)),
+                    onTap: () =>
+                        openPage(ref, pageId: row.id, title: row.title),
                   );
                 },
               );
@@ -508,6 +537,20 @@ class _IdeaskBreadcrumb extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Brings a page forward as a document of the strip: the title bar names it,
+/// and the lens shows it instead of the browser. Opening a page that already
+/// has a tab reuses that tab; the strip is about what is open, not what the
+/// reader clicked last.
+void openPage(WidgetRef ref, {required String pageId, required String title}) {
+  ref
+      .read(workspaceTabsProvider.notifier)
+      .claim(
+        domain: WorkspaceDomain.pages,
+        entityId: pageId,
+        title: title,
+      );
 }
 
 /// One create action for the whole tree: a folder, a page, a collection or a
@@ -594,7 +637,7 @@ Future<void> showIdeaskCreateSheet(BuildContext context, WidgetRef ref) async {
           folderId: folderId,
         );
         if (context.mounted) {
-          await context.router.push(DocRoute(pageId: page.id));
+          openPage(ref, pageId: page.id, title: page.displayTitle);
         }
     }
   } catch (error) {

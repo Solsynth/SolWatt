@@ -9,7 +9,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:solwatt/ideask/ideask_page.dart';
 import 'package:solwatt/ideask/ideask_providers.dart';
 import 'package:solwatt/network.dart';
-import 'package:solwatt/route.dart';
 import 'package:solwatt/shell/contextual_sidebar.dart';
 import 'package:solwatt/shell/mobile_workspace_chrome.dart';
 import 'package:solwatt/shell/workspace_title_bar.dart';
@@ -133,8 +132,15 @@ class _AdaptiveWorkspaceShellState
           ref.read(ideaskSelectionProvider.notifier).select(selection);
         }
       case WorkspaceDomain.pages:
-        // Pages are documents: they open in the Todo lens' stack.
-        _nestedStack(lens)?.navigate(DocRoute(pageId: entity.id));
+        // A page is a document of the strip: claiming its tab is what opens
+        // it, and the Todo lens shows the active page in place of the browser.
+        ref
+            .read(workspaceTabsProvider.notifier)
+            .claim(
+              domain: WorkspaceDomain.pages,
+              entityId: entity.id,
+              title: entity.title,
+            );
       case WorkspaceDomain.drive:
         ref.read(drivePendingFocusProvider.notifier).request(entity.id);
     }
@@ -151,21 +157,33 @@ class _AdaptiveWorkspaceShellState
         final route = routeForTab(tab);
         if (route != null) _nestedStack(tab.lens)?.navigate(route);
       case WorkspaceDomain.todo:
+        // A TODO entity the strip could carry (a folder, a collection) is a
+        // place the browser shows in place; it has no route to reopen.
+        break;
       case WorkspaceDomain.pages:
-        final route = routeForTab(tab);
-        if (route != null) _nestedStack(tab.lens)?.navigate(route);
+        // A page is a pane of the lens: activating the tab is what shows it.
+        break;
       case WorkspaceDomain.drive:
         ref.read(drivePendingFocusProvider.notifier).request(tab.entityId!);
     }
   }
 
-  /// Closes a document tab: its pane closes itself and its lens pops back to
-  /// the root page.
+  /// Closes a document tab.
+  ///
+  /// The drive owns a reading pane and the page is a pane of the Todo lens, so
+  /// those close by dropping the claim; a tab that lives on its lens' nested
+  /// stack pops back to the root the reader opened it from.
   void _closeTab(WorkspaceTab tab) {
-    if (tab.domain == WorkspaceDomain.drive) {
-      ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
-    } else {
-      _nestedStack(tab.lens)?.popUntilRoot();
+    switch (tab.domain) {
+      case WorkspaceDomain.drive:
+        ref.read(drivePendingCloseProvider.notifier).request(tab.entityId!);
+      case WorkspaceDomain.mail:
+        _nestedStack(tab.lens)?.popUntilRoot();
+      case WorkspaceDomain.todo:
+      case WorkspaceDomain.pages:
+        // A page is a pane of the lens: the strip's active tab is what mounts
+        // it, so closing the tab is the whole close.
+        break;
     }
     // The strip closes in the same rebuild as the pane, so the bar never names
     // a document that is already gone.
@@ -186,9 +204,13 @@ class _AdaptiveWorkspaceShellState
         }
       case WorkspaceDomain.pages:
         _selectLens(WorkspaceLens.todo);
-        _nestedStack(WorkspaceLens.todo)?.navigate(
-          DocRoute(pageId: entity.id),
-        );
+        ref
+            .read(workspaceTabsProvider.notifier)
+            .claim(
+              domain: WorkspaceDomain.pages,
+              entityId: entity.id,
+              title: entity.title,
+            );
       case WorkspaceDomain.drive:
         _selectLens(WorkspaceLens.drive);
     }

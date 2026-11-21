@@ -76,20 +76,22 @@ class WorkspaceTabState {
 }
 
 /// The route a tab opens into its lens' nested stack. Null for tabs whose
-/// content is a pane of the canvas (the drive's reader) rather than a page in
-/// the lens' stack.
+/// content is a pane of the canvas (the drive's reader, a page) rather than a
+/// page in the lens' stack.
 ///
-/// Pages open in the Todo tab's stack because folders and pages share the
-/// service: one stack holds the browser and the pages opened above it, and
-/// Back walks them in the order the reader opened them.
+/// A page is a pane of the Todo canvas, not a route: the strip names every
+/// open page, so the canvas shows the active one instead of pushing one route
+/// that a tab switch would have to rewrite in place.
+///
+/// Mail is still routed: its conversation route carries the one message the
+/// tab remembers.
 PageRouteInfo? routeForTab(WorkspaceTab tab) => switch (tab.domain) {
   WorkspaceDomain.mail =>
     tab.messageId == null ? null : MailDetailRoute(emailId: tab.messageId!),
-  // A task is a record inside a list, not a document: only pages open in the
-  // lens' stack. Todo entities are folders and collections, which the browser
-  // shows in place instead of pushing a route.
+  // Tasks are records inside a list, folders and collections are places the
+  // browser shows in place: neither is a document of the strip.
   WorkspaceDomain.todo => null,
-  WorkspaceDomain.pages => DocRoute(pageId: tab.entityId!),
+  WorkspaceDomain.pages => null,
   WorkspaceDomain.drive => null,
 };
 

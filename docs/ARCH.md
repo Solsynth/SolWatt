@@ -150,17 +150,24 @@ wrapper.
 ## Navigation
 
 `AppRouter` owns the root routes: `GatePage` (initial) and `AppShellPage`.
-`AppShellPage` is an `AutoTabsRouter` shell over mail, boards, files, flywheel,
-and profile. Wide screens get a rail that lists the mail folders while Mail is
-active (with the inbox badge) and the top-level tabs otherwise, plus a drawer
-for the rest.
+`AppShellPage` is an `AutoTabsRouter` shell over mail, todo, drive, flywheel,
+profile and settings. Wide screens get a rail that lists the mail folders while
+Mail is active (with the inbox badge) and the top-level tabs otherwise, plus a
+drawer for the rest.
 
 A tab that has a list-and-detail shape owns a *nested* stack, so its detail
 surfaces keep the shell chrome and Back returns to the list it came from
 instead of covering the rail: the mail tab pushes compose/settings/detail above
-its list, and the boards tab pushes one board (`/boards/:broadId`) above the
-board list. Push through `context.router` inside such a tab, never through
-`Navigator.of(context)` on the root navigator.
+its list, and the Todo tab pushes a folder's task list or a collection above
+the Ideask browser. Push through `context.router` inside such a tab, never
+through `Navigator.of(context)` on the root navigator.
+
+A document the workspace strip carries is a *pane*, not a route: a drive file
+and an Ideask page are mounted by their lens for the strip's active tab, so
+opening one grows a chip and selecting another swaps the canvas in place.
+Routing them instead would leave every tab pointing at one route key, and the
+page under the new chip would keep the widget — and the editor state — of the
+page the reader left.
 
 Once a tab's stack is deeper than its root, the shell drops the phone bottom
 bar (and the drawer's edge swipe) — the pushed page owns the screen. The bar is

@@ -3,7 +3,6 @@ import 'package:flutter/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'package:solwatt/ideask/ideask_page.dart';
-import 'package:solwatt/ideask/page_doc_page.dart';
 import 'package:solwatt/ideask/task_list_page.dart';
 import 'package:solwatt/drive/files/file_detail.dart';
 import 'package:solwatt/drive/files/file_list.dart';
@@ -48,16 +47,19 @@ class AppRouter extends RootStackRouter {
             AutoRoute(page: MailDetailRoute.page, path: ':id'),
           ],
         ),
-        // The Todo tab owns a nested stack: the Ideask browser is the root and
-        // a page, a folder's task list or a collection is pushed on top of it.
-        // They come from one tree, so they share one stack and one Back path.
+        // The Todo tab owns a nested stack: the Ideask browser is the root, and
+        // a folder's task list or a collection is pushed on top of it. Pages
+        // are documents of the workspace strip instead — the strip lists every
+        // open one and the lens shows the active page — so they have no route.
         AutoRoute(
           page: IdeaskLensRoute.page,
           children: [
             AutoRoute(page: IdeaskBrowserRoute.page, path: '', initial: true),
-            AutoRoute(page: DocRoute.page, path: 'page/:pageId'),
             AutoRoute(page: TaskListRoute.page, path: 'tasks'),
-            AutoRoute(page: CollectionRoute.page, path: 'collection/:collectionId'),
+            AutoRoute(
+              page: CollectionRoute.page,
+              path: 'collection/:collectionId',
+            ),
           ],
         ),
         AutoRoute(page: FileListRoute.page),

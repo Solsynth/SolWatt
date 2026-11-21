@@ -1,7 +1,10 @@
-/// Ideask's document routes: one page, one folder's task list, one collection.
+/// One Ideask page, and the shared Back control the lens' pushed documents
+/// carry.
 ///
-/// They live in the Todo lens' nested stack beside the browser, so Back walks
-/// the way the reader walked and the app shell stays put.
+/// The page is a pane of the Todo lens rather than a route: the workspace strip
+/// names every open page and the lens shows the active one, so a tab switch
+/// swaps the editor instead of rewriting a route in place. Task lists and
+/// collections stay on the lens' nested stack.
 library;
 
 import 'package:auto_route/auto_route.dart';
@@ -30,9 +33,12 @@ import 'package:solwatt/drive/favorites.dart' show isFavoriteEntity;
 /// One Markdown page. Its body is stored apart from its metadata, so the
 /// editor loads both; saving writes the body and re-reads the metadata the
 /// server re-derives from it.
-@RoutePage()
+///
+/// A page is a document of the workspace strip, not a route: the Todo lens
+/// mounts this widget for the tab that is active, so nothing has to route to
+/// it and a tab switch is a new widget rather than a rebuilt route.
 class DocPage extends ConsumerStatefulWidget {
-  const DocPage({super.key, @PathParam('pageId') required this.pageId});
+  const DocPage({super.key, required this.pageId});
 
   final String pageId;
 
@@ -136,7 +142,12 @@ class _DocPageState extends ConsumerState<DocPage> {
     if (!confirmed) return;
     try {
       await ref.read(ideaskActionsProvider).deletePage(page.id);
-      if (mounted) context.router.maybePop();
+      if (!mounted) return;
+      // The page is gone, so its tab goes with it: closing it hands the
+      // canvas back to the browser the reader opened it from.
+      ref
+          .read(workspaceTabsProvider.notifier)
+          .close(WorkspaceTab.keyFor(WorkspaceDomain.pages, page.id));
     } catch (error) {
       showSnackBar(wattApiErrorMessage(error));
     }
@@ -163,6 +174,7 @@ class _DocPageState extends ConsumerState<DocPage> {
       domain: WorkspaceDomain.pages,
       entityId: _pageId,
       title: name,
+      fullScreen: true,
       child: CallbackShortcuts(
         bindings: {
           const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () {
@@ -176,7 +188,13 @@ class _DocPageState extends ConsumerState<DocPage> {
           backgroundColor: scheme.surface,
           appBar: AppBar(
             titleSpacing: 0,
-            leading: const IdeaskBackButton(),
+            leading: IconButton(
+              tooltip: 'back'.tr(),
+              icon: const Icon(Symbols.arrow_back),
+              onPressed: () => ref
+                  .read(workspaceTabsProvider.notifier)
+                  .close(WorkspaceTab.keyFor(WorkspaceDomain.pages, _pageId)),
+            ),
             title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
             actions: [
               if (_dirty && page != null)

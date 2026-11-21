@@ -128,54 +128,6 @@ class CollectionRouteArgs {
 }
 
 /// generated route for
-/// [DocPage]
-class DocRoute extends PageRouteInfo<DocRouteArgs> {
-  DocRoute({Key? key, required String pageId, List<PageRouteInfo>? children})
-    : super(
-        DocRoute.name,
-        args: DocRouteArgs(key: key, pageId: pageId),
-        rawPathParams: {'pageId': pageId},
-        initialChildren: children,
-      );
-
-  static const String name = 'DocRoute';
-
-  static PageInfo page = PageInfo(
-    name,
-    builder: (data) {
-      final pathParams = data.inheritedPathParams;
-      final args = data.argsAs<DocRouteArgs>(
-        orElse: () => DocRouteArgs(pageId: pathParams.getString('pageId')),
-      );
-      return DocPage(key: args.key, pageId: args.pageId);
-    },
-  );
-}
-
-class DocRouteArgs {
-  const DocRouteArgs({this.key, required this.pageId});
-
-  final Key? key;
-
-  final String pageId;
-
-  @override
-  String toString() {
-    return 'DocRouteArgs{key: $key, pageId: $pageId}';
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! DocRouteArgs) return false;
-    return key == other.key && pageId == other.pageId;
-  }
-
-  @override
-  int get hashCode => key.hashCode ^ pageId.hashCode;
-}
-
-/// generated route for
 /// [FileDetailScreen]
 class FileDetailRoute extends PageRouteInfo<FileDetailRouteArgs> {
   FileDetailRoute({
