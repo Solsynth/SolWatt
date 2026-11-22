@@ -111,7 +111,11 @@ dependencies:
   # Solar Network Metoer gateway, mirroring MaidKit's maidcafe_push service.
   firebase_core: ^5.2.0
   firebase_messaging: ^17.1.0
-  flutter_local_notifications: ^23.0.3
+  # 23.x pins androidx.core 1.19.0, whose AAR metadata requires AGP 9.1 and
+  # compileSdk 37. This project stays on the AGP 8 line (see
+  # android/settings.gradle.kts); 22.3.3 is the newest release that still builds
+  # there. Revisit when the Android build moves to AGP 9.
+  flutter_local_notifications: ^22.3.3
   device_info_plus: ^13.3.0
   package_info_plus: ^10.2.2
 

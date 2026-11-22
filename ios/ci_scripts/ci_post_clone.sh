@@ -88,5 +88,13 @@ done
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 flutter build ios --config-only $dart_defines
 
+# Xcode Cloud archives with automatic package resolution disabled, so the
+# checked-in Package.resolved has to match the generated SPM graph exactly.
+# Resolve after --config-only has regenerated the Flutter plugin package, so a
+# dependency bump cannot fail the archive with "out-of-date resolved file".
+echo "=== Resolving Swift packages ==="
+cd ios
+xcodebuild -resolvePackageDependencies -project SolWatt.xcodeproj -scheme Runner
+
 echo "=== Script finished successfully ==="
 exit 0

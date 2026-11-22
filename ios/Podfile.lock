@@ -9,8 +9,6 @@ PODS:
   - flutter_inappwebview_ios/Core (0.0.1):
     - Flutter
     - OrderedSet (~> 6.0.3)
-  - keyboard_height_plugin (0.0.1):
-    - Flutter
   - libwebp (1.6.0):
     - libwebp/demux (= 1.6.0)
     - libwebp/mux (= 1.6.0)
@@ -36,7 +34,6 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_app_update (from `.symlinks/plugins/flutter_app_update/ios`)
   - flutter_inappwebview_ios (from `.symlinks/plugins/flutter_inappwebview_ios/ios`)
-  - keyboard_height_plugin (from `.symlinks/plugins/keyboard_height_plugin/ios`)
   - media_kit_libs_ios_video (from `.symlinks/plugins/media_kit_libs_ios_video/ios`)
   - media_kit_video (from `.symlinks/plugins/media_kit_video/ios`)
   - video_thumbnail (from `.symlinks/plugins/video_thumbnail/ios`)
@@ -53,8 +50,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_app_update/ios"
   flutter_inappwebview_ios:
     :path: ".symlinks/plugins/flutter_inappwebview_ios/ios"
-  keyboard_height_plugin:
-    :path: ".symlinks/plugins/keyboard_height_plugin/ios"
   media_kit_libs_ios_video:
     :path: ".symlinks/plugins/media_kit_libs_ios_video/ios"
   media_kit_video:
@@ -66,7 +61,6 @@ SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_app_update: 816fdb2e30e4832a7c45e3f108d391c42ef040a9
   flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
-  keyboard_height_plugin: ef70a8181b29f27670e9e2450814ca6b6dc05b05
   libwebp: af5937a13536ef73f3784d69cc342b98961acf33
   media_kit_libs_ios_video: 5a18affdb97d1f5d466dc79988b13eff6c5e2854
   media_kit_video: 1746e198cb697d1ffb734b1d05ec429d1fcd1474

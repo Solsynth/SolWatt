@@ -179,7 +179,10 @@ jobs:
       - name: Install Android build dependencies
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          # The app stays on compileSdk 36 (AGP 8.12.1), but several plugin
+          # modules now declare compileSdk 37, so install that platform too.
+          # Android 37 uses a minor API level, hence the `.0` package name.
+          sdkmanager "platforms;android-36" "platforms;android-37.0" "build-tools;36.0.0"
           # The Rust android targets link against the NDK that the Flutter
           # Gradle plugin requests, so install exactly that version instead of
           # pinning one that drifts with the stable channel.

@@ -10,6 +10,15 @@ set(BINARY_NAME "solwatt")
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
 
+# media_kit_libs_windows_video calls add_custom_command(TARGET ... COMMAND ...)
+# without PRE_BUILD/PRE_LINK/POST_BUILD. CMake 3.31+ warns about that (CMP0175)
+# from inside the plugin's own CMakeLists, which re-sets its policy version, so
+# the policy has to be defaulted here instead of set locally. The assumed OLD
+# behavior is what the plugin was written against.
+if(POLICY CMP0175)
+  set(CMAKE_POLICY_DEFAULT_CMP0175 OLD CACHE STRING "" FORCE)
+endif()
+
 # Define build configuration option.
 get_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(IS_MULTICONFIG)
@@ -52,6 +61,12 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# MSVC 14.51 rejects constructs in the pinned flutter_inappwebview_windows
+# sources, and C++/WinRT in flutter_local_notifications_windows 3.x needs C++20.
+# Patch/copy the sources before the generated plugin list creates the targets;
+# see patch_plugins.cmake.
+include("${CMAKE_CURRENT_SOURCE_DIR}/patch_plugins.cmake")
+
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
@@ -64,11 +79,18 @@ include(flutter/generated_plugins.cmake)
 # hard error (STL1011) and Microsoft plans to delete it outright. Compiling as
 # C++20 makes C++/WinRT use the standard <coroutine> header instead.
 #
-# flutter_inappwebview_windows needs this: it pins its own target to C++17 and
-# deliberately skips the app-level APPLY_STANDARD_SETTINGS (see the commented-out
-# apply_standard_settings call in its CMakeLists), so the standard has to be
-# raised from the app-level file rather than from the plugin.
-target_compile_features(flutter_inappwebview_windows_plugin PRIVATE cxx_std_20)
+# flutter_inappwebview_windows pins its own target to C++17 and deliberately
+# skips the app-level APPLY_STANDARD_SETTINGS (see the commented-out
+# apply_standard_settings call in its CMakeLists). flutter_local_notifications
+# 22.x ships Windows plugin 3.1.1, which also pins C++17; 4.0.0 fixed this by
+# moving to C++20. Raise both targets from the app-level file instead.
+foreach(plugin_target
+    flutter_inappwebview_windows_plugin
+    flutter_local_notifications_windows)
+  if(TARGET ${plugin_target})
+    target_compile_features(${plugin_target} PRIVATE cxx_std_20)
+  endif()
+endforeach()
 
 
 # === Installation ===
