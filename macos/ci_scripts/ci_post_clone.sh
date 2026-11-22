@@ -11,9 +11,20 @@ set -e
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 
 echo "=== Installing Flutter SDK ==="
-# Clone the stable Flutter SDK from Git into the home folder
-git clone https://github.com/flutter/flutter.git --depth 1 -b stable "$HOME/flutter"
-export PATH="$PATH:$HOME/flutter/bin"
+# Pin the SDK instead of tracking the stable channel: newer stable releases ship
+# Dart 3.14, and liquid_glass_renderer 1.0.0-dev.2 (via island_ui_foundation)
+# only allows Dart >=3.13.0 <3.14.0, which makes `flutter pub get` unsolvable.
+# 3.47.9 matches the local dev toolchain; unpin once liquid_glass_renderer
+# ships a Dart 3.14-compatible release.
+FLUTTER_VERSION="3.47.9"
+FLUTTER_ROOT="${FLUTTER_ROOT:-$HOME/flutter-$FLUTTER_VERSION}"
+# The versioned install path keeps a cached SDK from a different release out of
+# the build.
+if [ ! -x "$FLUTTER_ROOT/bin/flutter" ]; then
+  git clone https://github.com/flutter/flutter.git --depth 1 -b "$FLUTTER_VERSION" "$FLUTTER_ROOT"
+fi
+export PATH="$PATH:$FLUTTER_ROOT/bin"
+flutter --version
 
 # Pre-cache macOS artifacts and fetch dependencies
 flutter precache --macos
