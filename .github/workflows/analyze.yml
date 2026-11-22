@@ -9,9 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Pin the SDK instead of tracking stable: stable now ships Dart 3.14, and
+      # liquid_glass_renderer 1.0.0-dev.2 (via island_ui_foundation) only allows
+      # Dart >=3.13.0 <3.14.0, which makes `flutter pub get` unsolvable. Keep
+      # this in step with ios/ci_scripts/ci_post_clone.sh and unpin once
+      # liquid_glass_renderer ships a Dart 3.14-compatible release.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.9
           cache: true
       # Retry + HTTP/1.1: git deps clone from src.solsynth.dev behind
       # Cloudflare, which intermittently resets large pack transfers (curl 56).
