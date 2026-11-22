@@ -772,30 +772,64 @@ class FileListScreen extends HookConsumerWidget {
           )
         : bodyContent;
 
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final searchBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(999),
+      borderSide: BorderSide.none,
+    );
+
     final mainContent = AppScaffold(
       appBar: AppBar(
         titleSpacing: isWideScreen(context) ? SolSpace.xl : null,
-        title: SearchBar(
-          controller: searchController,
-          constraints: const BoxConstraints(maxWidth: 400, minHeight: 32),
-          hintText: 'searchFiles'.tr(),
-          hintStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
-          textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
-          enabled: query != null,
-          onChanged: (value) {
-            if (query == null) return;
-            searchDebounceTimer.value?.cancel();
-            searchDebounceTimer.value = Timer(
-              const Duration(milliseconds: 300),
-              () {
-                query.value = value.isEmpty ? null : value;
+        title: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: SizedBox(
+            height: 35,
+            child: TextField(
+              controller: searchController,
+              enabled: query != null,
+              onChanged: (value) {
+                if (query == null) return;
+                searchDebounceTimer.value?.cancel();
+                searchDebounceTimer.value = Timer(
+                  const Duration(milliseconds: 300),
+                  () {
+                    query.value = value.isEmpty ? null : value;
+                  },
+                );
               },
-            );
-          },
-          leading: Icon(
-            Symbols.search,
-            size: 20,
-            color: Theme.of(context).colorScheme.primary,
+              textInputAction: TextInputAction.search,
+              style: textTheme.bodyMedium,
+              textAlignVertical: TextAlignVertical.center,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: scheme.surfaceContainerHighest.withValues(
+                  alpha: 0.55,
+                ),
+                contentPadding: const EdgeInsets.only(right: 12),
+                hintText: 'searchFiles'.tr(),
+                hintStyle: textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+                prefixIcon: const Icon(Symbols.search, size: 18),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 34,
+                  minHeight: 34,
+                ),
+                border: searchBorder,
+                enabledBorder: searchBorder,
+                disabledBorder: searchBorder,
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide(
+                    color: scheme.primary.withValues(alpha: 0.6),
+                    width: 1,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
         actions: [

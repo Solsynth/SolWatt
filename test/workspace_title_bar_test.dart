@@ -853,4 +853,81 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'narrow screen colors the tab bar to match the content and keeps controls unclipped',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final container = await _container();
+      addTearDown(container.dispose);
+      container
+          .read(workspaceTabsProvider.notifier)
+          .claim(
+            domain: WorkspaceDomain.drive,
+            entityId: 'file-1',
+            title: 'image_68D297C9-D4B1-4E99-9123-ABCDEF123456.png',
+          );
+
+      Future<void> pumpAt(Size size) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        await tester.pumpWidget(
+          _app(
+            container,
+            AdaptiveWorkspaceShell(
+              isShown: true,
+              selectedIndex: 2,
+              onSelected: (_) {},
+              child: const SizedBox.expand(),
+            ),
+            size: size,
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await pumpAt(const Size(390, 844));
+      final barFinder = find.byType(WorkspaceTitleBar);
+      final barElement = tester.element(barFinder);
+      final scheme = Theme.of(barElement).colorScheme;
+      final barMaterial = tester.widget<Material>(
+        find.descendant(of: barFinder, matching: find.byType(Material)).first,
+      );
+      expect(barMaterial.color, scheme.surface);
+
+      final barRect = tester.getRect(barFinder);
+      final switcherRect = tester.getRect(find.byType(MobileLensSwitcher));
+      expect(switcherRect.height, lessThan(barRect.height));
+      expect(switcherRect.top, greaterThan(barRect.top));
+      expect(switcherRect.bottom, lessThan(barRect.bottom));
+
+      final closeIcon = find.descendant(
+        of: barFinder,
+        matching: find.byIcon(Symbols.close),
+      );
+      expect(closeIcon, findsOneWidget);
+      final closeRect = tester.getRect(closeIcon);
+      expect(closeRect.right, lessThanOrEqualTo(barRect.right));
+
+      final tabMaterial = tester.widget<Material>(
+        find
+            .ancestor(
+              of: find.text('image_68D297C9-D4B1-4E99-9123-ABCDEF123456.png'),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(tabMaterial.color, scheme.surfaceContainer);
+
+      await pumpAt(const Size(1280, 800));
+      final wideBarMaterial = tester.widget<Material>(
+        find.descendant(of: barFinder, matching: find.byType(Material)).first,
+      );
+      expect(
+        wideBarMaterial.color,
+        Theme.of(tester.element(barFinder)).colorScheme.surfaceContainerLowest,
+      );
+    },
+  );
 }

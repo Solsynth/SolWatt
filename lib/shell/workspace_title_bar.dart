@@ -62,8 +62,11 @@ class WorkspaceTitleBar extends ConsumerWidget {
     // even when no document owns the strip.
     final showsBar = documents.isNotEmpty || leading != null;
 
+    final barColor = compact ? scheme.surface : scheme.surfaceContainerLowest;
+    final selectedTabColor = compact ? scheme.surfaceContainer : scheme.surface;
+
     return Material(
-      color: scheme.surfaceContainerLowest,
+      color: barColor,
       child: AnimatedSize(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
@@ -81,13 +84,14 @@ class WorkspaceTitleBar extends ConsumerWidget {
                       children: [
                         const SizedBox(width: SolSpace.sm),
                         if (leading != null) ...[
-                          leading!,
+                          Center(child: leading!),
                           const SizedBox(width: SolSpace.xs),
                         ],
                         if (documents.isNotEmpty)
                           _HomeTab(
                             height: barHeight,
                             selected: !tabs.showsDocument,
+                            selectedColor: selectedTabColor,
                             onSelect: onSelectHome,
                           ),
                         Expanded(
@@ -110,7 +114,9 @@ class WorkspaceTitleBar extends ConsumerWidget {
                                           child: _TitleTab(
                                             tab: tab,
                                             height: barHeight,
+                                            compact: compact,
                                             selected: tabs.isActive(tab),
+                                            selectedColor: selectedTabColor,
                                             onSelect: () => onSelect(tab),
                                             onClose: () => onClose(tab),
                                           ),
@@ -279,11 +285,13 @@ class _AnimatedTabSlot extends StatelessWidget {
 class _HomeTab extends StatelessWidget {
   final double height;
   final bool selected;
+  final Color selectedColor;
   final VoidCallback? onSelect;
 
   const _HomeTab({
     required this.height,
     required this.selected,
+    required this.selectedColor,
     this.onSelect,
   });
 
@@ -300,14 +308,16 @@ class _HomeTab extends StatelessWidget {
           message: 'home'.tr(),
           child: Material(
             type: MaterialType.canvas,
-            color: selected ? scheme.surface : Colors.transparent,
+            color: selected ? selectedColor : Colors.transparent,
             borderRadius: radius,
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: onSelect,
               borderRadius: radius,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: SolSpace.sm + 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: SolSpace.sm + 2,
+                ),
                 child: Center(
                   child: Icon(
                     Symbols.home_rounded,
@@ -330,6 +340,8 @@ class _HomeTab extends StatelessWidget {
 class _TitleTab extends StatelessWidget {
   final WorkspaceTab tab;
   final bool selected;
+  final bool compact;
+  final Color selectedColor;
 
   /// Height of the bar the chip sits in; the chip insets itself from it.
   final double height;
@@ -339,6 +351,8 @@ class _TitleTab extends StatelessWidget {
   const _TitleTab({
     required this.tab,
     required this.selected,
+    required this.compact,
+    required this.selectedColor,
     required this.height,
     required this.onSelect,
     required this.onClose,
@@ -356,7 +370,7 @@ class _TitleTab extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
         child: Material(
           type: MaterialType.canvas,
-          color: selected ? scheme.surface : Colors.transparent,
+          color: selected ? selectedColor : Colors.transparent,
           borderRadius: radius,
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -380,7 +394,7 @@ class _TitleTab extends StatelessWidget {
                   ),
                   const SizedBox(width: SolSpace.sm - 2),
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 240),
+                    constraints: BoxConstraints(maxWidth: compact ? 104 : 240),
                     child: Text(
                       tab.title,
                       maxLines: 1,
