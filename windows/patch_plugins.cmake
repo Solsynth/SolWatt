@@ -1,6 +1,7 @@
-# Source patches for pinned Windows plugin versions that predate MSVC 14.51
-# (the toolchain on windows-latest / Visual Studio 2026). MSVC 14.51 promoted
-# several constructs these plugins rely on from warnings to hard errors.
+# Source patches for pinned Windows plugin versions that predate MSVC 14.51+
+# (the toolchain on windows-latest / Visual Studio 2026). Newer MSVC releases
+# promoted several constructs these plugins rely on from warnings to hard
+# errors.
 #
 # flutter_inappwebview_windows (0.6.0, the current release):
 #
@@ -12,9 +13,13 @@
 #          `if constexpr` branch was never parsed under the old lookup rules
 #   C2065  `return s2;` left in the void `to_uppercase` template in
 #          utils/string.h (it belongs to to_uppercase_copy)
+#   C2664  the join helper's std::accumulate lambda takes `auto&`; the C++20
+#          standard library passes the accumulator as an rvalue, which cannot
+#          bind to a non-const lvalue reference. The lambda only reads its
+#          arguments, so take them by const reference.
 #
 # Upstream has not released a fixed version: 0.6.0 and 0.7.0-beta.3 both still
-# contain all three.
+# contain all of these.
 #
 # flutter_local_notifications_windows (3.1.1, pulled by
 # flutter_local_notifications 22.x):
@@ -92,6 +97,10 @@ read_plugin_file("${FLUTTER_INAPPWEBVIEW_WINDOWS_DIR}/utils/string.h" contents)
 string(REPLACE
   "    return s2;\n  }\n\n  template <typename T>\n  std::basic_string<T> to_uppercase_copy("
   "  }\n\n  template <typename T>\n  std::basic_string<T> to_uppercase_copy("
+  contents "${contents}")
+string(REPLACE
+  "[delim](auto& a, auto& b) { return a + delim + b; }"
+  "[delim](const auto& a, const auto& b) { return a + delim + b; }"
   contents "${contents}")
 file(WRITE "${FLUTTER_INAPPWEBVIEW_WINDOWS_DIR}/utils/string.h" "${contents}")
 endif()
